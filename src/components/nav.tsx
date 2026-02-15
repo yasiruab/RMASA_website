@@ -81,7 +81,15 @@ export function Nav() {
     <header className={`site-header ${isCompact ? "is-compact" : ""}`} id="masthead">
       <div className="container header-row">
         <Link aria-label="Royal MAS Arena home" className="logo-link" href="/">
-          <Image alt="Royal Mas Arena" className="logo" height={64} priority src="/rmasa/logo.png" unoptimized width={599} />
+          <Image
+            alt="Royal Mas Arena"
+            className="logo"
+            height={64}
+            priority
+            sizes="(max-width: 980px) 340px, (max-width: 1200px) 420px, 540px"
+            src="/rmasa/logo.png"
+            width={599}
+          />
         </Link>
 
         <div className="header-right">

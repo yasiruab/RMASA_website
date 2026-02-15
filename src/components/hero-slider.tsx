@@ -34,7 +34,6 @@ export function HeroSlider() {
             priority={i === 0}
             sizes="(max-width: 1100px) 94vw, 1100px"
             src={src}
-            unoptimized
           />
         ))}
         <div className="hero-overlay">
