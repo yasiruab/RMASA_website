@@ -1,8 +1,10 @@
 import { ContactForm } from "@/components/contact-form";
+import { Breadcrumbs } from "@/components/breadcrumbs";
 
 export default function ContactPage() {
   return (
     <section className="page-section container content-page">
+      <Breadcrumbs current="Contact" />
       <h1>Contact</h1>
 
       <div className="contact-layout">

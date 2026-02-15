@@ -1,8 +1,10 @@
 import Image from "next/image";
+import { Breadcrumbs } from "@/components/breadcrumbs";
 
 export default function EventsPage() {
   return (
     <section className="page-section container content-page">
+      <Breadcrumbs current="Events" />
       <h1>Events</h1>
 
       <article className="event-article">

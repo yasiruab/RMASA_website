@@ -1,3 +1,5 @@
+import { Breadcrumbs } from "@/components/breadcrumbs";
+
 const activityItems = [
   "Boxing",
   "Fencing",
@@ -14,6 +16,7 @@ const activityItems = [
 export default function ActivitiesPage() {
   return (
     <section className="page-section container content-page">
+      <Breadcrumbs current="Activities" />
       <h1>Activities</h1>
       <p>Facilities at Royal MAS Arena can house following activities...</p>
       <ul className="bullet-list">

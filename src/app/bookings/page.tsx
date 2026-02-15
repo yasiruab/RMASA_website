@@ -1,8 +1,10 @@
 import Link from "next/link";
+import { Breadcrumbs } from "@/components/breadcrumbs";
 
 export default function BookingsPage() {
   return (
     <section className="page-section container content-page">
+      <Breadcrumbs current="Bookings" />
       <h1>Bookings</h1>
       <p>Please select the preferred room to continue with the booking.</p>
 

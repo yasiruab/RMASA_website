@@ -1,6 +1,9 @@
+import { Breadcrumbs } from "@/components/breadcrumbs";
+
 export default function AboutPage() {
   return (
     <section className="page-section container content-page">
+      <Breadcrumbs current="About" />
       <h1>About</h1>
       <p>
         Royal MAS Arena is a versatile, fully functional arena, customisable to suit many
