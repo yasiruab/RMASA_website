@@ -1,74 +1,62 @@
+import Image from "next/image";
 import Link from "next/link";
+import { HeroSlider } from "@/components/hero-slider";
 
-const highlights = [
+const cards = [
   {
-    title: "Court Bookings",
-    description: "Reserve sports spaces for practice sessions, tournaments, or private events.",
+    title: "About",
+    image: "/rmasa/about.jpg",
+    href: "/about",
+    text: "A versatile indoor arena with retractable seating, modern amenities, and event-ready infrastructure.",
   },
   {
-    title: "Community Programs",
-    description: "Weekly coaching and recreation activities for players across skill levels.",
+    title: "Activities",
+    image: "/rmasa/activities.jpg",
+    href: "/activities",
+    text: "Supports boxing, fencing, gymnastics, karate, wushu, wrestling, seminars, meetings, and performing arts.",
   },
   {
-    title: "Event Hosting",
-    description: "Flexible venue areas for corporate gatherings, school events, and celebrations.",
+    title: "Facilities",
+    image: "/rmasa/facilities.jpg",
+    href: "/facilities",
+    text: "Purpose-designed main arena, training/green room, and support amenities for large-format events.",
   },
 ];
 
 export default function HomePage() {
   return (
     <>
-      <section className="hero">
-        <div className="container">
-          <p className="kicker">Royal MAS Arena</p>
-          <h1>Where sport and community meet.</h1>
-          <p className="lead">
-            Royal MAS Arena is a modern sports and events venue in Panagoda, designed for
-            training, recreation, and memorable gatherings.
-          </p>
-          <div className="cta-row">
-            <Link className="btn btn-primary" href="/bookings">
-              Start Booking Journey
-            </Link>
-            <Link className="btn btn-outline" href="/facilities">
-              Explore Facilities
-            </Link>
-          </div>
-        </div>
+      <HeroSlider />
+
+      <section className="home-intro container">
+        <p>
+          <strong>
+            Royal MAS Arena is a state of the art, purpose built indoor sports facility located at
+            Rajakeeya Mawatha, Colombo 7.
+          </strong>
+        </p>
+        <p>
+          Available for grappling sports, table tennis, chess, carom, skill development training,
+          seminars, theatre, concerts and more.
+        </p>
+        <p>
+          <strong>For reservations please contact +94 (0) 70 442 1590</strong>
+        </p>
       </section>
 
-      <section className="page-section">
-        <div className="container">
-          <h2>What You Can Do Here</h2>
-          <ul className="card-grid">
-            {highlights.map((item) => (
-              <li className="card" key={item.title}>
-                <h3>{item.title}</h3>
-                <p>{item.description}</p>
-              </li>
-            ))}
-          </ul>
-        </div>
-      </section>
-
-      <section className="page-section band">
-        <div className="container split">
-          <div>
-            <h2>Booking and Enquiry Path</h2>
-            <p>
-              If you already know your dates, start from Bookings. If you need guidance on
-              facilities, pricing, or event suitability, contact the team first.
-            </p>
-          </div>
-          <div className="cta-stack">
-            <Link className="btn btn-primary" href="/bookings">
-              Go to Bookings
+      <section className="home-cards container" aria-label="Featured sections">
+        {cards.map((card) => (
+          <article className="feature-card" key={card.title}>
+            <Image alt={card.title} className="feature-image" height={186} src={card.image} unoptimized width={280} />
+            <h2>
+              <Link href={card.href}>{card.title}</Link>
+            </h2>
+            <p>{card.text}</p>
+            <Link className="read-more" href={card.href}>
+              Read more
             </Link>
-            <Link className="btn btn-outline" href="/contact">
-              Go to Contact Us
-            </Link>
-          </div>
-        </div>
+          </article>
+        ))}
       </section>
     </>
   );

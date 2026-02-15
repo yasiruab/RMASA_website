@@ -1,43 +1,34 @@
-import Link from "next/link";
-
-const facilities = [
-  {
-    title: "Indoor Badminton Courts",
-    description: "Competition-ready courts for training blocks, casual sessions, and events.",
-  },
-  {
-    title: "Multipurpose Event Zones",
-    description: "Adaptable spaces suitable for workshops, private programs, and gatherings.",
-  },
-  {
-    title: "Support Amenities",
-    description: "Changing areas, spectator comfort, and operational support for event days.",
-  },
-  {
-    title: "Parking and Access",
-    description: "Convenient access routes and on-site circulation designed for steady traffic.",
-  },
-];
+import Image from "next/image";
 
 export default function FacilitiesPage() {
   return (
-    <section className="page-section container">
+    <section className="page-section container content-page">
       <h1>Facilities</h1>
-      <p className="section-intro">
-        Browse venue areas available for sports and event reservations. Final scheduling and
-        slot confirmation will be handled through the booking workflow.
+
+      <div className="gallery-3">
+        <Image alt="Main Arena" height={220} src="/rmasa/slider-1.jpg" unoptimized width={360} />
+        <Image alt="Training area" height={220} src="/rmasa/slider-2.jpg" unoptimized width={360} />
+        <Image alt="Support room" height={220} src="/rmasa/slider-3.jpg" unoptimized width={360} />
+      </div>
+
+      <h2>Main Arena</h2>
+      <p>
+        Main arena is a purpose designed sports and performing arts facility with seating capacity
+        of 1000. The seating system can be configured depending on performance space and seating
+        requirements. Suitable for boxing, karate, wushu, gymnastics, fencing, wrestling, table
+        tennis, chess, carrom, seminars, theatre, concerts and more.
       </p>
-      <ul className="card-grid">
-        {facilities.map((facility) => (
-          <li className="card" key={facility.title}>
-            <h2>{facility.title}</h2>
-            <p>{facility.description}</p>
-          </li>
-        ))}
-      </ul>
-      <p className="link-row">
-        Ready to reserve? Visit <Link href="/bookings">Bookings</Link>. Need advice first?
-        Visit <Link href="/contact"> Contact Us</Link>.
+
+      <h2>Training Room/Green Room</h2>
+      <p>
+        Air-conditioned 2,000 square foot training/rehearsal area with mirrored wall. Can be used
+        for indoor sports practice, rehearsal, and training of visual or performing arts.
+      </p>
+
+      <h2>Other Facilities</h2>
+      <p>
+        The arena can be equipped with facilities needed to host events with large crowds,
+        including spacious changing rooms, shower rooms, and toilets for both ladies and gents.
       </p>
     </section>
   );

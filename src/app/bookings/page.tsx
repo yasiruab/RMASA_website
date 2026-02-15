@@ -2,31 +2,27 @@ import Link from "next/link";
 
 export default function BookingsPage() {
   return (
-    <section className="page-section container prose">
+    <section className="page-section container content-page">
       <h1>Bookings</h1>
-      <p>
-        Full calendar automation is planned for the next phase. It will include slot
-        availability, recurring reservations, pricing breakdown, approval workflow, and admin
-        overrides.
-      </p>
-      <h2>Current Booking Journey</h2>
-      <ol>
-        <li>Review facilities and activity options.</li>
-        <li>Share your preferred date, time, and purpose through the enquiry form.</li>
-        <li>RMASA team confirms availability and next steps.</li>
-      </ol>
-      <div className="cta-row">
-        <Link className="btn btn-primary" href="/contact">
-          Submit Booking Enquiry
-        </Link>
-        <Link className="btn btn-outline" href="/facilities">
-          Review Facilities
-        </Link>
+      <p>Please select the preferred room to continue with the booking.</p>
+
+      <div className="booking-grid">
+        <article className="booking-card">
+          <h2>Main Arena</h2>
+          <p>Ideal for tournaments, events, seminars and large-format programs.</p>
+          <Link className="read-more" href="/contact">
+            Enquire Main Arena
+          </Link>
+        </article>
+
+        <article className="booking-card">
+          <h2>Studio Room</h2>
+          <p>Suitable for rehearsals, workshops, training blocks and focused sessions.</p>
+          <Link className="read-more" href="/contact">
+            Enquire Studio Room
+          </Link>
+        </article>
       </div>
-      <p>
-        The Bookings and Contact pages are intentionally linked both ways so visitors can move
-        clearly through the reservation journey.
-      </p>
     </section>
   );
 }
