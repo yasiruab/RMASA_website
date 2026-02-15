@@ -1,30 +1,52 @@
-import Link from "next/link";
-
 export function Footer() {
   return (
     <footer className="site-footer">
-      <div className="container footer-grid">
+      <div className="container footer-columns">
         <div>
-          <h2>Royal MAS Arena</h2>
-          <p>Sports Complex, Panagoda, Sri Lanka</p>
-          <p>Website Phase 1 completed. Calendar automation is planned next.</p>
+          <p>
+            <a href="https://www.facebook.com/royalmasarena" rel="noopener noreferrer" target="_blank">
+              Facebook Page
+            </a>
+          </p>
+          <p>
+            <a href="http://www.rcu.lk/" rel="noopener noreferrer" target="_blank">
+              Royal College Union
+            </a>
+          </p>
         </div>
+
         <div>
-          <h2>Quick Links</h2>
-          <ul className="footer-links">
-            <li>
-              <Link href="/facilities">Facilities</Link>
-            </li>
-            <li>
-              <Link href="/activities">Activities</Link>
-            </li>
-            <li>
-              <Link href="/bookings">Bookings</Link>
-            </li>
-            <li>
-              <Link href="/contact">Contact</Link>
-            </li>
-          </ul>
+          <p>
+            Address:
+            <br />
+            Royal MAS Arena,
+            <br />
+            Rajakeeya Mawatha,
+            <br />
+            Colombo 007,
+            <br />
+            Sri Lanka.
+          </p>
+        </div>
+
+        <div>
+          <p>
+            Phone:
+            <br />
+            +94 (0) 70 442 1590
+          </p>
+          <p>
+            E-Mail:
+            <br />
+            <a href="mailto:info@royalmasarena.lk">info@royalmasarena.lk</a>
+          </p>
+        </div>
+      </div>
+
+      <div className="footer-bottom">
+        <div className="container">
+          <p>Copyright © 2026 Royal Mas Arena. All rights reserved.</p>
+          <p className="footer-meta">Theme recreated in Next.js. Original visual language inspired by RMASA legacy site.</p>
         </div>
       </div>
     </footer>

@@ -1,26 +1,26 @@
-import Link from "next/link";
-import { activities } from "@/content/site-content";
+const activityItems = [
+  "Boxing",
+  "Fencing",
+  "Gymnastic",
+  "Karate",
+  "Wushu",
+  "Wrestling",
+  "Any type of grappling sports",
+  "Seminars",
+  "Meetings",
+  "Performing Arts",
+];
 
 export default function ActivitiesPage() {
   return (
-    <section className="page-section container">
+    <section className="page-section container content-page">
       <h1>Activities</h1>
-      <p className="section-intro">
-        RMASA supports training, recreation, and event programs for players, families, clubs,
-        schools, and corporate groups.
-      </p>
-      <ul className="card-grid">
-        {activities.map((item) => (
-          <li className="card" key={item.title}>
-            <h2>{item.title}</h2>
-            <p>{item.details}</p>
-          </li>
+      <p>Facilities at Royal MAS Arena can house following activities...</p>
+      <ul className="bullet-list">
+        {activityItems.map((item) => (
+          <li key={item}>{item}</li>
         ))}
       </ul>
-      <p className="link-row">
-        Continue to <Link href="/facilities">Facilities</Link> for venue details, then visit{" "}
-        <Link href="/bookings">Bookings</Link> to begin scheduling.
-      </p>
     </section>
   );
 }

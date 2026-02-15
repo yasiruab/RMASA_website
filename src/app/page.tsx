@@ -1,71 +1,62 @@
+import Image from "next/image";
 import Link from "next/link";
-import { quickStats, venueHighlights } from "@/content/site-content";
+import { HeroSlider } from "@/components/hero-slider";
+
+const cards = [
+  {
+    title: "About",
+    image: "/rmasa/about.jpg",
+    href: "/about",
+    text: "A versatile indoor arena with retractable seating, modern amenities, and event-ready infrastructure.",
+  },
+  {
+    title: "Activities",
+    image: "/rmasa/activities.jpg",
+    href: "/activities",
+    text: "Supports boxing, fencing, gymnastics, karate, wushu, wrestling, seminars, meetings, and performing arts.",
+  },
+  {
+    title: "Facilities",
+    image: "/rmasa/facilities.jpg",
+    href: "/facilities",
+    text: "Purpose-designed main arena, training/green room, and support amenities for large-format events.",
+  },
+];
 
 export default function HomePage() {
   return (
     <>
-      <section className="hero">
-        <div className="container">
-          <p className="kicker">Royal MAS Arena</p>
-          <h1>Train, compete, and host with confidence.</h1>
-          <p className="lead">
-            A practical, modern venue designed for badminton, recreation, and multi-purpose
-            events in Panagoda.
-          </p>
-          <div className="cta-row">
-            <Link className="btn btn-primary" href="/bookings">
-              Start Booking Journey
-            </Link>
-            <Link className="btn btn-outline" href="/contact">
-              Contact Venue Team
-            </Link>
-          </div>
-        </div>
+      <HeroSlider />
+
+      <section className="home-intro container">
+        <p>
+          <strong>
+            Royal MAS Arena is a state of the art, purpose built indoor sports facility located at
+            Rajakeeya Mawatha, Colombo 7.
+          </strong>
+        </p>
+        <p>
+          Available for grappling sports, table tennis, chess, carom, skill development training,
+          seminars, theatre, concerts and more.
+        </p>
+        <p>
+          <strong>For reservations please contact +94 (0) 70 442 1590</strong>
+        </p>
       </section>
 
-      <section className="stats-strip" aria-label="Venue quick facts">
-        <div className="container stats-grid">
-          {quickStats.map((item) => (
-            <article className="stat" key={item.label}>
-              <p className="stat-label">{item.label}</p>
-              <p className="stat-value">{item.value}</p>
-            </article>
-          ))}
-        </div>
-      </section>
-
-      <section className="page-section">
-        <div className="container">
-          <h2>Venue Highlights</h2>
-          <ul className="card-grid">
-            {venueHighlights.map((item) => (
-              <li className="card" key={item.title}>
-                <h3>{item.title}</h3>
-                <p>{item.description}</p>
-              </li>
-            ))}
-          </ul>
-        </div>
-      </section>
-
-      <section className="page-section band">
-        <div className="container split">
-          <div>
-            <h2>Simple Visitor Journey</h2>
-            <p>
-              Visitors can start with information discovery, then move to booking enquiry.
-              Bookings and Contact pages are cross-linked to keep the flow clear.
-            </p>
-          </div>
-          <div className="cta-stack">
-            <Link className="btn btn-primary" href="/bookings">
-              Go to Bookings
+      <section className="home-cards container" aria-label="Featured sections">
+        {cards.map((card) => (
+          <article className="feature-card" key={card.title}>
+            <Image alt={card.title} className="feature-image" height={186} src={card.image} unoptimized width={280} />
+            <h2>
+              <Link href={card.href}>{card.title}</Link>
+            </h2>
+            <p>{card.text}</p>
+            <Link className="read-more" href={card.href}>
+              Read more
             </Link>
-            <Link className="btn btn-outline" href="/facilities">
-              Browse Facilities
-            </Link>
-          </div>
-        </div>
+          </article>
+        ))}
       </section>
     </>
   );

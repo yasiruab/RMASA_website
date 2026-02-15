@@ -1,38 +1,28 @@
 import Link from "next/link";
-import { bookingRoadmap } from "@/content/site-content";
 
 export default function BookingsPage() {
   return (
-    <section className="page-section container prose">
+    <section className="page-section container content-page">
       <h1>Bookings</h1>
-      <p>
-        Booking automation is currently being built. Right now, booking requests are handled
-        through the enquiry flow while calendar logic is finalized.
-      </p>
-      <h2>Current Booking Steps</h2>
-      <ol>
-        <li>Review facilities and activity options.</li>
-        <li>Submit preferred dates, times, and purpose through Contact Us.</li>
-        <li>RMASA team validates slot availability and confirms next actions.</li>
-      </ol>
-      <div className="cta-row">
-        <Link className="btn btn-primary" href="/contact">
-          Submit Booking Enquiry
-        </Link>
-        <Link className="btn btn-outline" href="/facilities">
-          Review Facilities
-        </Link>
+      <p>Please select the preferred room to continue with the booking.</p>
+
+      <div className="booking-grid">
+        <article className="booking-card">
+          <h2>Main Arena</h2>
+          <p>Ideal for tournaments, events, seminars and large-format programs.</p>
+          <Link className="read-more" href="/contact">
+            Enquire Main Arena
+          </Link>
+        </article>
+
+        <article className="booking-card">
+          <h2>Studio Room</h2>
+          <p>Suitable for rehearsals, workshops, training blocks and focused sessions.</p>
+          <Link className="read-more" href="/contact">
+            Enquire Studio Room
+          </Link>
+        </article>
       </div>
-      <h2>Calendar Module Roadmap</h2>
-      <ul>
-        {bookingRoadmap.map((item) => (
-          <li key={item}>{item}</li>
-        ))}
-      </ul>
-      <p>
-        Contact and Bookings are intentionally connected to keep the visitor path clear before
-        full automation goes live.
-      </p>
     </section>
   );
 }
