@@ -1,0 +1,269 @@
+:root {
+  --bg: #f4efe6;
+  --bg-deep: #d9c6a2;
+  --text: #1f1c17;
+  --accent: #8a3b12;
+  --accent-2: #1f6f5f;
+  --surface: #fffaf3;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  margin: 0;
+  padding: 0;
+  color: var(--text);
+  background:
+    radial-gradient(circle at 10% 10%, rgba(138, 59, 18, 0.12), transparent 40%),
+    radial-gradient(circle at 85% 20%, rgba(31, 111, 95, 0.12), transparent 35%),
+    linear-gradient(180deg, var(--bg), #efe6d8 60%, var(--bg-deep));
+  min-height: 100%;
+}
+
+body {
+  font-family: "Source Serif 4", "Georgia", "Times New Roman", serif;
+  line-height: 1.55;
+}
+
+h1,
+h2,
+h3,
+.brand,
+.kicker {
+  font-family: "Oswald", "Bebas Neue", "Arial Narrow", sans-serif;
+  letter-spacing: 0.02em;
+  line-height: 1.2;
+}
+
+h2 {
+  margin-top: 0;
+}
+
+.container {
+  width: min(1100px, 92vw);
+  margin: 0 auto;
+}
+
+.site-header {
+  position: sticky;
+  top: 0;
+  backdrop-filter: blur(8px);
+  background: rgba(255, 250, 243, 0.88);
+  border-bottom: 1px solid rgba(31, 28, 23, 0.12);
+  z-index: 100;
+}
+
+.nav-wrap {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  min-height: 72px;
+  gap: 16px;
+}
+
+.brand {
+  font-size: 1.2rem;
+  text-decoration: none;
+  color: inherit;
+}
+
+.nav-list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: flex;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+
+.nav-list a {
+  color: inherit;
+  text-decoration: none;
+}
+
+.nav-list a:hover {
+  text-decoration: underline;
+}
+
+.hero {
+  padding: 120px 0;
+}
+
+.kicker {
+  text-transform: uppercase;
+  color: var(--accent);
+  margin: 0;
+}
+
+h1 {
+  font-size: clamp(2rem, 5vw, 4rem);
+  margin: 0.25rem 0;
+}
+
+.lead {
+  font-size: 1.1rem;
+  max-width: 62ch;
+}
+
+.cta-row {
+  display: flex;
+  gap: 12px;
+  margin-top: 24px;
+  flex-wrap: wrap;
+}
+
+.cta-stack {
+  display: flex;
+  gap: 12px;
+  flex-wrap: wrap;
+  align-content: flex-start;
+}
+
+.btn {
+  display: inline-block;
+  border-radius: 999px;
+  border: 1px solid transparent;
+  padding: 0.65rem 1.2rem;
+  font-weight: 700;
+  text-decoration: none;
+  cursor: pointer;
+  font: inherit;
+}
+
+.btn:disabled {
+  opacity: 0.75;
+  cursor: not-allowed;
+}
+
+.btn-primary {
+  background: var(--accent);
+  color: #fff;
+}
+
+.btn-outline {
+  border-color: var(--accent-2);
+  color: var(--accent-2);
+  background: transparent;
+}
+
+.page-section {
+  padding: 56px 0 72px;
+}
+
+.band {
+  background: rgba(255, 250, 243, 0.54);
+  border-top: 1px solid rgba(31, 28, 23, 0.12);
+  border-bottom: 1px solid rgba(31, 28, 23, 0.12);
+}
+
+.split {
+  display: grid;
+  grid-template-columns: 1.6fr 1fr;
+  gap: 24px;
+  align-items: center;
+}
+
+.section-intro {
+  max-width: 72ch;
+}
+
+.prose {
+  max-width: 74ch;
+}
+
+.prose h2 {
+  margin-top: 1.5rem;
+}
+
+.card-grid {
+  display: grid;
+  gap: 12px;
+  padding: 0;
+  list-style: none;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+}
+
+.card {
+  background: var(--surface);
+  border: 1px solid rgba(31, 28, 23, 0.08);
+  border-radius: 14px;
+  padding: 18px;
+}
+
+.card h3,
+.card h2 {
+  margin-top: 0;
+}
+
+.link-row {
+  margin-top: 20px;
+}
+
+.link-row a {
+  color: var(--accent-2);
+}
+
+.contact-form {
+  display: grid;
+  gap: 14px;
+  max-width: 640px;
+}
+
+.contact-form label {
+  display: grid;
+  gap: 8px;
+  font-weight: 600;
+}
+
+.contact-form input,
+.contact-form textarea {
+  border: 1px solid rgba(31, 28, 23, 0.2);
+  border-radius: 8px;
+  padding: 10px 12px;
+  font: inherit;
+  background: #fffcf6;
+}
+
+.consent {
+  grid-template-columns: auto 1fr;
+  align-items: center;
+}
+
+.form-message {
+  margin: 6px 0 0;
+  font-weight: 600;
+}
+
+.form-message.success {
+  color: #0a6d41;
+}
+
+.form-message.error {
+  color: #8e2411;
+}
+
+.site-footer {
+  border-top: 1px solid rgba(31, 28, 23, 0.12);
+  background: rgba(255, 250, 243, 0.8);
+  padding: 26px 0;
+  font-size: 0.95rem;
+}
+
+@media (max-width: 760px) {
+  .nav-wrap {
+    padding: 10px 0;
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .hero {
+    padding: 72px 0;
+  }
+
+  .split {
+    grid-template-columns: 1fr;
+  }
+}
