@@ -1,4 +1,7 @@
+"use client";
+
 import Link from "next/link";
+import { usePathname } from "next/navigation";
 
 const links = [
   { href: "/", label: "Home" },
@@ -10,19 +13,27 @@ const links = [
 ];
 
 export function Nav() {
+  const pathname = usePathname();
+
   return (
     <header className="site-header">
       <div className="container nav-wrap">
         <Link className="brand" href="/">
           Royal MAS Arena
         </Link>
-        <nav>
+        <nav aria-label="Main navigation">
           <ul className="nav-list">
-            {links.map((link) => (
-              <li key={link.href}>
-                <Link href={link.href}>{link.label}</Link>
-              </li>
-            ))}
+            {links.map((link) => {
+              const isActive = link.href === "/" ? pathname === "/" : pathname.startsWith(link.href);
+
+              return (
+                <li key={link.href}>
+                  <Link aria-current={isActive ? "page" : undefined} className={isActive ? "active" : undefined} href={link.href}>
+                    {link.label}
+                  </Link>
+                </li>
+              );
+            })}
           </ul>
         </nav>
       </div>

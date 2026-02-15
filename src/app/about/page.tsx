@@ -1,22 +1,28 @@
 import Link from "next/link";
+import { operatingPrinciples } from "@/content/site-content";
 
 export default function AboutPage() {
   return (
     <section className="page-section container prose">
       <h1>About Royal MAS Arena</h1>
       <p>
-        Royal MAS Arena is built to serve both competitive sports and community recreation.
-        Our venue supports structured training, casual play, and organized events through a
-        welcoming and practical environment.
+        Royal MAS Arena is developed as a destination for sports participation and event
+        hosting. The venue balances player needs, event practicality, and visitor comfort.
+      </p>
+      <h2>How We Operate</h2>
+      <ul>
+        {operatingPrinciples.map((item) => (
+          <li key={item}>{item}</li>
+        ))}
+      </ul>
+      <h2>Project Progress</h2>
+      <p>
+        Phase 1 delivers the full website experience and enquiry pipeline. Phase 2 introduces
+        online booking automation with calendar logic and admin workflow controls.
       </p>
       <p>
-        The RMASA website is being developed in phases. Phase 1 focuses on clear venue
-        information and enquiry flow. Phase 2 will introduce complete online calendar-based
-        booking automation.
-      </p>
-      <p>
-        Continue to <Link href="/facilities">Facilities</Link> to review spaces, or go to{" "}
-        <Link href="/contact">Contact Us</Link> for help selecting the right option.
+        Review <Link href="/facilities">Facilities</Link> and <Link href="/activities">Activities</Link>,
+        then use <Link href="/bookings">Bookings</Link> or <Link href="/contact">Contact Us</Link>.
       </p>
     </section>
   );

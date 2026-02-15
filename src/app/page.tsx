@@ -1,19 +1,5 @@
 import Link from "next/link";
-
-const highlights = [
-  {
-    title: "Court Bookings",
-    description: "Reserve sports spaces for practice sessions, tournaments, or private events.",
-  },
-  {
-    title: "Community Programs",
-    description: "Weekly coaching and recreation activities for players across skill levels.",
-  },
-  {
-    title: "Event Hosting",
-    description: "Flexible venue areas for corporate gatherings, school events, and celebrations.",
-  },
-];
+import { quickStats, venueHighlights } from "@/content/site-content";
 
 export default function HomePage() {
   return (
@@ -21,27 +7,38 @@ export default function HomePage() {
       <section className="hero">
         <div className="container">
           <p className="kicker">Royal MAS Arena</p>
-          <h1>Where sport and community meet.</h1>
+          <h1>Train, compete, and host with confidence.</h1>
           <p className="lead">
-            Royal MAS Arena is a modern sports and events venue in Panagoda, designed for
-            training, recreation, and memorable gatherings.
+            A practical, modern venue designed for badminton, recreation, and multi-purpose
+            events in Panagoda.
           </p>
           <div className="cta-row">
             <Link className="btn btn-primary" href="/bookings">
               Start Booking Journey
             </Link>
-            <Link className="btn btn-outline" href="/facilities">
-              Explore Facilities
+            <Link className="btn btn-outline" href="/contact">
+              Contact Venue Team
             </Link>
           </div>
         </div>
       </section>
 
+      <section className="stats-strip" aria-label="Venue quick facts">
+        <div className="container stats-grid">
+          {quickStats.map((item) => (
+            <article className="stat" key={item.label}>
+              <p className="stat-label">{item.label}</p>
+              <p className="stat-value">{item.value}</p>
+            </article>
+          ))}
+        </div>
+      </section>
+
       <section className="page-section">
         <div className="container">
-          <h2>What You Can Do Here</h2>
+          <h2>Venue Highlights</h2>
           <ul className="card-grid">
-            {highlights.map((item) => (
+            {venueHighlights.map((item) => (
               <li className="card" key={item.title}>
                 <h3>{item.title}</h3>
                 <p>{item.description}</p>
@@ -54,18 +51,18 @@ export default function HomePage() {
       <section className="page-section band">
         <div className="container split">
           <div>
-            <h2>Booking and Enquiry Path</h2>
+            <h2>Simple Visitor Journey</h2>
             <p>
-              If you already know your dates, start from Bookings. If you need guidance on
-              facilities, pricing, or event suitability, contact the team first.
+              Visitors can start with information discovery, then move to booking enquiry.
+              Bookings and Contact pages are cross-linked to keep the flow clear.
             </p>
           </div>
           <div className="cta-stack">
             <Link className="btn btn-primary" href="/bookings">
               Go to Bookings
             </Link>
-            <Link className="btn btn-outline" href="/contact">
-              Go to Contact Us
+            <Link className="btn btn-outline" href="/facilities">
+              Browse Facilities
             </Link>
           </div>
         </div>

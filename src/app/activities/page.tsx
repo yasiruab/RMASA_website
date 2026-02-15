@@ -1,31 +1,25 @@
 import Link from "next/link";
-
-const activities = [
-  "Badminton practice sessions",
-  "Structured coaching programs",
-  "Fitness and recreational play",
-  "Corporate and private events",
-  "Seasonal tournaments and leagues",
-];
+import { activities } from "@/content/site-content";
 
 export default function ActivitiesPage() {
   return (
     <section className="page-section container">
       <h1>Activities</h1>
       <p className="section-intro">
-        RMASA supports a range of programs for athletes, families, schools, and corporate
-        groups.
+        RMASA supports training, recreation, and event programs for players, families, clubs,
+        schools, and corporate groups.
       </p>
       <ul className="card-grid">
         {activities.map((item) => (
-          <li className="card" key={item}>
-            <p>{item}</p>
+          <li className="card" key={item.title}>
+            <h2>{item.title}</h2>
+            <p>{item.details}</p>
           </li>
         ))}
       </ul>
       <p className="link-row">
-        Check space options on <Link href="/facilities">Facilities</Link> or proceed to{" "}
-        <Link href="/bookings">Bookings</Link>.
+        Continue to <Link href="/facilities">Facilities</Link> for venue details, then visit{" "}
+        <Link href="/bookings">Bookings</Link> to begin scheduling.
       </p>
     </section>
   );

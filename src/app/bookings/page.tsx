@@ -1,19 +1,19 @@
 import Link from "next/link";
+import { bookingRoadmap } from "@/content/site-content";
 
 export default function BookingsPage() {
   return (
     <section className="page-section container prose">
       <h1>Bookings</h1>
       <p>
-        Full calendar automation is planned for the next phase. It will include slot
-        availability, recurring reservations, pricing breakdown, approval workflow, and admin
-        overrides.
+        Booking automation is currently being built. Right now, booking requests are handled
+        through the enquiry flow while calendar logic is finalized.
       </p>
-      <h2>Current Booking Journey</h2>
+      <h2>Current Booking Steps</h2>
       <ol>
         <li>Review facilities and activity options.</li>
-        <li>Share your preferred date, time, and purpose through the enquiry form.</li>
-        <li>RMASA team confirms availability and next steps.</li>
+        <li>Submit preferred dates, times, and purpose through Contact Us.</li>
+        <li>RMASA team validates slot availability and confirms next actions.</li>
       </ol>
       <div className="cta-row">
         <Link className="btn btn-primary" href="/contact">
@@ -23,9 +23,15 @@ export default function BookingsPage() {
           Review Facilities
         </Link>
       </div>
+      <h2>Calendar Module Roadmap</h2>
+      <ul>
+        {bookingRoadmap.map((item) => (
+          <li key={item}>{item}</li>
+        ))}
+      </ul>
       <p>
-        The Bookings and Contact pages are intentionally linked both ways so visitors can move
-        clearly through the reservation journey.
+        Contact and Bookings are intentionally connected to keep the visitor path clear before
+        full automation goes live.
       </p>
     </section>
   );

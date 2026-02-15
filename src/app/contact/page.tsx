@@ -6,13 +6,12 @@ export default function ContactPage() {
     <section className="page-section container">
       <h1>Contact Us</h1>
       <p className="section-intro">
-        Ask about facilities, activities, and availability. If you are ready to reserve a
-        slot, include your preferred dates and times.
+        Share your booking preferences or ask about venue options. Include intended date/time,
+        participant count, and event purpose for faster processing.
       </p>
       <ContactForm />
       <p className="link-row">
-        Ready to reserve? Go to <Link href="/bookings">Bookings</Link> for the booking
-        journey.
+        If you are ready to start planning slots, continue to <Link href="/bookings">Bookings</Link>.
       </p>
     </section>
   );

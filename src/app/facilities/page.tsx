@@ -1,31 +1,13 @@
 import Link from "next/link";
-
-const facilities = [
-  {
-    title: "Indoor Badminton Courts",
-    description: "Competition-ready courts for training blocks, casual sessions, and events.",
-  },
-  {
-    title: "Multipurpose Event Zones",
-    description: "Adaptable spaces suitable for workshops, private programs, and gatherings.",
-  },
-  {
-    title: "Support Amenities",
-    description: "Changing areas, spectator comfort, and operational support for event days.",
-  },
-  {
-    title: "Parking and Access",
-    description: "Convenient access routes and on-site circulation designed for steady traffic.",
-  },
-];
+import { facilities } from "@/content/site-content";
 
 export default function FacilitiesPage() {
   return (
     <section className="page-section container">
       <h1>Facilities</h1>
       <p className="section-intro">
-        Browse venue areas available for sports and event reservations. Final scheduling and
-        slot confirmation will be handled through the booking workflow.
+        Explore the venue zones available for sports and event usage. Final slot allocation is
+        confirmed through booking workflow.
       </p>
       <ul className="card-grid">
         {facilities.map((facility) => (
@@ -35,10 +17,14 @@ export default function FacilitiesPage() {
           </li>
         ))}
       </ul>
-      <p className="link-row">
-        Ready to reserve? Visit <Link href="/bookings">Bookings</Link>. Need advice first?
-        Visit <Link href="/contact"> Contact Us</Link>.
-      </p>
+      <div className="cta-row">
+        <Link className="btn btn-primary" href="/bookings">
+          Start Booking Enquiry
+        </Link>
+        <Link className="btn btn-outline" href="/contact">
+          Ask a Question
+        </Link>
+      </div>
     </section>
   );
 }
