@@ -490,6 +490,52 @@ main {
   margin-top: 0;
 }
 
+.guided-booking {
+  margin-top: 18px;
+}
+
+.booking-select-card {
+  display: grid;
+  gap: 10px;
+  align-content: start;
+  transition: border-color 0.2s ease, box-shadow 0.2s ease, background-color 0.2s ease;
+}
+
+.booking-select-card.selected {
+  border-color: rgba(178, 108, 94, 0.7);
+  background: #fff8f6;
+  box-shadow: 0 12px 24px rgba(178, 108, 94, 0.16);
+}
+
+.booking-best-for {
+  margin: 0;
+  font-weight: 700;
+  color: #474d56;
+}
+
+.booking-flow-actions {
+  margin-top: 16px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  align-items: center;
+}
+
+.booking-selection-state {
+  margin: 0;
+  width: 100%;
+  color: #525965;
+}
+
+.booking-empty-state {
+  margin-top: 14px;
+  border: 1px dashed #c4cad3;
+  border-radius: 10px;
+  padding: 14px;
+  color: #5a6270;
+  background: #f8f9fb;
+}
+
 .event-meta {
   color: #8a8f96;
   font-size: 0.95rem;
@@ -511,8 +557,69 @@ main {
 
 .contact-layout {
   display: grid;
-  grid-template-columns: 1fr 1.25fr;
+  grid-template-columns: 1.1fr 1.2fr;
   gap: 20px;
+}
+
+.contact-context-banner {
+  margin: 0 0 16px;
+  border: 1px solid #e6cbc4;
+  background: #fff3ef;
+  padding: 12px 14px;
+  border-radius: 10px;
+  color: #4d545f;
+}
+
+.contact-actions-grid {
+  display: grid;
+  gap: 12px;
+  align-content: start;
+}
+
+.contact-action-card {
+  display: block;
+  text-decoration: none;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: #fbfbfc;
+  padding: 14px;
+  color: #39414b;
+  transition: border-color 0.2s ease, transform 0.2s ease, box-shadow 0.2s ease;
+}
+
+.contact-action-card:hover,
+.contact-action-card:focus-visible {
+  border-color: rgba(178, 108, 94, 0.65);
+  box-shadow: 0 10px 20px rgba(36, 44, 55, 0.1);
+  transform: translateY(-1px);
+}
+
+.contact-action-card h2 {
+  margin: 0;
+  font-size: 1.25rem;
+}
+
+.contact-action-card p {
+  margin: 6px 0;
+  color: #4a515b;
+}
+
+.contact-action-card span {
+  color: #7b828f;
+  font-size: 0.92rem;
+}
+
+.map-panel h2 {
+  margin-top: 0;
+}
+
+.map-panel p {
+  margin: 0 0 12px;
+  color: #545b66;
+}
+
+.contact-quick-row {
+  margin-top: 12px;
 }
 
 .map-frame {
@@ -552,6 +659,12 @@ main {
   align-items: start;
 }
 
+.field-error {
+  margin: 0;
+  color: #8e2411;
+  font-size: 0.9rem;
+}
+
 .btn {
   display: inline-block;
   border: 1px solid transparent;
@@ -572,6 +685,17 @@ main {
   background: #fff;
   color: #2e3440;
   border-color: rgba(46, 52, 64, 0.22);
+}
+
+.btn-secondary:hover,
+.btn-secondary:focus-visible {
+  background: #f7f8fa;
+}
+
+.whatsapp-cta {
+  background: #25d366;
+  color: #fff;
+  border-color: #25d366;
 }
 
 .form-message {
@@ -692,6 +816,7 @@ main {
   .footer-columns,
   .gallery-3,
   .contact-layout,
+  .contact-actions-grid,
   .booking-grid,
   .event-images,
   .compare-grid {
