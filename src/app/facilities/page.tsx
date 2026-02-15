@@ -8,9 +8,9 @@ export default function FacilitiesPage() {
       <h1>Facilities</h1>
 
       <div className="gallery-3">
-        <Image alt="Main Arena" height={220} src="/rmasa/slider-1.jpg" unoptimized width={360} />
-        <Image alt="Training area" height={220} src="/rmasa/slider-2.jpg" unoptimized width={360} />
-        <Image alt="Support room" height={220} src="/rmasa/slider-3.jpg" unoptimized width={360} />
+        <Image alt="Main Arena" height={220} sizes="(max-width: 980px) 94vw, 32vw" src="/rmasa/slider-1.jpg" width={360} />
+        <Image alt="Training area" height={220} sizes="(max-width: 980px) 94vw, 32vw" src="/rmasa/slider-2.jpg" width={360} />
+        <Image alt="Support room" height={220} sizes="(max-width: 980px) 94vw, 32vw" src="/rmasa/slider-3.jpg" width={360} />
       </div>
 
       <h2>Main Arena</h2>

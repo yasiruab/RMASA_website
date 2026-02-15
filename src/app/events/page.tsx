@@ -20,8 +20,14 @@ export default function EventsPage() {
           amidst a gathering of distinguished dignitaries.
         </p>
         <div className="event-images">
-          <Image alt="Opening ceremony" height={210} src="/rmasa/about.jpg" unoptimized width={420} />
-          <Image alt="Audience" height={210} src="/rmasa/activities.jpg" unoptimized width={420} />
+          <Image
+            alt="Opening ceremony"
+            height={210}
+            sizes="(max-width: 980px) 94vw, 46vw"
+            src="/rmasa/about.jpg"
+            width={420}
+          />
+          <Image alt="Audience" height={210} sizes="(max-width: 980px) 94vw, 46vw" src="/rmasa/activities.jpg" width={420} />
         </div>
       </article>
     </section>

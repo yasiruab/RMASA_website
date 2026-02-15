@@ -1,3 +1,5 @@
+import Link from "next/link";
+
 export function Footer() {
   return (
     <footer className="site-footer">
@@ -12,6 +14,12 @@ export function Footer() {
             <a href="http://www.rcu.lk/" rel="noopener noreferrer" target="_blank">
               Royal College Union
             </a>
+          </p>
+          <p>
+            <Link href="/faq">FAQ</Link>
+          </p>
+          <p>
+            <Link href="/privacy">Privacy Policy</Link>
           </p>
         </div>
 

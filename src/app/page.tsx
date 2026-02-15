@@ -47,7 +47,14 @@ export default function HomePage() {
       <section className="home-cards container" aria-label="Featured sections">
         {cards.map((card) => (
           <article className="feature-card" key={card.title}>
-            <Image alt={card.title} className="feature-image" height={186} src={card.image} unoptimized width={280} />
+            <Image
+              alt={card.title}
+              className="feature-image"
+              height={186}
+              sizes="(max-width: 980px) 94vw, (max-width: 1200px) 30vw, 360px"
+              src={card.image}
+              width={280}
+            />
             <h2>
               <Link href={card.href}>{card.title}</Link>
             </h2>
