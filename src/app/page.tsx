@@ -58,6 +58,40 @@ export default function HomePage() {
           </article>
         ))}
       </section>
+
+      <section className="compare-wrap container" aria-label="Compare spaces">
+        <h2>Find The Right Space Fast</h2>
+        <p className="compare-intro">
+          Compare our two core spaces and choose the one that best fits your event format.
+        </p>
+        <div className="compare-grid">
+          <article className="compare-card">
+            <h3>Main Arena</h3>
+            <p className="compare-tag">Best for large competitions and high-attendance events.</p>
+            <ul className="bullet-list">
+              <li>Capacity up to 1,000 with configurable seating</li>
+              <li>Suitable for tournaments, seminars, theatre and concerts</li>
+              <li>Includes support spaces for event operations</li>
+            </ul>
+            <Link className="read-more" href="/bookings">
+              Book Main Arena
+            </Link>
+          </article>
+
+          <article className="compare-card">
+            <h3>Studio Room</h3>
+            <p className="compare-tag">Best for rehearsals, practice blocks, and workshops.</p>
+            <ul className="bullet-list">
+              <li>Air-conditioned 2,000 square foot training space</li>
+              <li>Mirrored wall for movement-focused sessions</li>
+              <li>Ideal for focused groups and repeat sessions</li>
+            </ul>
+            <Link className="read-more" href="/contact">
+              Enquire Studio Room
+            </Link>
+          </article>
+        </div>
+      </section>
     </>
   );
 }
