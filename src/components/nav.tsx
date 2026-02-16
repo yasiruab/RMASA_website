@@ -13,6 +13,7 @@ const links = [
   { href: "/events", label: "Events" },
   { href: "/bookings", label: "Bookings" },
   { href: "/contact", label: "Contact" },
+  { href: "/admin/calendar", label: "Admin" },
 ];
 
 export function Nav() {
