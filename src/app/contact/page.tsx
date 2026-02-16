@@ -1,6 +1,7 @@
 import { ContactForm } from "@/components/contact-form";
 import { Breadcrumbs } from "@/components/breadcrumbs";
 import { WhatsAppCta } from "@/components/whatsapp-cta";
+import Link from "next/link";
 
 type ContactPageProps = {
   searchParams?: Promise<{
@@ -28,6 +29,9 @@ export default async function ContactPage({ searchParams }: ContactPageProps) {
     <section className="page-section container content-page">
       <Breadcrumbs current="Contact" />
       <h1>Contact</h1>
+      <p>
+        Ready to book directly? <Link href="/bookings">Open the Bookings calendar</Link>.
+      </p>
       {selectedSpaceLabel ? (
         <p className="contact-context-banner">
           Booking context saved: <strong>{selectedSpaceLabel}</strong>. Continue with your enquiry

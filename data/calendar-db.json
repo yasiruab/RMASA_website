@@ -1,0 +1,287 @@
+{
+  "rooms": [
+    {
+      "id": "main-arena",
+      "name": "Main Arena",
+      "workingHours": {
+        "startTime": "07:00",
+        "endTime": "21:00"
+      }
+    },
+    {
+      "id": "studio-room",
+      "name": "Studio Room",
+      "workingHours": {
+        "startTime": "07:00",
+        "endTime": "21:00"
+      }
+    }
+  ],
+  "eventTypes": [
+    {
+      "id": "four-hours",
+      "name": "4 Hours",
+      "durationHours": 4,
+      "priority": 10
+    },
+    {
+      "id": "six-hours",
+      "name": "6 Hours",
+      "durationHours": 6,
+      "priority": 10
+    },
+    {
+      "id": "full-day",
+      "name": "Full Day",
+      "durationHours": 10,
+      "priority": 10
+    },
+    {
+      "id": "event-akkngs",
+      "name": "Badminton",
+      "durationHours": 1,
+      "priority": 1,
+      "roomTypeId": "main-arena"
+    }
+  ],
+  "pricingRules": [
+    {
+      "id": "p1",
+      "roomTypeId": "studio-room",
+      "eventTypeId": "four-hours",
+      "acMode": "with_ac",
+      "dayType": "any",
+      "amountLkr": 20000
+    },
+    {
+      "id": "p2",
+      "roomTypeId": "studio-room",
+      "eventTypeId": "six-hours",
+      "acMode": "with_ac",
+      "dayType": "any",
+      "amountLkr": 30000
+    },
+    {
+      "id": "p3",
+      "roomTypeId": "studio-room",
+      "eventTypeId": "full-day",
+      "acMode": "with_ac",
+      "dayType": "any",
+      "amountLkr": 22500
+    },
+    {
+      "id": "p4",
+      "roomTypeId": "studio-room",
+      "eventTypeId": "four-hours",
+      "acMode": "without_ac",
+      "dayType": "any",
+      "amountLkr": 12000
+    },
+    {
+      "id": "p5",
+      "roomTypeId": "studio-room",
+      "eventTypeId": "six-hours",
+      "acMode": "without_ac",
+      "dayType": "any",
+      "amountLkr": 17500
+    },
+    {
+      "id": "p6",
+      "roomTypeId": "studio-room",
+      "eventTypeId": "full-day",
+      "acMode": "without_ac",
+      "dayType": "any",
+      "amountLkr": 13500
+    },
+    {
+      "id": "p7",
+      "roomTypeId": "main-arena",
+      "eventTypeId": "six-hours",
+      "acMode": "without_ac",
+      "dayType": "any",
+      "amountLkr": 50000
+    },
+    {
+      "id": "p8",
+      "roomTypeId": "main-arena",
+      "eventTypeId": "full-day",
+      "acMode": "without_ac",
+      "dayType": "weekday",
+      "amountLkr": 95000
+    },
+    {
+      "id": "p9",
+      "roomTypeId": "main-arena",
+      "eventTypeId": "full-day",
+      "acMode": "without_ac",
+      "dayType": "weekend",
+      "amountLkr": 110000
+    },
+    {
+      "id": "p10",
+      "roomTypeId": "main-arena",
+      "eventTypeId": "four-hours",
+      "acMode": "without_ac",
+      "dayType": "any",
+      "amountLkr": 35000
+    },
+    {
+      "id": "price-q503ab",
+      "roomTypeId": "main-arena",
+      "eventTypeId": "event-akkngs",
+      "acMode": "without_ac",
+      "dayType": "any",
+      "amountLkr": 5000
+    }
+  ],
+  "bookings": [
+    {
+      "id": "4ec5ca16-6256-4f8a-98c7-1644177f8d10",
+      "roomTypeId": "main-arena",
+      "eventTypeId": "four-hours",
+      "acMode": "without_ac",
+      "status": "confirmed",
+      "slots": [
+        {
+          "date": "2026-02-17",
+          "startTime": "09:00",
+          "endTime": "13:00"
+        },
+        {
+          "date": "2026-02-24",
+          "startTime": "09:00",
+          "endTime": "13:00"
+        },
+        {
+          "date": "2026-03-03",
+          "startTime": "09:00",
+          "endTime": "13:00"
+        },
+        {
+          "date": "2026-03-10",
+          "startTime": "09:00",
+          "endTime": "13:00"
+        }
+      ],
+      "customer": {
+        "name": "1108am",
+        "email": "123@test.com",
+        "phone": "1234",
+        "purpose": "123"
+      },
+      "recurrence": {
+        "frequency": "weekly",
+        "occurrences": 4
+      },
+      "totalAmountLkr": 140000,
+      "amountBreakdown": [
+        {
+          "date": "2026-02-17",
+          "slot": "09:00-13:00",
+          "amountLkr": 35000,
+          "dayType": "weekday"
+        },
+        {
+          "date": "2026-02-24",
+          "slot": "09:00-13:00",
+          "amountLkr": 35000,
+          "dayType": "weekday"
+        },
+        {
+          "date": "2026-03-03",
+          "slot": "09:00-13:00",
+          "amountLkr": 35000,
+          "dayType": "weekday"
+        },
+        {
+          "date": "2026-03-10",
+          "slot": "09:00-13:00",
+          "amountLkr": 35000,
+          "dayType": "weekday"
+        }
+      ],
+      "reconciliationStatus": "unpaid",
+      "reconciliationNotes": "",
+      "createdAt": "2026-02-16T05:38:52.398Z",
+      "updatedAt": "2026-02-16T05:39:53.198Z",
+      "overriddenBookingIds": []
+    },
+    {
+      "id": "f73651ec-38b4-4d56-ab5f-b9dbb62beea6",
+      "roomTypeId": "main-arena",
+      "eventTypeId": "event-akkngs",
+      "acMode": "without_ac",
+      "status": "cancelled_override",
+      "slots": [
+        {
+          "date": "2026-02-18",
+          "startTime": "10:00",
+          "endTime": "11:00"
+        }
+      ],
+      "customer": {
+        "name": "Yas",
+        "email": "123@test.com",
+        "phone": "1234",
+        "purpose": "test"
+      },
+      "recurrence": {
+        "frequency": "none"
+      },
+      "totalAmountLkr": 5000,
+      "amountBreakdown": [
+        {
+          "date": "2026-02-18",
+          "slot": "10:00-11:00",
+          "amountLkr": 5000,
+          "dayType": "weekday"
+        }
+      ],
+      "reconciliationStatus": "unpaid",
+      "reconciliationNotes": "",
+      "createdAt": "2026-02-16T14:54:41.772Z",
+      "updatedAt": "2026-02-16T15:07:10.189Z",
+      "overriddenBookingIds": []
+    },
+    {
+      "id": "d9d9eb1f-01bb-40d7-a8d8-5a39b1a6cf0a",
+      "roomTypeId": "main-arena",
+      "eventTypeId": "full-day",
+      "acMode": "without_ac",
+      "status": "pending",
+      "slots": [
+        {
+          "date": "2026-02-18",
+          "startTime": "07:00",
+          "endTime": "17:00"
+        }
+      ],
+      "customer": {
+        "name": "test overide",
+        "email": "123@test.com",
+        "phone": "1234",
+        "purpose": "override"
+      },
+      "recurrence": {
+        "frequency": "none"
+      },
+      "totalAmountLkr": 95000,
+      "amountBreakdown": [
+        {
+          "date": "2026-02-18",
+          "slot": "07:00-17:00",
+          "amountLkr": 95000,
+          "dayType": "weekday"
+        }
+      ],
+      "reconciliationStatus": "unpaid",
+      "reconciliationNotes": "",
+      "createdAt": "2026-02-16T15:07:10.188Z",
+      "updatedAt": "2026-02-16T15:07:10.188Z",
+      "overriddenBookingIds": [
+        "f73651ec-38b4-4d56-ab5f-b9dbb62beea6"
+      ]
+    }
+  ],
+  "blocks": []
+}
