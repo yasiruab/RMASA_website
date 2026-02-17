@@ -41,6 +41,21 @@ const acModeLabels: Record<"with_ac" | "without_ac", string> = {
   without_ac: "Without AC",
 };
 
+const monthNames = [
+  "January",
+  "February",
+  "March",
+  "April",
+  "May",
+  "June",
+  "July",
+  "August",
+  "September",
+  "October",
+  "November",
+  "December",
+];
+
 function formatDate(date: Date) {
   const y = date.getFullYear();
   const m = String(date.getMonth() + 1).padStart(2, "0");
@@ -217,6 +232,12 @@ export function BookingCalendarFlow() {
     () => Array.from({ length: 7 }, (_, i) => formatDate(addDays(weekStartDate, i))),
     [weekStartDate],
   );
+  const visibleMonth = weekStartDate.getMonth();
+  const visibleYear = weekStartDate.getFullYear();
+  const visibleYearOptions = useMemo(
+    () => Array.from({ length: 7 }, (_, i) => visibleYear - 3 + i),
+    [visibleYear],
+  );
 
   useEffect(() => {
     void (async () => {
@@ -309,6 +330,10 @@ export function BookingCalendarFlow() {
   const activeRoom = useMemo(
     () => rooms.find((room) => room.id === roomTypeId),
     [rooms, roomTypeId],
+  );
+  const activeEventType = useMemo(
+    () => allowedEventTypes.find((type) => type.id === eventTypeId),
+    [allowedEventTypes, eventTypeId],
   );
 
   const workingStartHour = activeRoom ? toHour(activeRoom.workingHours.startTime) : 7;
@@ -576,52 +601,127 @@ export function BookingCalendarFlow() {
     setIsSubmitting(false);
   }
 
+  function jumpToMonthYear(month: number, year: number) {
+    setWeekStartDate(startOfWeek(new Date(year, month, 1)));
+  }
+
   return (
     <div className="calendar-booking-wrap">
       <div className="calendar-booking-stack">
         <article className="calendar-panel gc-panel">
           <div className="gc-toolbar">
-            <h2>{weekStartDate.toLocaleDateString("en-US", { month: "long", year: "numeric" })}</h2>
-            <div className="gc-nav">
-              <button className="btn btn-secondary" onClick={() => setWeekStartDate(addDays(weekStartDate, -7))} type="button">Prev</button>
-              <button className="btn btn-secondary" onClick={() => setWeekStartDate(addDays(weekStartDate, 7))} type="button">Next</button>
+            <div className="gc-toolbar-title">
+              <h2>{weekStartDate.toLocaleDateString("en-US", { month: "long", year: "numeric" })}</h2>
+            </div>
+            <div className="gc-toolbar-controls">
+              <div className="gc-nav gc-nav-quick">
+                <button className="btn btn-secondary gc-nav-btn gc-today-btn" onClick={() => setWeekStartDate(startOfWeek(new Date()))} type="button">
+                  Today
+                </button>
+                <button className="btn btn-secondary gc-nav-btn" onClick={() => setWeekStartDate(addDays(weekStartDate, -7))} type="button">
+                  <span aria-hidden="true">←</span> Prev
+                </button>
+                <button className="btn btn-secondary gc-nav-btn" onClick={() => setWeekStartDate(addDays(weekStartDate, 7))} type="button">
+                  Next <span aria-hidden="true">→</span>
+                </button>
+              </div>
+              <div className="gc-nav gc-nav-jump">
+                <label>
+                  <span className="sr-only">Jump to month</span>
+                  <select
+                    aria-label="Jump to month"
+                    value={visibleMonth}
+                    onChange={(event) => jumpToMonthYear(Number(event.target.value), visibleYear)}
+                  >
+                    {monthNames.map((name, index) => (
+                      <option key={name} value={index}>
+                        {name}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                <label>
+                  <span className="sr-only">Jump to year</span>
+                  <select
+                    aria-label="Jump to year"
+                    value={visibleYear}
+                    onChange={(event) => jumpToMonthYear(visibleMonth, Number(event.target.value))}
+                  >
+                    {visibleYearOptions.map((year) => (
+                      <option key={year} value={year}>
+                        {year}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+              </div>
             </div>
           </div>
 
-          <div className="calendar-form-row">
-            <label>
-              Room Type
-              <select value={roomTypeId} onChange={(event) => setRoomTypeId(event.target.value)}>
-                {rooms.map((room) => (
-                  <option key={room.id} value={room.id}>{room.name}</option>
-                ))}
-              </select>
-            </label>
-            <label>
-              Appointment Type
-              <select value={eventTypeId} onChange={(event) => setEventTypeId(event.target.value)}>
-                {allowedEventTypes.map((type) => (
-                  <option key={type.id} value={type.id}>{type.name} ({type.durationHours} hrs)</option>
-                ))}
-              </select>
-            </label>
-            <label>
-              AC Mode
-              <select
-                value={acMode}
-                onChange={(event) => setAcMode(event.target.value as "with_ac" | "without_ac")}
-                disabled={availableAcModes.length === 0}
-              >
-                {availableAcModes.map((mode) => (
-                  <option key={mode} value={mode}>
-                    {acModeLabels[mode]}
-                  </option>
-                ))}
-              </select>
-            </label>
-          </div>
+          <section className="gc-filter-card" aria-label="Booking filters">
+            <h3>Booking Filters</h3>
+            <div className="gc-filter-pills" aria-label="Active filters">
+              <span className="gc-filter-pill">Room: {activeRoom?.name ?? "--"}</span>
+              <span className="gc-filter-pill">
+                Appointment: {activeEventType ? `${activeEventType.name} (${activeEventType.durationHours} hrs)` : "--"}
+              </span>
+              <span className="gc-filter-pill">AC: {acModeLabels[acMode]}</span>
+            </div>
+            <div className="calendar-form-row">
+              <label>
+                <span className="gc-field-label">Room Type</span>
+                <span className="gc-select-wrap">
+                  <select value={roomTypeId} onChange={(event) => setRoomTypeId(event.target.value)}>
+                    {rooms.map((room) => (
+                      <option key={room.id} value={room.id}>{room.name}</option>
+                    ))}
+                  </select>
+                  <span className="gc-select-caret" aria-hidden="true">⌄</span>
+                </span>
+              </label>
+              <label>
+                <span className="gc-field-label">Appointment Type</span>
+                <span className="gc-select-wrap">
+                  <select value={eventTypeId} onChange={(event) => setEventTypeId(event.target.value)}>
+                    {allowedEventTypes.map((type) => (
+                      <option key={type.id} value={type.id}>{type.name} ({type.durationHours} hrs)</option>
+                    ))}
+                  </select>
+                  <span className="gc-select-caret" aria-hidden="true">⌄</span>
+                </span>
+              </label>
+              <label>
+                <span className="gc-field-label">AC Mode</span>
+                <span className="gc-segmented" role="radiogroup" aria-label="AC mode">
+                  {(["without_ac", "with_ac"] as const).map((mode) => {
+                    const isActive = acMode === mode;
+                    const isDisabled = !availableAcModes.includes(mode);
+                    return (
+                      <button
+                        key={mode}
+                        className={`gc-segmented-btn${isActive ? " is-active" : ""}`}
+                        disabled={isDisabled}
+                        onClick={() => setAcMode(mode)}
+                        role="radio"
+                        aria-checked={isActive}
+                        type="button"
+                      >
+                        {acModeLabels[mode]}
+                      </button>
+                    );
+                  })}
+                </span>
+              </label>
+            </div>
+          </section>
 
-          <p>Working hours: <strong>{activeRoom?.workingHours.startTime ?? "--"} - {activeRoom?.workingHours.endTime ?? "--"}</strong>. Click a row inside a day to add/remove a {durationHours}-hour block.</p>
+          <div className="gc-meta" aria-label="Booking metadata">
+            <p className="gc-meta-line">
+              <span className="gc-meta-chip">Working Hours: {activeRoom?.workingHours.startTime ?? "--"}-{activeRoom?.workingHours.endTime ?? "--"}</span>
+              <span className="gc-meta-chip">Slot Size: {durationHours} hour{durationHours > 1 ? "s" : ""}</span>
+            </p>
+            <p className="gc-meta-hint">Click a row inside a day to add or remove a {durationHours}-hour block.</p>
+          </div>
 
           <div className="slot-legend" aria-label="Slot status legend">
             <span className="legend-dot available">Available</span>
