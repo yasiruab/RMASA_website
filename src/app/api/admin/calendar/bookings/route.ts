@@ -1,9 +1,14 @@
 import { NextResponse } from "next/server";
+import { logAuditEvent } from "@/lib/audit";
+import { requireAdmin } from "@/lib/auth-guards";
 import { evaluateBookingConflicts } from "@/lib/calendar-core";
 import { readCalendarDb, updateCalendarDb } from "@/lib/calendar-store";
 import { Booking, BookingStatus, ReconciliationStatus } from "@/lib/calendar-types";
 
 export async function GET() {
+  const auth = await requireAdmin();
+  if ("response" in auth) return auth.response;
+
   const db = await readCalendarDb();
   return NextResponse.json({
     bookings: db.bookings,
@@ -20,6 +25,9 @@ type PatchPayload = {
 };
 
 export async function PATCH(req: Request) {
+  const auth = await requireAdmin();
+  if ("response" in auth) return auth.response;
+
   const payload = (await req.json()) as PatchPayload;
   const bookingId = String(payload.id ?? "");
 
@@ -82,6 +90,21 @@ export async function PATCH(req: Request) {
       };
     }),
   }));
+
+  await logAuditEvent({
+    actorUserId: auth.actor.userId,
+    actorEmail: auth.actor.email,
+    action: "ADMIN_BOOKING_UPDATED",
+    resourceType: "booking",
+    resourceId: bookingId,
+    meta: {
+      status: payload.status,
+      reconciliationStatus: payload.reconciliationStatus,
+      reconciliationNotes: payload.reconciliationNotes,
+    },
+    ip: req.headers.get("x-forwarded-for"),
+    userAgent: req.headers.get("user-agent"),
+  });
 
   return NextResponse.json({ message: "Booking updated." });
 }

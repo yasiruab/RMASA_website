@@ -1,12 +1,15 @@
 import { notFound } from "next/navigation";
+import { getServerSession } from "next-auth";
 import {
   AdminCalendarConsole,
   type AdminCalendarSection,
 } from "@/components/admin/admin-calendar-console";
+import { authOptions } from "@/lib/auth";
 
 const allowedSections: AdminCalendarSection[] = [
   "dashboard",
   "revenue",
+  "accounts",
   "rooms",
   "event-types",
   "pricing",
@@ -14,31 +17,31 @@ const allowedSections: AdminCalendarSection[] = [
   "blockouts",
 ];
 
-const sectionTitles: Record<AdminCalendarSection, string> = {
-  dashboard: "Dashboard",
-  revenue: "Revenue Insights",
-  rooms: "Rooms and Working Hours",
-  "event-types": "Event Types",
-  pricing: "Pricing Matrix",
-  bookings: "Booking Queue",
-  blockouts: "Calendar Blockouts",
-};
-
 export default async function AdminCalendarSectionPage({
   params,
 }: {
   params: Promise<{ section: string }>;
 }) {
+  const session = await getServerSession(authOptions);
+  if (!session?.user?.id) {
+    notFound();
+  }
+
   const { section } = await params;
   if (!allowedSections.includes(section as AdminCalendarSection)) {
     notFound();
   }
 
   const typedSection = section as AdminCalendarSection;
+  if (
+    ["accounts", "rooms", "event-types", "pricing"].includes(typedSection) &&
+    session.user.role !== "super_admin"
+  ) {
+    notFound();
+  }
 
   return (
     <div>
-      <h2>{sectionTitles[typedSection]}</h2>
       <AdminCalendarConsole section={typedSection} />
     </div>
   );

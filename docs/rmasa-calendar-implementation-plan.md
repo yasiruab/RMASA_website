@@ -89,12 +89,41 @@ Based on: `20250621 RMASA Calendar plugin requirement with badminton.docx` and a
   - cannot delete room/event type with booking history
   - cannot delete room with active blockouts
   - cannot delete room while event types are still attached
+- Admin authentication layer:
+  - credentials-based login at `/admin/login`
+  - protected `/admin/*` routes via middleware
+  - role-based access (`admin`, `super_admin`)
+  - super-admin-only access for rooms/event types/pricing configuration
+
+### 9. Admin Revenue Insights
+- Dashboard revenue snapshot is available (recognized/collected/receivable/rate + mini trend).
+- Dedicated `/admin/calendar/revenue` section added with:
+  - date/room/event/ac filters
+  - monthly trend chart
+  - breakdown tables
+  - pipeline and collections queue.
 
 ## Current Data Storage
-- Persistence is file-based JSON (not external DB):
-  - `data/calendar-db.json`
+- Persistence is database-backed (Postgres via Prisma):
+  - schema: `prisma/schema.prisma`
+  - migrations: `prisma/migrations/*`
 - Access layer:
   - `src/lib/calendar-store.ts`
+
+## Environment and Setup
+- Required environment variables:
+  - `DATABASE_URL`
+  - `NEXTAUTH_SECRET`
+  - `NEXTAUTH_URL`
+  - `ADMIN_EMAIL`
+  - `ADMIN_PASSWORD`
+- Example file:
+  - `.env.example`
+- Database/auth commands:
+  - `npm run db:generate`
+  - `npm run db:migrate`
+  - `npm run db:seed:admin`
+  - `npm run db:migrate:calendar-json`
 
 ## API/Runtime Hardening Applied
 - Config endpoints forced dynamic to avoid stale config reads.
@@ -117,9 +146,10 @@ Based on: `20250621 RMASA Calendar plugin requirement with badminton.docx` and a
 - Lower-priority cancellation occurs only after admin confirmation of high-priority request.
 
 ## Open Follow-Ups
-- Add authentication/RBAC for admin routes.
-- Move from JSON file storage to managed DB for production.
 - Add notifications (email/WhatsApp) once integration phase starts.
+- Add step-up auth (MFA or re-auth) for super-admin sensitive actions.
+- Add email-based password reset flow.
+- Add rate limiting / lockout policy on repeated failed sign-ins.
 
 ## Change Log
 
@@ -148,3 +178,17 @@ Based on: `20250621 RMASA Calendar plugin requirement with badminton.docx` and a
 - Changed override lifecycle:
   - lower-priority bookings are no longer cancelled at submit time
   - cancellation occurs only when admin confirms the high-priority booking.
+
+### 2026-02-17
+- Added admin auth foundation with NextAuth credentials provider and secure session handling.
+- Added middleware protection for `/admin/*` and dedicated `/admin/login`.
+- Added role-based authorization utilities and applied guards to admin calendar APIs.
+- Added super-admin-only admin account management APIs:
+  - list/create accounts
+  - role/active updates
+  - password reset
+- Added audit logging for auth events and admin mutation endpoints.
+- Added Prisma/Postgres schema for auth, calendar domain, and audit records.
+- Added migration scripts:
+  - seed super admin from env
+  - migrate legacy JSON calendar data into Postgres.

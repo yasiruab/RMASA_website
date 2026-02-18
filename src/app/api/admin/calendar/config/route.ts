@@ -1,4 +1,6 @@
 import { NextResponse } from "next/server";
+import { logAuditEvent } from "@/lib/audit";
+import { requireAdmin, requireSuperAdmin } from "@/lib/auth-guards";
 import { readCalendarDb, updateCalendarDb } from "@/lib/calendar-store";
 import { EventType, PricingRule, RoomType } from "@/lib/calendar-types";
 
@@ -11,6 +13,9 @@ type ConfigPayload = {
 };
 
 export async function GET() {
+  const auth = await requireAdmin();
+  if ("response" in auth) return auth.response;
+
   const db = await readCalendarDb();
   return NextResponse.json({
     rooms: db.rooms,
@@ -20,6 +25,9 @@ export async function GET() {
 }
 
 export async function PUT(req: Request) {
+  const auth = await requireSuperAdmin();
+  if ("response" in auth) return auth.response;
+
   const payload = (await req.json()) as ConfigPayload;
   if (!payload.rooms || !payload.eventTypes || !payload.pricingRules) {
     return NextResponse.json({ message: "rooms, eventTypes and pricingRules are required." }, { status: 400 });
@@ -68,6 +76,21 @@ export async function PUT(req: Request) {
     eventTypes: payload.eventTypes ?? current.eventTypes,
     pricingRules: payload.pricingRules ?? current.pricingRules,
   }));
+
+  await logAuditEvent({
+    actorUserId: auth.actor.userId,
+    actorEmail: auth.actor.email,
+    action: "ADMIN_CONFIG_UPDATED",
+    resourceType: "calendar_config",
+    resourceId: "global",
+    meta: {
+      roomCount: payload.rooms.length,
+      eventTypeCount: payload.eventTypes.length,
+      pricingRuleCount: payload.pricingRules.length,
+    },
+    ip: req.headers.get("x-forwarded-for"),
+    userAgent: req.headers.get("user-agent"),
+  });
 
   return NextResponse.json({ message: "Configuration updated." });
 }

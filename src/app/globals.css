@@ -1339,6 +1339,18 @@ main {
   gap: 16px;
 }
 
+.admin-head-row {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.admin-user-meta {
+  margin: 8px 0 0;
+  color: #5a6270;
+}
+
 .admin-shell {
   margin-top: 16px;
   display: grid;
@@ -1423,6 +1435,10 @@ main {
 
 .admin-row-pricing {
   grid-template-columns: 1fr 1fr 1fr 1fr 1fr auto;
+}
+
+.admin-row-accounts {
+  grid-template-columns: 1fr 1.2fr 1.1fr 0.8fr auto;
 }
 
 .admin-row input,
@@ -1718,6 +1734,16 @@ main {
   color: #4a5260;
 }
 
+.admin-table-wrap {
+  overflow-x: auto;
+}
+
+.admin-inline-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
 .event-meta {
   color: #8a8f96;
   font-size: 0.95rem;
@@ -1872,6 +1898,11 @@ main {
 .btn-secondary:hover,
 .btn-secondary:focus-visible {
   background: #f7f8fa;
+}
+
+.btn:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
 }
 
 .whatsapp-cta {
@@ -2048,6 +2079,11 @@ main {
 
   .admin-shell {
     grid-template-columns: 1fr;
+  }
+
+  .admin-head-row {
+    flex-direction: column;
+    align-items: flex-start;
   }
 
   .admin-dashboard-grid {

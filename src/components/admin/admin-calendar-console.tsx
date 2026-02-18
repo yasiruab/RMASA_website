@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
+import { useSession } from "next-auth/react";
 
 type RoomType = {
   id: string;
@@ -257,6 +258,7 @@ function buildRevenueModel(sourceBookings: Booking[], startYmd: string, endYmd: 
 export type AdminCalendarSection =
   | "dashboard"
   | "revenue"
+  | "accounts"
   | "rooms"
   | "event-types"
   | "pricing"
@@ -267,12 +269,25 @@ type AdminCalendarConsoleProps = {
   section: AdminCalendarSection;
 };
 
+type AdminUser = {
+  id: string;
+  email: string;
+  name: string | null;
+  role: "admin" | "super_admin";
+  active: boolean;
+  createdAt: string;
+  updatedAt: string;
+};
+
 export function AdminCalendarConsole({ section }: AdminCalendarConsoleProps) {
+  const { data: session } = useSession();
+  const isSuperAdmin = session?.user?.role === "super_admin";
   const [rooms, setRooms] = useState<RoomType[]>([]);
   const [eventTypes, setEventTypes] = useState<EventType[]>([]);
   const [pricingRules, setPricingRules] = useState<PricingRule[]>([]);
   const [bookings, setBookings] = useState<Booking[]>([]);
   const [blocks, setBlocks] = useState<CalendarBlock[]>([]);
+  const [adminUsers, setAdminUsers] = useState<AdminUser[]>([]);
   const [message, setMessage] = useState("");
   const [messageTone, setMessageTone] = useState<"success" | "error">("success");
   const [blockForm, setBlockForm] = useState({
@@ -288,10 +303,21 @@ export function AdminCalendarConsole({ section }: AdminCalendarConsoleProps) {
     eventTypeId: "all",
     acMode: "all",
   });
+  const [accountForm, setAccountForm] = useState({
+    email: "",
+    password: "",
+    role: "admin" as "admin" | "super_admin",
+    name: "",
+  });
 
   useEffect(() => {
     void refreshAll();
   }, []);
+
+  useEffect(() => {
+    if (!isSuperAdmin) return;
+    void refreshAccounts();
+  }, [isSuperAdmin, section]);
 
   async function refreshAll() {
     const [configRes, bookingRes, blockRes] = await Promise.all([
@@ -317,6 +343,13 @@ export function AdminCalendarConsole({ section }: AdminCalendarConsoleProps) {
       ...current,
       roomTypeId: current.roomTypeId || configData.rooms[0]?.id || "",
     }));
+  }
+
+  async function refreshAccounts() {
+    const res = await fetch("/api/admin/accounts");
+    const data = (await res.json()) as { users?: AdminUser[]; message?: string };
+    if (!res.ok) return;
+    setAdminUsers(data.users ?? []);
   }
 
   async function saveConfig() {
@@ -382,6 +415,37 @@ export function AdminCalendarConsole({ section }: AdminCalendarConsoleProps) {
       body: JSON.stringify({ id }),
     });
     await refreshAll();
+  }
+
+  async function createAccount() {
+    const res = await fetch("/api/admin/accounts", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(accountForm),
+    });
+    const data = (await res.json()) as { message?: string };
+    setMessageTone(res.ok ? "success" : "error");
+    setMessage(data.message ?? (res.ok ? "Account created." : "Failed to create account."));
+    if (!res.ok) return;
+
+    setAccountForm((current) => ({ ...current, password: "", email: "", name: "" }));
+    await refreshAccounts();
+  }
+
+  async function updateAccountRoleAndState(
+    id: string,
+    payload: Partial<Pick<AdminUser, "role" | "active">>,
+  ) {
+    const res = await fetch(`/api/admin/accounts/${id}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    });
+    const data = (await res.json()) as { message?: string };
+    setMessageTone(res.ok ? "success" : "error");
+    setMessage(data.message ?? (res.ok ? "Account updated." : "Failed to update account."));
+    if (!res.ok) return;
+    await refreshAccounts();
   }
 
   function removeRoom(roomId: string) {
@@ -504,10 +568,14 @@ export function AdminCalendarConsole({ section }: AdminCalendarConsoleProps) {
     () => buildRevenueModel(dashboardRevenueBookings, dashboardRangeStartYmd, todayYmd),
     [dashboardRevenueBookings, dashboardRangeStartYmd, todayYmd],
   );
+  const activeSuperAdminCount = useMemo(
+    () => adminUsers.filter((user) => user.active && user.role === "super_admin").length,
+    [adminUsers],
+  );
 
   return (
     <div className="admin-console">
-      <p className="admin-note">No authentication layer is included yet. Add RBAC in production.</p>
+      <p className="admin-note">Admin access is protected by authentication and role-based permissions.</p>
       {message ? <p className={`form-message ${messageTone}`}>{message}</p> : null}
 
       {section === "dashboard" ? (
@@ -832,6 +900,7 @@ export function AdminCalendarConsole({ section }: AdminCalendarConsoleProps) {
       ) : null}
 
       {section === "rooms" ? (
+        isSuperAdmin ? (
         <section className="admin-panel">
         <h2>Room Types and Working Hours</h2>
         <div className="admin-list">
@@ -918,9 +987,15 @@ export function AdminCalendarConsole({ section }: AdminCalendarConsoleProps) {
           Save Configuration
         </button>
         </section>
+        ) : (
+          <section className="admin-panel">
+            <p className="form-message error">Only super admins can manage room configuration.</p>
+          </section>
+        )
       ) : null}
 
       {section === "event-types" ? (
+        isSuperAdmin ? (
         <section className="admin-panel">
         <h2>Event Types (Duration + Priority)</h2>
         <div className="admin-list">
@@ -1008,9 +1083,15 @@ export function AdminCalendarConsole({ section }: AdminCalendarConsoleProps) {
           Save Configuration
         </button>
         </section>
+        ) : (
+          <section className="admin-panel">
+            <p className="form-message error">Only super admins can manage event type configuration.</p>
+          </section>
+        )
       ) : null}
 
       {section === "pricing" ? (
+        isSuperAdmin ? (
         <section className="admin-panel">
         <h2>Pricing Matrix</h2>
         <div className="admin-list">
@@ -1143,6 +1224,145 @@ export function AdminCalendarConsole({ section }: AdminCalendarConsoleProps) {
           Save Configuration
         </button>
         </section>
+        ) : (
+          <section className="admin-panel">
+            <p className="form-message error">Only super admins can manage pricing configuration.</p>
+          </section>
+        )
+      ) : null}
+
+      {section === "accounts" ? (
+        isSuperAdmin ? (
+          <section className="admin-panel">
+            <h2>Admin Accounts</h2>
+            <p className="admin-revenue-note">Create and manage admin users. Super admin access is required.</p>
+            <div className="admin-row admin-row-accounts">
+              <input
+                type="text"
+                placeholder="Name (optional)"
+                value={accountForm.name}
+                onChange={(event) =>
+                  setAccountForm((current) => ({ ...current, name: event.target.value }))
+                }
+              />
+              <input
+                type="email"
+                placeholder="Email"
+                value={accountForm.email}
+                onChange={(event) =>
+                  setAccountForm((current) => ({ ...current, email: event.target.value }))
+                }
+              />
+              <input
+                type="password"
+                placeholder="Temporary password"
+                value={accountForm.password}
+                onChange={(event) =>
+                  setAccountForm((current) => ({ ...current, password: event.target.value }))
+                }
+              />
+              <select
+                value={accountForm.role}
+                onChange={(event) =>
+                  setAccountForm((current) => ({
+                    ...current,
+                    role: event.target.value as "admin" | "super_admin",
+                  }))
+                }
+              >
+                <option value="admin">Admin</option>
+                <option value="super_admin">Super Admin</option>
+              </select>
+              <button className="btn btn-primary" onClick={createAccount} type="button">
+                Create Account
+              </button>
+            </div>
+
+            <div className="admin-table-wrap">
+              <table className="admin-queue-table">
+                <thead>
+                  <tr>
+                    <th>Email</th>
+                    <th>Name</th>
+                    <th>Role</th>
+                    <th>Status</th>
+                    <th>Created</th>
+                    <th>Actions</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {adminUsers.map((user) => (
+                    <tr key={user.id}>
+                      <td>
+                        {user.email}
+                        {user.id === session?.user?.id ? " (you)" : ""}
+                      </td>
+                      <td>{user.name || "-"}</td>
+                      <td>{user.role}</td>
+                      <td>{user.active ? "active" : "inactive"}</td>
+                      <td>{new Date(user.createdAt).toLocaleDateString("en-LK")}</td>
+                      <td>
+                        <div className="admin-inline-actions">
+                          {(() => {
+                            const isSelf = user.id === session?.user?.id;
+                            const isLastActiveSuperAdmin =
+                              user.role === "super_admin" && user.active && activeSuperAdminCount <= 1;
+                            const disableRoleToggle = isSelf || isLastActiveSuperAdmin;
+                            const disableActivationToggle = isSelf || isLastActiveSuperAdmin;
+                            return (
+                              <>
+                          <button
+                            className="btn btn-secondary"
+                            onClick={() =>
+                              void updateAccountRoleAndState(user.id, {
+                                role: user.role === "super_admin" ? "admin" : "super_admin",
+                              })
+                            }
+                            type="button"
+                            disabled={disableRoleToggle}
+                            title={
+                              disableRoleToggle
+                                ? isSelf
+                                  ? "You cannot change your own role."
+                                  : "Cannot remove the last active super admin."
+                                : undefined
+                            }
+                          >
+                            Toggle Role
+                          </button>
+                          <button
+                            className="btn btn-secondary"
+                            onClick={() =>
+                              void updateAccountRoleAndState(user.id, { active: !user.active })
+                            }
+                            type="button"
+                            disabled={disableActivationToggle}
+                            title={
+                              disableActivationToggle
+                                ? isSelf
+                                  ? "You cannot deactivate your own account."
+                                  : "Cannot deactivate the last active super admin."
+                                : undefined
+                            }
+                          >
+                            {user.active ? "Deactivate" : "Activate"}
+                          </button>
+                              </>
+                            );
+                          })()}
+                        </div>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </section>
+        ) : (
+          <section className="admin-panel">
+            <p className="form-message error">Only super admins can manage admin accounts.</p>
+          </section>
+        )
       ) : null}
 
       {section === "blockouts" ? (
