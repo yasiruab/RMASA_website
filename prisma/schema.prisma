@@ -1,0 +1,231 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum AdminRole {
+  admin
+  super_admin
+}
+
+enum AcMode {
+  with_ac
+  without_ac
+}
+
+enum DayType {
+  weekday
+  weekend
+  any
+}
+
+enum BookingStatus {
+  pending
+  confirmed
+  tentative
+  rejected
+  cancelled_override
+}
+
+enum ReconciliationStatus {
+  unpaid
+  part_paid
+  paid
+  waived
+}
+
+enum RecurrenceFrequency {
+  none
+  daily
+  weekly
+  monthly
+}
+
+model User {
+  id             String    @id @default(cuid())
+  name           String?
+  email          String    @unique
+  emailVerified  DateTime?
+  image          String?
+  passwordHash   String
+  role           AdminRole @default(admin)
+  active         Boolean   @default(true)
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+  accounts       Account[]
+  sessions       Session[]
+  auditLogs      AuditLog[] @relation("AuditActor")
+}
+
+model Account {
+  id                String  @id @default(cuid())
+  userId            String
+  type              String
+  provider          String
+  providerAccountId String
+  refresh_token     String?
+  access_token      String?
+  expires_at        Int?
+  token_type        String?
+  scope             String?
+  id_token          String?
+  session_state     String?
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([provider, providerAccountId])
+}
+
+model Session {
+  id           String   @id @default(cuid())
+  sessionToken String   @unique
+  userId       String
+  expires      DateTime
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model VerificationToken {
+  identifier String
+  token      String   @unique
+  expires    DateTime
+
+  @@unique([identifier, token])
+}
+
+model RoomType {
+  id              String        @id
+  name            String
+  startTime       String
+  endTime         String
+  eventTypes      EventType[]
+  pricingRules    PricingRule[]
+  bookings        Booking[]
+  blocks          CalendarBlock[]
+}
+
+model EventType {
+  id              String        @id
+  name            String
+  durationHours   Int
+  priority        Int
+  roomTypeId      String?
+  roomType        RoomType?     @relation(fields: [roomTypeId], references: [id], onDelete: SetNull)
+  pricingRules    PricingRule[]
+  bookings        Booking[]
+}
+
+model PricingRule {
+  id          String   @id
+  roomTypeId  String
+  eventTypeId String
+  acMode      AcMode
+  dayType     DayType
+  amountLkr   Int
+
+  roomType    RoomType @relation(fields: [roomTypeId], references: [id], onDelete: Cascade)
+  eventType   EventType @relation(fields: [eventTypeId], references: [id], onDelete: Cascade)
+
+  @@index([roomTypeId, eventTypeId, acMode, dayType])
+}
+
+model Booking {
+  id                   String               @id
+  roomTypeId           String
+  eventTypeId          String
+  acMode               AcMode
+  status               BookingStatus
+  customerName         String
+  customerEmail        String
+  customerPhone        String
+  customerPurpose      String
+  recurrenceFrequency  RecurrenceFrequency
+  recurrenceEndDate    String?
+  recurrenceOccurrences Int?
+  totalAmountLkr       Int
+  reconciliationStatus ReconciliationStatus
+  reconciliationNotes  String
+  createdAt            DateTime
+  updatedAt            DateTime
+
+  roomType             RoomType             @relation(fields: [roomTypeId], references: [id], onDelete: Restrict)
+  eventType            EventType            @relation(fields: [eventTypeId], references: [id], onDelete: Restrict)
+  slots                BookingSlot[]
+  amountBreakdown      BookingAmountBreakdown[]
+  overriddenTargets    BookingOverride[]
+
+  @@index([status])
+  @@index([createdAt])
+}
+
+model BookingSlot {
+  id        Int     @id @default(autoincrement())
+  bookingId String
+  date      String
+  startTime String
+  endTime   String
+
+  booking Booking @relation(fields: [bookingId], references: [id], onDelete: Cascade)
+
+  @@index([date])
+  @@index([bookingId])
+}
+
+model BookingAmountBreakdown {
+  id        Int     @id @default(autoincrement())
+  bookingId String
+  date      String
+  slot      String
+  amountLkr Int
+  dayType   DayType
+
+  booking Booking @relation(fields: [bookingId], references: [id], onDelete: Cascade)
+
+  @@index([bookingId])
+}
+
+model BookingOverride {
+  id                 Int    @id @default(autoincrement())
+  bookingId          String
+  overriddenBookingId String
+
+  booking Booking @relation(fields: [bookingId], references: [id], onDelete: Cascade)
+
+  @@index([bookingId])
+}
+
+model CalendarBlock {
+  id         String   @id
+  roomTypeId String
+  date       String
+  startTime  String
+  endTime    String
+  reason     String
+  createdAt  DateTime
+
+  roomType RoomType @relation(fields: [roomTypeId], references: [id], onDelete: Cascade)
+
+  @@index([date, roomTypeId])
+}
+
+model AuditLog {
+  id          String   @id @default(cuid())
+  actorUserId String?
+  actorEmail  String?
+  action      String
+  resourceType String?
+  resourceId  String?
+  meta        Json?
+  ip          String?
+  userAgent   String?
+  createdAt   DateTime @default(now())
+
+  actor User? @relation("AuditActor", fields: [actorUserId], references: [id], onDelete: SetNull)
+
+  @@index([createdAt])
+  @@index([action])
+}
