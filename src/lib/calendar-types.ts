@@ -1,3 +1,17 @@
+export type PaymentEntryType = "payment" | "refund" | "credit_note";
+
+export type PaymentEntry = {
+  id: number;
+  bookingId: string;
+  type: PaymentEntryType;
+  date: string;        // YYYY-MM-DD (admin-supplied)
+  amountLkr: number;  // always positive; direction from type
+  receiptNo: string;
+  notes: string;
+  createdAt: string;  // ISO string
+  createdBy: string;  // admin email
+};
+
 export type AcMode = "with_ac" | "without_ac";
 export type DayType = "weekday" | "weekend" | "any";
 
@@ -40,6 +54,7 @@ export type BookingSlot = {
   date: string; // YYYY-MM-DD
   startTime: string; // HH:mm
   endTime: string; // HH:mm
+  slotStatus?: BookingStatus; // per-slot override; inherits booking status if absent
 };
 
 export type Recurrence = {
@@ -57,6 +72,7 @@ export type BookingCustomer = {
 
 export type Booking = {
   id: string;
+  reference: string;   // BK-XXXXXX human-readable ID
   roomTypeId: string;
   eventTypeId: string;
   acMode: AcMode;
@@ -65,6 +81,7 @@ export type Booking = {
   customer: BookingCustomer;
   recurrence: Recurrence;
   totalAmountLkr: number;
+  paidAmountLkr: number;
   amountBreakdown: Array<{
     date: string;
     slot: string;
@@ -73,6 +90,7 @@ export type Booking = {
   }>;
   reconciliationStatus: ReconciliationStatus;
   reconciliationNotes: string;
+  paymentEntries: PaymentEntry[];
   createdAt: string;
   updatedAt: string;
   overriddenBookingIds: string[];

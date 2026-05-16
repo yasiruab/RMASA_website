@@ -19,17 +19,33 @@ type PricingRule = {
   amountLkr: number;
 };
 
+type PaymentEntry = {
+  id: number;
+  bookingId: string;
+  type: "payment" | "refund" | "credit_note";
+  date: string;
+  amountLkr: number;
+  receiptNo: string;
+  notes: string;
+  createdAt: string;
+  createdBy: string;
+};
+
 type Booking = {
   id: string;
+  reference: string;
   roomTypeId: string;
   eventTypeId: string;
   acMode: "with_ac" | "without_ac";
   status: "pending" | "confirmed" | "tentative" | "rejected" | "cancelled_override";
   totalAmountLkr: number;
+  paidAmountLkr: number;
   reconciliationStatus: "unpaid" | "part_paid" | "paid" | "waived";
   reconciliationNotes: string;
+  paymentEntries: PaymentEntry[];
   customer: { name: string; email: string; phone: string; purpose: string };
-  slots: Array<{ date: string; startTime: string; endTime: string }>;
+  slots: Array<{ date: string; startTime: string; endTime: string; slotStatus?: Booking["status"] }>;
+  amountBreakdown: Array<{ date: string; slot: string; amountLkr: number; dayType: string }>;
   createdAt: string;
 };
 
@@ -44,6 +60,33 @@ type CalendarBlock = {
 
 function uid(prefix: string) {
   return `${prefix}-${Math.random().toString(36).slice(2, 8)}`;
+}
+
+function computeBookingEffectiveStatus(booking: Booking): Booking["status"] {
+  if (booking.slots.length === 0) return booking.status;
+  const effectives = booking.slots.map((s) => s.slotStatus ?? booking.status);
+  if (effectives.every((s) => s === effectives[0])) return effectives[0] as Booking["status"];
+  return booking.status;
+}
+
+function formatSlotDate(ymd: string): string {
+  const [y, m, d] = ymd.split("-").map(Number);
+  return new Date(y, m - 1, d).toLocaleDateString("en-US", {
+    weekday: "short",
+    month: "short",
+    day: "numeric",
+  });
+}
+
+function bookingStatusLabel(status: Booking["status"]): string {
+  const map: Record<Booking["status"], string> = {
+    pending: "Pending",
+    confirmed: "Confirmed",
+    tentative: "Tentative",
+    rejected: "Rejected",
+    cancelled_override: "Cancelled",
+  };
+  return map[status] ?? status;
 }
 
 type RevenueRangePreset = "last_30_days" | "last_90_days" | "current_month";
@@ -67,6 +110,25 @@ type BreakdownRow = {
   amountLkr: number;
 };
 
+type CollectionsRow = {
+  id: string;
+  reference: string;
+  customerName: string;
+  totalAmountLkr: number;
+  paidAmountLkr: number;
+  outstandingLkr: number;
+  reconciliationStatus: Booking["reconciliationStatus"];
+  ageDays: number;
+};
+
+type RefundRow = {
+  id: string;
+  customerName: string;
+  totalAmountLkr: number;
+  paidAmountLkr: number;
+  reconciliationStatus: Booking["reconciliationStatus"];
+};
+
 function toYmd(date: Date) {
   const year = date.getFullYear();
   const month = String(date.getMonth() + 1).padStart(2, "0");
@@ -77,6 +139,10 @@ function toYmd(date: Date) {
 function ymdToDate(ymd: string) {
   const [year, month, day] = ymd.split("-").map(Number);
   return new Date(year, month - 1, day, 0, 0, 0, 0);
+}
+
+async function safeJson<T>(res: Response): Promise<T> {
+  try { return (await res.json()) as T; } catch { return {} as T; }
 }
 
 function addDays(date: Date, days: number) {
@@ -107,6 +173,15 @@ function inDateRange(date: string, startYmd: string, endYmd: string) {
   return date >= startYmd && date <= endYmd;
 }
 
+function effectivePaidLkr(booking: Booking): number {
+  // paidAmountLkr is the server-computed net of all payment ledger entries.
+  // For legacy bookings with reconciliationStatus "waived", treat collected as 0.
+  if (booking.reconciliationStatus === "waived" && booking.paymentEntries.length === 0) return 0;
+  return booking.paidAmountLkr;
+}
+
+// KPIs are computed from ALL confirmed bookings (no date filter) so they match the bookings tab totals.
+// The trend chart uses only slots within the selected date range for month-by-month breakdown.
 function buildRevenueModel(sourceBookings: Booking[], startYmd: string, endYmd: string) {
   const recognizedByRoom = new Map<string, number>();
   const recognizedByEvent = new Map<string, number>();
@@ -117,9 +192,8 @@ function buildRevenueModel(sourceBookings: Booking[], startYmd: string, endYmd: 
   let collectedRevenueLkr = 0;
   let receivableRevenueLkr = 0;
   let confirmedCount = 0;
-  let pendingPipelineLkr = 0;
-  let tentativePipelineLkr = 0;
   let cancelledOverrideValueLkr = 0;
+  let deferredRevenueLkr = 0;
 
   const startMonth = startOfMonth(ymdToDate(startYmd));
   const endMonth = startOfMonth(ymdToDate(endYmd));
@@ -130,92 +204,109 @@ function buildRevenueModel(sourceBookings: Booking[], startYmd: string, endYmd: 
   while (monthPointer <= endMonth) {
     const key = `${monthPointer.getFullYear()}-${String(monthPointer.getMonth() + 1).padStart(2, "0")}`;
     monthOrder.push(key);
-    trendMap.set(key, {
-      key,
-      label: monthLabel(key),
-      recognizedLkr: 0,
-      collectedLkr: 0,
-      receivableLkr: 0,
-    });
+    trendMap.set(key, { key, label: monthLabel(key), recognizedLkr: 0, collectedLkr: 0, receivableLkr: 0 });
     monthPointer.setMonth(monthPointer.getMonth() + 1);
   }
 
-  const collectionsQueue: Array<{
-    id: string;
-    customerName: string;
-    totalAmountLkr: number;
-    reconciliationStatus: Booking["reconciliationStatus"];
-    ageDays: number;
-  }> = [];
+  const collectionsQueue: CollectionsRow[] = [];
+  const refundQueue: RefundRow[] = [];
 
   for (const booking of sourceBookings) {
-    const inRangeDates = booking.slots
-      .map((slot) => slot.date)
-      .filter((date) => inDateRange(date, startYmd, endYmd))
-      .sort();
-    if (inRangeDates.length === 0) continue;
+    const paid = effectivePaidLkr(booking);
+    // Use effective status (accounts for per-slot approve/reject overrides)
+    const effectiveStatus = computeBookingEffectiveStatus(booking);
 
-    if (booking.status === "pending") {
-      pendingPipelineLkr += booking.totalAmountLkr;
-    }
-    if (booking.status === "tentative") {
-      tentativePipelineLkr += booking.totalAmountLkr;
-    }
-    if (booking.status === "cancelled_override") {
+    if (effectiveStatus === "cancelled_override") {
       cancelledOverrideValueLkr += booking.totalAmountLkr;
+      continue;
     }
-    if (booking.status !== "confirmed") continue;
 
+    // Deferred revenue: rejected bookings where the customer already paid — these need a refund.
+    if (effectiveStatus === "rejected") {
+      if (paid > 0) {
+        deferredRevenueLkr += paid;
+        refundQueue.push({
+          id: booking.id,
+          customerName: booking.customer.name,
+          totalAmountLkr: booking.totalAmountLkr,
+          paidAmountLkr: paid,
+          reconciliationStatus: booking.reconciliationStatus,
+        });
+      }
+      continue;
+    }
+
+    if (effectiveStatus !== "confirmed") continue;
+
+    // ── KPIs: all confirmed, no date filter ──────────────────────────
     confirmedCount += 1;
     recognizedRevenueLkr += booking.totalAmountLkr;
-    if (booking.reconciliationStatus === "paid" || booking.reconciliationStatus === "part_paid") {
-      collectedRevenueLkr += booking.totalAmountLkr;
-    }
-    if (booking.reconciliationStatus === "unpaid" || booking.reconciliationStatus === "part_paid") {
-      receivableRevenueLkr += booking.totalAmountLkr;
-      const createdAtMs = Date.parse(booking.createdAt);
-      const nowMs = Date.now();
-      const ageDays =
-        Number.isNaN(createdAtMs) || createdAtMs > nowMs
-          ? 0
-          : Math.floor((nowMs - createdAtMs) / (1000 * 60 * 60 * 24));
-      collectionsQueue.push({
-        id: booking.id,
-        customerName: booking.customer.name,
-        totalAmountLkr: booking.totalAmountLkr,
-        reconciliationStatus: booking.reconciliationStatus,
-        ageDays,
-      });
-    }
+    collectedRevenueLkr += paid;
 
-    recognizedByRoom.set(
-      booking.roomTypeId,
-      (recognizedByRoom.get(booking.roomTypeId) ?? 0) + booking.totalAmountLkr,
-    );
-    recognizedByEvent.set(
-      booking.eventTypeId,
-      (recognizedByEvent.get(booking.eventTypeId) ?? 0) + booking.totalAmountLkr,
-    );
-    recognizedByAcMode.set(
-      booking.acMode,
-      (recognizedByAcMode.get(booking.acMode) ?? 0) + booking.totalAmountLkr,
-    );
-
-    const perSlotShare = booking.totalAmountLkr / inRangeDates.length;
-    for (const date of inRangeDates) {
-      if (isWeekend(date)) weekendRevenueLkr += perSlotShare;
-      else weekdayRevenueLkr += perSlotShare;
-    }
-
-    const bucketKey = monthKey(inRangeDates[0]);
-    const bucket = trendMap.get(bucketKey);
-    if (bucket) {
-      bucket.recognizedLkr += booking.totalAmountLkr;
-      if (booking.reconciliationStatus === "paid" || booking.reconciliationStatus === "part_paid") {
-        bucket.collectedLkr += booking.totalAmountLkr;
-      }
+    const outstanding = booking.totalAmountLkr - paid;
+    if (outstanding > 0 && booking.reconciliationStatus !== "waived") {
+      receivableRevenueLkr += outstanding;
       if (booking.reconciliationStatus === "unpaid" || booking.reconciliationStatus === "part_paid") {
-        bucket.receivableLkr += booking.totalAmountLkr;
+        const createdAtMs = Date.parse(booking.createdAt);
+        const nowMs = Date.now();
+        const ageDays =
+          Number.isNaN(createdAtMs) || createdAtMs > nowMs
+            ? 0
+            : Math.floor((nowMs - createdAtMs) / (1000 * 60 * 60 * 24));
+        collectionsQueue.push({
+          id: booking.id,
+          reference: booking.reference,
+          customerName: booking.customer.name,
+          totalAmountLkr: booking.totalAmountLkr,
+          paidAmountLkr: paid,
+          outstandingLkr: outstanding,
+          reconciliationStatus: booking.reconciliationStatus,
+          ageDays,
+        });
+      }
+    }
+
+    // Room/event/AC/day breakdown from full booking amount
+    recognizedByRoom.set(booking.roomTypeId, (recognizedByRoom.get(booking.roomTypeId) ?? 0) + booking.totalAmountLkr);
+    recognizedByEvent.set(booking.eventTypeId, (recognizedByEvent.get(booking.eventTypeId) ?? 0) + booking.totalAmountLkr);
+    recognizedByAcMode.set(booking.acMode, (recognizedByAcMode.get(booking.acMode) ?? 0) + booking.totalAmountLkr);
+    for (const item of booking.amountBreakdown) {
+      if (item.dayType === "weekend") weekendRevenueLkr += item.amountLkr;
+      else weekdayRevenueLkr += item.amountLkr;
+    }
+
+    // ── Trend chart: only slots within selected date range ───────────
+    const paymentFraction = booking.totalAmountLkr > 0 ? paid / booking.totalAmountLkr : 0;
+    const inRangeBreakdown = booking.amountBreakdown.filter((item) => inDateRange(item.date, startYmd, endYmd));
+
+    if (inRangeBreakdown.length > 0) {
+      for (const item of inRangeBreakdown) {
+        const bKey = monthKey(item.date);
+        const bucket = trendMap.get(bKey);
+        if (bucket) {
+          const itemPaid = Math.round(item.amountLkr * paymentFraction);
+          bucket.recognizedLkr += item.amountLkr;
+          bucket.collectedLkr += itemPaid;
+          if (outstanding > 0 && booking.reconciliationStatus !== "waived") {
+            bucket.receivableLkr += item.amountLkr - itemPaid;
+          }
+        }
+      }
+    } else {
+      const inRangeDates = booking.slots.map((s) => s.date).filter((d) => inDateRange(d, startYmd, endYmd));
+      if (inRangeDates.length > 0) {
+        const firstDate = inRangeDates.sort()[0];
+        const prorated = Math.round((booking.totalAmountLkr * inRangeDates.length) / Math.max(1, booking.slots.length));
+        const proratedPaid = Math.round(prorated * paymentFraction);
+        const bKey = monthKey(firstDate);
+        const bucket = trendMap.get(bKey);
+        if (bucket) {
+          bucket.recognizedLkr += prorated;
+          bucket.collectedLkr += proratedPaid;
+          if (outstanding > 0 && booking.reconciliationStatus !== "waived") {
+            bucket.receivableLkr += prorated - proratedPaid;
+          }
+        }
       }
     }
   }
@@ -237,10 +328,9 @@ function buildRevenueModel(sourceBookings: Booking[], startYmd: string, endYmd: 
     recognizedRevenueLkr,
     collectedRevenueLkr,
     receivableRevenueLkr,
+    deferredRevenueLkr,
     collectionRatePct: recognizedRevenueLkr === 0 ? 0 : collectedRevenueLkr / recognizedRevenueLkr,
     avgBookingValueLkr: confirmedCount === 0 ? 0 : recognizedRevenueLkr / confirmedCount,
-    pendingPipelineLkr,
-    tentativePipelineLkr,
     cancelledOverrideValueLkr,
     roomBreakdown: toBreakdownRows(recognizedByRoom),
     eventBreakdown: toBreakdownRows(recognizedByEvent),
@@ -252,6 +342,7 @@ function buildRevenueModel(sourceBookings: Booking[], startYmd: string, endYmd: 
     trendBuckets,
     maxTrendValue,
     collectionsQueue: collectionsQueue.sort((a, b) => b.ageDays - a.ageDays),
+    refundQueue,
   };
 }
 
@@ -285,6 +376,9 @@ export function AdminCalendarConsole({ section }: AdminCalendarConsoleProps) {
   const [rooms, setRooms] = useState<RoomType[]>([]);
   const [eventTypes, setEventTypes] = useState<EventType[]>([]);
   const [pricingRules, setPricingRules] = useState<PricingRule[]>([]);
+  const [savedRooms, setSavedRooms] = useState<RoomType[]>([]);
+  const [savedEventTypes, setSavedEventTypes] = useState<EventType[]>([]);
+  const [savedPricingRules, setSavedPricingRules] = useState<PricingRule[]>([]);
   const [bookings, setBookings] = useState<Booking[]>([]);
   const [blocks, setBlocks] = useState<CalendarBlock[]>([]);
   const [adminUsers, setAdminUsers] = useState<AdminUser[]>([]);
@@ -303,6 +397,15 @@ export function AdminCalendarConsole({ section }: AdminCalendarConsoleProps) {
     eventTypeId: "all",
     acMode: "all",
   });
+  const [slotConflictWarning, setSlotConflictWarning] = useState<string | null>(null);
+  const [paymentForm, setPaymentForm] = useState<{
+    bookingId: string;
+    type: "payment" | "refund" | "credit_note";
+    date: string;
+    amountLkr: string;
+    receiptNo: string;
+    notes: string;
+  } | null>(null);
   const [accountForm, setAccountForm] = useState({
     email: "",
     password: "",
@@ -326,19 +429,15 @@ export function AdminCalendarConsole({ section }: AdminCalendarConsoleProps) {
       fetch("/api/admin/calendar/blocks"),
     ]);
 
-    const configData = (await configRes.json()) as {
-      rooms: RoomType[];
-      eventTypes: EventType[];
-      pricingRules: PricingRule[];
-    };
-    const bookingData = (await bookingRes.json()) as { bookings: Booking[] };
-    const blockData = (await blockRes.json()) as { blocks: CalendarBlock[]; rooms: RoomType[] };
+    const configData = await safeJson<{ rooms: RoomType[]; eventTypes: EventType[]; pricingRules: PricingRule[] }>(configRes);
+    const bookingData = await safeJson<{ bookings: Booking[] }>(bookingRes);
+    const blockData = await safeJson<{ blocks: CalendarBlock[]; rooms: RoomType[] }>(blockRes);
 
-    setRooms(configData.rooms);
-    setEventTypes(configData.eventTypes);
-    setPricingRules(configData.pricingRules);
-    setBookings(bookingData.bookings);
-    setBlocks(blockData.blocks);
+    if (configData.rooms) { setRooms(configData.rooms); setSavedRooms(configData.rooms); }
+    if (configData.eventTypes) { setEventTypes(configData.eventTypes); setSavedEventTypes(configData.eventTypes); }
+    if (configData.pricingRules) { setPricingRules(configData.pricingRules); setSavedPricingRules(configData.pricingRules); }
+    if (bookingData.bookings) setBookings(bookingData.bookings);
+    if (blockData.blocks) setBlocks(blockData.blocks);
     setBlockForm((current) => ({
       ...current,
       roomTypeId: current.roomTypeId || configData.rooms[0]?.id || "",
@@ -347,7 +446,7 @@ export function AdminCalendarConsole({ section }: AdminCalendarConsoleProps) {
 
   async function refreshAccounts() {
     const res = await fetch("/api/admin/accounts");
-    const data = (await res.json()) as { users?: AdminUser[]; message?: string };
+    const data = await safeJson<{ users?: AdminUser[]; message?: string }>(res);
     if (!res.ok) return;
     setAdminUsers(data.users ?? []);
   }
@@ -359,7 +458,7 @@ export function AdminCalendarConsole({ section }: AdminCalendarConsoleProps) {
       body: JSON.stringify({ rooms, eventTypes, pricingRules }),
     });
 
-    const data = (await res.json()) as { message?: string };
+    const data = await safeJson<{ message?: string }>(res);
     if (!res.ok) {
       setMessageTone("error");
       setMessage(data.message ?? "Failed to save configuration.");
@@ -377,35 +476,93 @@ export function AdminCalendarConsole({ section }: AdminCalendarConsoleProps) {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ id, status }),
     });
-    const data = (await res.json()) as { message?: string };
+    const data = await safeJson<{ message?: string }>(res);
     setMessageTone(res.ok ? "success" : "error");
     setMessage(data.message ?? (res.ok ? "Booking updated." : "Failed to update booking."));
     await refreshAll();
   }
 
-  async function updateReconciliation(
-    id: string,
-    reconciliationStatus: Booking["reconciliationStatus"],
-    reconciliationNotes: string,
+  async function updateSlotStatus(
+    bookingId: string,
+    slotDate: string,
+    slotStartTime: string,
+    slotStatus: Booking["status"] | null,
   ) {
-    await fetch("/api/admin/calendar/bookings", {
+    // Optimistic update — badge changes immediately, server confirms after
+    setBookings((current) =>
+      current.map((b) => {
+        if (b.id !== bookingId) return b;
+        return {
+          ...b,
+          slots: b.slots.map((s) =>
+            s.date === slotDate && s.startTime === slotStartTime
+              ? { ...s, slotStatus: slotStatus ?? undefined }
+              : s,
+          ),
+        };
+      }),
+    );
+
+    const res = await fetch("/api/admin/calendar/bookings", {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ id, reconciliationStatus, reconciliationNotes }),
+      body: JSON.stringify({ id: bookingId, slotDate, slotStartTime, slotStatus }),
     });
+    const data = await safeJson<{ message?: string }>(res);
+    setMessageTone(res.ok ? "success" : "error");
+    setMessage(data.message ?? (res.ok ? "Slot updated." : "Failed to update slot."));
     await refreshAll();
   }
 
+  async function addPaymentEntry(
+    bookingId: string,
+    form: { type: string; date: string; amountLkr: string; receiptNo: string; notes: string },
+  ) {
+    const amountLkr = Math.floor(Number(form.amountLkr));
+    if (!amountLkr || amountLkr <= 0) {
+      setMessageTone("error");
+      setMessage("Amount must be a positive whole number.");
+      return false;
+    }
+    if (!form.notes.trim()) {
+      setMessageTone("error");
+      setMessage("Notes are required.");
+      return false;
+    }
+    const res = await fetch(`/api/admin/calendar/bookings/${bookingId}/payments`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        type: form.type,
+        date: form.date,
+        amountLkr,
+        receiptNo: form.receiptNo.trim(),
+        notes: form.notes.trim(),
+      }),
+    });
+    const data = await safeJson<{ message?: string }>(res);
+    setMessageTone(res.ok ? "success" : "error");
+    setMessage(data.message ?? (res.ok ? "Entry added." : "Failed to add entry."));
+    if (res.ok) await refreshAll();
+    return res.ok;
+  }
+
   async function createBlock() {
+    if (!blockForm.date) {
+      setMessageTone("error");
+      setMessage("Please select a date for the blockout.");
+      return;
+    }
     const res = await fetch("/api/admin/calendar/blocks", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(blockForm),
     });
 
-    const data = (await res.json()) as { message?: string };
-    setMessage(data.message ?? "Block created.");
-    await refreshAll();
+    const data = await safeJson<{ message?: string }>(res);
+    setMessageTone(res.ok ? "success" : "error");
+    setMessage(data.message ?? (res.ok ? "Block created." : "Failed to create block."));
+    if (res.ok) await refreshAll();
   }
 
   async function removeBlock(id: string) {
@@ -423,7 +580,7 @@ export function AdminCalendarConsole({ section }: AdminCalendarConsoleProps) {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(accountForm),
     });
-    const data = (await res.json()) as { message?: string };
+    const data = await safeJson<{ message?: string }>(res);
     setMessageTone(res.ok ? "success" : "error");
     setMessage(data.message ?? (res.ok ? "Account created." : "Failed to create account."));
     if (!res.ok) return;
@@ -441,7 +598,7 @@ export function AdminCalendarConsole({ section }: AdminCalendarConsoleProps) {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(payload),
     });
-    const data = (await res.json()) as { message?: string };
+    const data = await safeJson<{ message?: string }>(res);
     setMessageTone(res.ok ? "success" : "error");
     setMessage(data.message ?? (res.ok ? "Account updated." : "Failed to update account."));
     if (!res.ok) return;
@@ -508,15 +665,15 @@ export function AdminCalendarConsole({ section }: AdminCalendarConsoleProps) {
     [eventTypes],
   );
   const pendingBookings = useMemo(
-    () => bookings.filter((booking) => booking.status === "pending").length,
+    () => bookings.filter((b) => computeBookingEffectiveStatus(b) === "pending").length,
     [bookings],
   );
   const tentativeBookings = useMemo(
-    () => bookings.filter((booking) => booking.status === "tentative").length,
+    () => bookings.filter((b) => computeBookingEffectiveStatus(b) === "tentative").length,
     [bookings],
   );
   const confirmedBookings = useMemo(
-    () => bookings.filter((booking) => booking.status === "confirmed").length,
+    () => bookings.filter((b) => computeBookingEffectiveStatus(b) === "confirmed").length,
     [bookings],
   );
   const currencyFormatter = useMemo(() => new Intl.NumberFormat("en-LK"), []);
@@ -541,15 +698,17 @@ export function AdminCalendarConsole({ section }: AdminCalendarConsoleProps) {
     [todayYmd],
   );
 
+  // KPIs come from ALL bookings matching the room/event/acMode filter (no date filter).
+  // The date range is used only for the monthly trend chart inside buildRevenueModel.
   const filteredRevenueBookings = useMemo(
     () =>
       bookings.filter((booking) => {
         if (revenueFilters.roomTypeId !== "all" && booking.roomTypeId !== revenueFilters.roomTypeId) return false;
         if (revenueFilters.eventTypeId !== "all" && booking.eventTypeId !== revenueFilters.eventTypeId) return false;
         if (revenueFilters.acMode !== "all" && booking.acMode !== revenueFilters.acMode) return false;
-        return booking.slots.some((slot) => inDateRange(slot.date, currentRangeStartYmd, todayYmd));
+        return true;
       }),
-    [bookings, revenueFilters, currentRangeStartYmd, todayYmd],
+    [bookings, revenueFilters],
   );
 
   const revenueModel = useMemo(
@@ -557,21 +716,111 @@ export function AdminCalendarConsole({ section }: AdminCalendarConsoleProps) {
     [filteredRevenueBookings, currentRangeStartYmd, todayYmd],
   );
 
-  const dashboardRevenueBookings = useMemo(
-    () =>
-      bookings.filter((booking) =>
-        booking.slots.some((slot) => inDateRange(slot.date, dashboardRangeStartYmd, todayYmd)),
-      ),
-    [bookings, dashboardRangeStartYmd, todayYmd],
-  );
+  // Dashboard uses all bookings; date range only affects the trend chart.
   const dashboardRevenueModel = useMemo(
-    () => buildRevenueModel(dashboardRevenueBookings, dashboardRangeStartYmd, todayYmd),
-    [dashboardRevenueBookings, dashboardRangeStartYmd, todayYmd],
+    () => buildRevenueModel(bookings, dashboardRangeStartYmd, todayYmd),
+    [bookings, dashboardRangeStartYmd, todayYmd],
   );
   const activeSuperAdminCount = useMemo(
     () => adminUsers.filter((user) => user.active && user.role === "super_admin").length,
     [adminUsers],
   );
+
+  const isConfigDirty = useMemo(
+    () =>
+      JSON.stringify(rooms) !== JSON.stringify(savedRooms) ||
+      JSON.stringify(eventTypes) !== JSON.stringify(savedEventTypes) ||
+      JSON.stringify(pricingRules) !== JSON.stringify(savedPricingRules),
+    [rooms, eventTypes, pricingRules, savedRooms, savedEventTypes, savedPricingRules],
+  );
+
+  // Pipeline = all pending/tentative bookings regardless of date range (future prospects)
+  const pendingPipelineLkr = useMemo(
+    () => bookings.filter((b) => computeBookingEffectiveStatus(b) === "pending").reduce((sum, b) => sum + b.totalAmountLkr, 0),
+    [bookings],
+  );
+  const tentativePipelineLkr = useMemo(
+    () => bookings.filter((b) => computeBookingEffectiveStatus(b) === "tentative").reduce((sum, b) => sum + b.totalAmountLkr, 0),
+    [bookings],
+  );
+
+  const conflictMap = useMemo(() => {
+    const active = bookings.filter((b) =>
+      ["pending", "tentative", "confirmed"].includes(b.status),
+    );
+    const map = new Map<string, string[]>();
+    for (let i = 0; i < active.length; i++) {
+      for (let j = i + 1; j < active.length; j++) {
+        const a = active[i];
+        const b = active[j];
+        if (a.roomTypeId !== b.roomTypeId) continue;
+        const aSlots = a.slots.filter((s) => {
+          const eff = s.slotStatus ?? a.status;
+          return eff !== "rejected" && eff !== "cancelled_override";
+        });
+        const bSlots = b.slots.filter((s) => {
+          const eff = s.slotStatus ?? b.status;
+          return eff !== "rejected" && eff !== "cancelled_override";
+        });
+        const hasOverlap = aSlots.some((sa) =>
+          bSlots.some(
+            (sb) =>
+              sa.date === sb.date &&
+              sa.startTime < sb.endTime &&
+              sa.endTime > sb.startTime,
+          ),
+        );
+        if (hasOverlap) {
+          map.set(a.id, [...(map.get(a.id) ?? []), b.id]);
+          map.set(b.id, [...(map.get(b.id) ?? []), a.id]);
+        }
+      }
+    }
+    return map;
+  }, [bookings]);
+
+  // Per-slot conflict map: "bookingId|date|startTime" → description strings of conflicting slots
+  const slotConflictMap = useMemo(() => {
+    const active = bookings.filter((b) =>
+      ["pending", "tentative", "confirmed"].includes(b.status),
+    );
+    const map = new Map<string, string[]>();
+    for (let i = 0; i < active.length; i++) {
+      for (let j = i + 1; j < active.length; j++) {
+        const a = active[i];
+        const b = active[j];
+        if (a.roomTypeId !== b.roomTypeId) continue;
+        const aSlots = a.slots.filter((s) => (s.slotStatus ?? a.status) !== "rejected" && (s.slotStatus ?? a.status) !== "cancelled_override");
+        const bSlots = b.slots.filter((s) => (s.slotStatus ?? b.status) !== "rejected" && (s.slotStatus ?? b.status) !== "cancelled_override");
+        for (const sa of aSlots) {
+          for (const sb of bSlots) {
+            if (sa.date === sb.date && sa.startTime < sb.endTime && sa.endTime > sb.startTime) {
+              const keyA = `${a.id}|${sa.date}|${sa.startTime}`;
+              const keyB = `${b.id}|${sb.date}|${sb.startTime}`;
+              map.set(keyA, [...(map.get(keyA) ?? []), `${b.customer.name} (${eventNameMap[b.eventTypeId]}) ${sb.date} ${sb.startTime}–${sb.endTime}`]);
+              map.set(keyB, [...(map.get(keyB) ?? []), `${a.customer.name} (${eventNameMap[a.eventTypeId]}) ${sa.date} ${sa.startTime}–${sa.endTime}`]);
+            }
+          }
+        }
+      }
+    }
+    return map;
+  }, [bookings, eventNameMap]);
+
+  const conflictPairs = useMemo(() => {
+    const seen = new Set<string>();
+    const pairs: Array<{ aId: string; bId: string }> = [];
+    for (const [aId, bIds] of conflictMap.entries()) {
+      for (const bId of bIds) {
+        const key = [aId, bId].sort().join("||");
+        if (!seen.has(key)) {
+          seen.add(key);
+          pairs.push({ aId, bId });
+        }
+      }
+    }
+    return pairs;
+  }, [conflictMap]);
 
   return (
     <div className="admin-console">
@@ -621,6 +870,12 @@ export function AdminCalendarConsole({ section }: AdminCalendarConsoleProps) {
                 <h4>Collection Rate</h4>
                 <p>{percentFormatter.format(dashboardRevenueModel.collectionRatePct)}</p>
               </article>
+              {dashboardRevenueModel.deferredRevenueLkr > 0 ? (
+                <article className="admin-kpi-card admin-kpi-card-alert">
+                  <h4>Deferred (Refund Due)</h4>
+                  <p>LKR {currencyFormatter.format(Math.round(dashboardRevenueModel.deferredRevenueLkr))}</p>
+                </article>
+              ) : null}
             </div>
             <div className="admin-chart-panel admin-chart-panel-mini">
               <h4>Recent Monthly Trend</h4>
@@ -728,9 +983,13 @@ export function AdminCalendarConsole({ section }: AdminCalendarConsoleProps) {
             </select>
           </div>
 
+          <p className="admin-revenue-note">
+            Recognized, Collected, and Receivable cover <strong>all confirmed bookings</strong> regardless of date.
+            The trend chart and period filter below apply to the selected date range.
+          </p>
           <div className="admin-revenue-grid">
             <article className="admin-kpi-card">
-              <h4>Recognized</h4>
+              <h4>Recognized (Confirmed)</h4>
               <p>LKR {currencyFormatter.format(Math.round(revenueModel.recognizedRevenueLkr))}</p>
             </article>
             <article className="admin-kpi-card">
@@ -738,7 +997,7 @@ export function AdminCalendarConsole({ section }: AdminCalendarConsoleProps) {
               <p>LKR {currencyFormatter.format(Math.round(revenueModel.collectedRevenueLkr))}</p>
             </article>
             <article className="admin-kpi-card">
-              <h4>Receivable</h4>
+              <h4>Receivable (Outstanding)</h4>
               <p>LKR {currencyFormatter.format(Math.round(revenueModel.receivableRevenueLkr))}</p>
             </article>
             <article className="admin-kpi-card">
@@ -749,11 +1008,46 @@ export function AdminCalendarConsole({ section }: AdminCalendarConsoleProps) {
               <h4>Avg Booking Value</h4>
               <p>LKR {currencyFormatter.format(Math.round(revenueModel.avgBookingValueLkr))}</p>
             </article>
-            <article className="admin-kpi-card">
-              <h4>Cancelled Override</h4>
-              <p>LKR {currencyFormatter.format(Math.round(revenueModel.cancelledOverrideValueLkr))}</p>
+            <article className={`admin-kpi-card${revenueModel.deferredRevenueLkr > 0 ? " admin-kpi-card-alert" : ""}`}>
+              <h4>Deferred (Refund Due)</h4>
+              <p>LKR {currencyFormatter.format(Math.round(revenueModel.deferredRevenueLkr))}</p>
+              {revenueModel.deferredRevenueLkr > 0 && (
+                <small className="admin-kpi-note">{revenueModel.refundQueue.length} rejected booking{revenueModel.refundQueue.length !== 1 ? "s" : ""} — refund customers</small>
+              )}
             </article>
           </div>
+
+          {revenueModel.refundQueue.length > 0 ? (
+            <div className="admin-chart-panel">
+              <h3>Refund Queue — Rejected Bookings with Payment</h3>
+              <div className="booking-summary-wrap">
+                <table className="admin-queue-table">
+                  <thead>
+                    <tr>
+                      <th>Customer</th>
+                      <th>Total Booked</th>
+                      <th>Paid</th>
+                      <th>Status</th>
+                      <th>Action</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {revenueModel.refundQueue.map((row) => (
+                      <tr key={row.id} className="refund-queue-row">
+                        <td>{row.customerName}</td>
+                        <td>LKR {currencyFormatter.format(Math.round(row.totalAmountLkr))}</td>
+                        <td className="queue-outstanding">LKR {currencyFormatter.format(Math.round(row.paidAmountLkr))}</td>
+                        <td>{row.reconciliationStatus === "paid" ? "Paid in Full" : row.reconciliationStatus === "part_paid" ? "Part Paid" : row.reconciliationStatus}</td>
+                        <td>
+                          <Link className="btn btn-secondary" href="/admin/calendar/bookings">Review</Link>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          ) : null}
 
           <div className="admin-chart-panel">
             <h3>Monthly Revenue Trend</h3>
@@ -846,26 +1140,27 @@ export function AdminCalendarConsole({ section }: AdminCalendarConsoleProps) {
           <div className="admin-risk-panel">
             <article className="admin-kpi-card">
               <h4>Pending Pipeline</h4>
-              <p>LKR {currencyFormatter.format(Math.round(revenueModel.pendingPipelineLkr))}</p>
+              <p>LKR {currencyFormatter.format(Math.round(pendingPipelineLkr))}</p>
+              <small className="admin-kpi-note">{bookings.filter((b) => b.status === "pending").length} booking{bookings.filter((b) => b.status === "pending").length !== 1 ? "s" : ""}</small>
             </article>
             <article className="admin-kpi-card">
               <h4>Tentative Pipeline</h4>
-              <p>LKR {currencyFormatter.format(Math.round(revenueModel.tentativePipelineLkr))}</p>
+              <p>LKR {currencyFormatter.format(Math.round(tentativePipelineLkr))}</p>
+              <small className="admin-kpi-note">{bookings.filter((b) => b.status === "tentative").length} booking{bookings.filter((b) => b.status === "tentative").length !== 1 ? "s" : ""}</small>
             </article>
           </div>
 
           <div className="admin-chart-panel">
             <h3>Collections Queue</h3>
-            <p className="admin-revenue-note">
-              Note: <code>part_paid</code> is counted in both Collected and Receivable until partial payment amounts are tracked.
-            </p>
             <div className="booking-summary-wrap">
               <table className="admin-queue-table">
                 <thead>
                   <tr>
                     <th>Booking</th>
                     <th>Customer</th>
-                    <th>Amount</th>
+                    <th>Total</th>
+                    <th>Paid</th>
+                    <th>Outstanding</th>
                     <th>Status</th>
                     <th>Age</th>
                     <th>Action</th>
@@ -874,15 +1169,17 @@ export function AdminCalendarConsole({ section }: AdminCalendarConsoleProps) {
                 <tbody>
                   {revenueModel.collectionsQueue.length === 0 ? (
                     <tr>
-                      <td colSpan={6}>No unpaid or part-paid confirmed bookings in this range.</td>
+                      <td colSpan={8}>No unpaid or part-paid confirmed bookings in this range.</td>
                     </tr>
                   ) : (
                     revenueModel.collectionsQueue.map((row) => (
                       <tr key={row.id}>
-                        <td>{row.id}</td>
+                        <td><code>{row.reference || row.id.slice(0, 8)}</code></td>
                         <td>{row.customerName}</td>
                         <td>LKR {currencyFormatter.format(Math.round(row.totalAmountLkr))}</td>
-                        <td>{row.reconciliationStatus}</td>
+                        <td>LKR {currencyFormatter.format(Math.round(row.paidAmountLkr))}</td>
+                        <td className="queue-outstanding">LKR {currencyFormatter.format(Math.round(row.outstandingLkr))}</td>
+                        <td>{row.reconciliationStatus === "part_paid" ? "Part Paid" : "Unpaid"}</td>
                         <td>{row.ageDays} days</td>
                         <td>
                           <Link className="btn btn-secondary" href="/admin/calendar/bookings">
@@ -904,6 +1201,12 @@ export function AdminCalendarConsole({ section }: AdminCalendarConsoleProps) {
         <section className="admin-panel">
         <h2>Room Types and Working Hours</h2>
         <div className="admin-list">
+          <div className="admin-row admin-row-rooms admin-row-header">
+            <span>Room Name</span>
+            <span>Opening Time</span>
+            <span>Closing Time</span>
+            <span></span>
+          </div>
           {rooms.map((room, index) => (
             <div className="admin-row admin-row-rooms" key={room.id}>
               <input
@@ -983,8 +1286,8 @@ export function AdminCalendarConsole({ section }: AdminCalendarConsoleProps) {
         >
           Add Room
         </button>
-        <button className="btn btn-primary" onClick={saveConfig} type="button">
-          Save Configuration
+        <button className="btn btn-primary" disabled={!isConfigDirty} onClick={saveConfig} type="button">
+          Save Configuration{isConfigDirty ? "" : " (no changes)"}
         </button>
         </section>
         ) : (
@@ -997,8 +1300,15 @@ export function AdminCalendarConsole({ section }: AdminCalendarConsoleProps) {
       {section === "event-types" ? (
         isSuperAdmin ? (
         <section className="admin-panel">
-        <h2>Event Types (Duration + Priority)</h2>
+        <h2>Event Types</h2>
         <div className="admin-list">
+          <div className="admin-row admin-row-event-types admin-row-header">
+            <span>Name</span>
+            <span>Applies To</span>
+            <span>Duration (hrs)</span>
+            <span>Priority</span>
+            <span></span>
+          </div>
           {eventTypes.map((eventType, index) => (
             <div className="admin-row admin-row-event-types" key={eventType.id}>
               <input
@@ -1079,8 +1389,8 @@ export function AdminCalendarConsole({ section }: AdminCalendarConsoleProps) {
         >
           Add Event Type
         </button>
-        <button className="btn btn-primary" onClick={saveConfig} type="button">
-          Save Configuration
+        <button className="btn btn-primary" disabled={!isConfigDirty} onClick={saveConfig} type="button">
+          Save Configuration{isConfigDirty ? "" : " (no changes)"}
         </button>
         </section>
         ) : (
@@ -1095,6 +1405,14 @@ export function AdminCalendarConsole({ section }: AdminCalendarConsoleProps) {
         <section className="admin-panel">
         <h2>Pricing Matrix</h2>
         <div className="admin-list">
+          <div className="admin-row admin-row-pricing admin-row-header">
+            <span>Room</span>
+            <span>Event Type</span>
+            <span>AC Mode</span>
+            <span>Day Type</span>
+            <span>Amount (LKR)</span>
+            <span></span>
+          </div>
           {pricingRules.map((rule, index) => (
             <div className="admin-row admin-row-pricing" key={rule.id}>
               <select
@@ -1220,8 +1538,8 @@ export function AdminCalendarConsole({ section }: AdminCalendarConsoleProps) {
         >
           Add Pricing Row
         </button>
-        <button className="btn btn-primary" onClick={saveConfig} type="button">
-          Save Configuration
+        <button className="btn btn-primary" disabled={!isConfigDirty} onClick={saveConfig} type="button">
+          Save Configuration{isConfigDirty ? "" : " (no changes)"}
         </button>
         </section>
         ) : (
@@ -1368,6 +1686,12 @@ export function AdminCalendarConsole({ section }: AdminCalendarConsoleProps) {
       {section === "blockouts" ? (
         <section className="admin-panel">
         <h2>Calendar Blockouts</h2>
+        <p className="admin-revenue-note">
+          A blockout prevents any booking slot that <strong>overlaps</strong> the blocked window.
+          For example, blocking 12:00–13:00 will make a 4-hour slot starting at 09:00 unavailable
+          (09:00–13:00 overlaps), but a slot ending at 12:00 (08:00–12:00) remains available.
+          Blocked slots appear highlighted in the public booking calendar.
+        </p>
         <div className="admin-row">
           <select
             value={blockForm.roomTypeId}
@@ -1432,99 +1756,376 @@ export function AdminCalendarConsole({ section }: AdminCalendarConsoleProps) {
 
       {section === "bookings" ? (
         <section className="admin-panel">
-        <h2>Booking Queue and Reconciliation</h2>
-        <div className="admin-bookings">
-          {bookings.map((booking) => (
-            <article className="admin-booking-card" key={booking.id}>
-              <h3>
-                {booking.customer.name} - {roomNameMap[booking.roomTypeId]} / {eventNameMap[booking.eventTypeId]}
-              </h3>
-              <p>
-                Status: <strong>{booking.status}</strong>
-              </p>
-              <p>Total: LKR {new Intl.NumberFormat("en-LK").format(booking.totalAmountLkr)}</p>
-              <p>
-                {booking.customer.email} | {booking.customer.phone}
-              </p>
-              <p>{booking.customer.purpose}</p>
-              <ul className="selected-slot-list">
-                {booking.slots.map((slot) => (
-                  <li key={`${booking.id}-${slot.date}-${slot.startTime}`}>
-                    {slot.date} {slot.startTime}-{slot.endTime}
-                  </li>
-                ))}
-              </ul>
+          <h2>Booking Queue</h2>
 
-              <div className="admin-row">
-                <button
-                  className="btn btn-secondary"
-                  onClick={() => void updateBookingStatus(booking.id, "confirmed")}
-                  type="button"
-                >
-                  Approve
-                </button>
-                <button
-                  className="btn btn-secondary"
-                  onClick={() => void updateBookingStatus(booking.id, "tentative")}
-                  type="button"
-                >
-                  Tentative
-                </button>
-                <button
-                  className="btn btn-secondary"
-                  onClick={() => void updateBookingStatus(booking.id, "rejected")}
-                  type="button"
-                >
-                  Reject
-                </button>
+          {conflictPairs.length > 0 ? (
+            <div className="bk-conflicts-banner">
+              <div className="bk-conflicts-icon">⚠</div>
+              <div className="bk-conflicts-body">
+                <strong>
+                  {conflictPairs.length} scheduling conflict{conflictPairs.length > 1 ? "s" : ""} detected
+                </strong>
+                <ul>
+                  {conflictPairs.map(({ aId, bId }) => {
+                    const a = bookings.find((b) => b.id === aId);
+                    const b = bookings.find((b) => b.id === bId);
+                    if (!a || !b) return null;
+                    const aActive = a.slots.filter((s) => (s.slotStatus ?? a.status) !== "rejected" && (s.slotStatus ?? a.status) !== "cancelled_override");
+                    const bActive = b.slots.filter((s) => (s.slotStatus ?? b.status) !== "rejected" && (s.slotStatus ?? b.status) !== "cancelled_override");
+                    const overlapDescriptions = aActive.flatMap((sa) =>
+                      bActive
+                        .filter((sb) => sa.date === sb.date && sa.startTime < sb.endTime && sa.endTime > sb.startTime)
+                        .map(() => `${formatSlotDate(sa.date)} ${sa.startTime}–${sa.endTime}`),
+                    );
+                    return (
+                      <li key={`${aId}||${bId}`}>
+                        <strong>{a.customer.name}</strong> ({eventNameMap[a.eventTypeId] ?? "?"}, {bookingStatusLabel(a.status)})
+                        {" vs "}
+                        <strong>{b.customer.name}</strong> ({eventNameMap[b.eventTypeId] ?? "?"}, {bookingStatusLabel(b.status)})
+                        {" — "}
+                        {roomNameMap[a.roomTypeId] ?? "Unknown room"}
+                        {overlapDescriptions.length > 0 && (
+                          <span className="bk-conflict-slots">: {overlapDescriptions.join(", ")}</span>
+                        )}
+                      </li>
+                    );
+                  })}
+                </ul>
               </div>
+            </div>
+          ) : null}
 
-              <div className="admin-row">
-                <select
-                  value={booking.reconciliationStatus}
-                  onChange={(event) =>
-                    void updateReconciliation(
-                      booking.id,
-                      event.target.value as Booking["reconciliationStatus"],
-                      booking.reconciliationNotes,
-                    )
-                  }
+          <div className="bk-list">
+            {bookings.length === 0 ? (
+              <p className="admin-revenue-note">No bookings yet.</p>
+            ) : null}
+            {bookings.map((booking) => {
+              const displayStatus = computeBookingEffectiveStatus(booking);
+              const conflictIds = conflictMap.get(booking.id) ?? [];
+              const hasBookingConflict = conflictIds.length > 0;
+
+              return (
+                <article
+                  className={`bk-card${hasBookingConflict ? " bk-card-conflicted" : ""}`}
+                  key={booking.id}
                 >
-                  <option value="unpaid">Unpaid</option>
-                  <option value="part_paid">Part Paid</option>
-                  <option value="paid">Paid</option>
-                  <option value="waived">Waived</option>
-                </select>
-                <input
-                  placeholder="Reconciliation notes"
-                  value={booking.reconciliationNotes}
-                  onChange={(event) =>
-                    setBookings((current) =>
-                      current.map((item) =>
-                        item.id === booking.id
-                          ? { ...item, reconciliationNotes: event.target.value }
-                          : item,
-                      ),
-                    )
-                  }
-                />
-                <button
-                  className="btn btn-secondary"
-                  onClick={() =>
-                    void updateReconciliation(
-                      booking.id,
-                      booking.reconciliationStatus,
-                      booking.reconciliationNotes,
-                    )
-                  }
-                  type="button"
-                >
-                  Save Notes
-                </button>
-              </div>
-            </article>
-          ))}
-        </div>
+                  {/* ── Header ── */}
+                  <div className="bk-header">
+                    <div className="bk-title-group">
+                      <h3 className="bk-customer-name">{booking.customer.name}</h3>
+                      <p className="bk-reference">{booking.reference || booking.id.slice(0, 8)}</p>
+                      <p className="bk-subtitle">
+                        {roomNameMap[booking.roomTypeId]} &middot;{" "}
+                        {eventNameMap[booking.eventTypeId]} &middot;{" "}
+                        {booking.acMode === "with_ac" ? "With AC" : "No AC"}
+                      </p>
+                    </div>
+                    <div className="bk-header-right">
+                      <span className={`bk-status-pill bk-status-${displayStatus}`}>
+                        {bookingStatusLabel(displayStatus)}
+                      </span>
+                      {hasBookingConflict ? (
+                        <span className="bk-conflict-tag">⚠ Conflict</span>
+                      ) : null}
+                    </div>
+                  </div>
+
+                  {/* ── Conflict detail ── */}
+                  {hasBookingConflict ? (
+                    <div className="bk-conflict-detail">
+                      <span className="bk-conflict-detail-label">Overlaps with:</span>
+                      <ul className="bk-conflict-detail-list">
+                        {conflictIds.map((cid) => {
+                          const other = bookings.find((b) => b.id === cid);
+                          if (!other) return null;
+                          const overlapSlots = booking.slots.filter((sa) =>
+                            other.slots.some(
+                              (sb) =>
+                                (sa.slotStatus ?? booking.status) !== "rejected" &&
+                                (sb.slotStatus ?? other.status) !== "rejected" &&
+                                sa.date === sb.date &&
+                                sa.startTime < sb.endTime &&
+                                sa.endTime > sb.startTime,
+                            ),
+                          );
+                          return (
+                            <li key={cid}>
+                              <strong>{other.customer.name}</strong>{" "}
+                              ({eventNameMap[other.eventTypeId] ?? "?"} · {bookingStatusLabel(other.status)})
+                              {overlapSlots.length > 0 && (
+                                <span className="bk-conflict-slots">
+                                  {" "}on {overlapSlots.map((s) => `${formatSlotDate(s.date)} ${s.startTime}–${s.endTime}`).join(", ")}
+                                </span>
+                              )}
+                            </li>
+                          );
+                        })}
+                      </ul>
+                    </div>
+                  ) : null}
+
+                  {/* ── Refund alert (rejected + paid) ── */}
+                  {computeBookingEffectiveStatus(booking) === "rejected" && effectivePaidLkr(booking) > 0 ? (
+                    <div className="bk-refund-alert">
+                      ⚠ Refund required — customer paid LKR{" "}
+                      {currencyFormatter.format(effectivePaidLkr(booking))} for this rejected booking
+                    </div>
+                  ) : null}
+
+                  {/* ── Meta ── */}
+                  {(() => {
+                    const effectivePaid = effectivePaidLkr(booking);
+                    const outstanding = booking.totalAmountLkr - effectivePaid;
+                    return (
+                      <div className="bk-meta">
+                        <span>{booking.customer.email}</span>
+                        <span className="bk-sep">&middot;</span>
+                        <span>{booking.customer.phone}</span>
+                        <span className="bk-sep">&middot;</span>
+                        <span className="bk-total">
+                          LKR {currencyFormatter.format(booking.totalAmountLkr)}
+                        </span>
+                        <span className="bk-sep">&middot;</span>
+                        {booking.reconciliationStatus === "paid" ? (
+                          <span className="bk-pay-tag bk-pay-paid">Paid in Full</span>
+                        ) : booking.reconciliationStatus === "waived" ? (
+                          <span className="bk-pay-tag bk-pay-waived">Waived</span>
+                        ) : booking.reconciliationStatus === "part_paid" ? (
+                          <span className="bk-pay-tag bk-pay-part">
+                            Paid LKR {currencyFormatter.format(effectivePaid)} &middot; Due LKR {currencyFormatter.format(outstanding)}
+                          </span>
+                        ) : (
+                          <span className="bk-pay-tag bk-pay-unpaid">Unpaid</span>
+                        )}
+                      </div>
+                    );
+                  })()}
+
+                  {/* ── Purpose ── */}
+                  {booking.customer.purpose ? (
+                    <p className="bk-purpose">&ldquo;{booking.customer.purpose}&rdquo;</p>
+                  ) : null}
+
+                  {/* ── Slot list ── */}
+                  <div className="bk-slots">
+                    {booking.slots.map((slot) => {
+                      const effectiveStatus = slot.slotStatus ?? booking.status;
+                      const isApproved = effectiveStatus === "confirmed";
+                      const isRejected = effectiveStatus === "rejected";
+                      const slotKey = `${booking.id}|${slot.date}|${slot.startTime}`;
+                      const slotConflicts = slotConflictMap.get(slotKey) ?? [];
+                      const hasSlotConflict = slotConflicts.length > 0 && !isRejected;
+                      const showConflictWarning = slotConflictWarning === slotKey;
+
+                      return (
+                        <div
+                          key={slotKey}
+                          className={`bk-slot-row${hasSlotConflict ? " bk-slot-conflicted" : ""}`}
+                        >
+                          <div className="bk-slot-main">
+                            <div className="bk-slot-info">
+                              <span className="bk-slot-date">{formatSlotDate(slot.date)}</span>
+                              <span className="bk-slot-time">
+                                {slot.startTime}–{slot.endTime}
+                              </span>
+                              <span className={`bk-slot-badge bk-slot-${effectiveStatus}`}>
+                                {isApproved
+                                  ? "✓ Confirmed"
+                                  : isRejected
+                                    ? "✕ Rejected"
+                                    : effectiveStatus.charAt(0).toUpperCase() +
+                                      effectiveStatus.slice(1)}
+                                {hasSlotConflict ? " ⚠" : ""}
+                              </span>
+                            </div>
+                            <div className="bk-slot-actions">
+                              <button
+                                className={`bk-btn-approve${isApproved ? " is-active" : ""}${hasSlotConflict && !isApproved ? " is-blocked" : ""}`}
+                                onClick={() => {
+                                  if (isApproved) {
+                                    void updateSlotStatus(booking.id, slot.date, slot.startTime, null);
+                                    return;
+                                  }
+                                  if (hasSlotConflict) {
+                                    setSlotConflictWarning(showConflictWarning ? null : slotKey);
+                                    return;
+                                  }
+                                  setSlotConflictWarning(null);
+                                  void updateSlotStatus(booking.id, slot.date, slot.startTime, "confirmed");
+                                }}
+                                type="button"
+                              >
+                                {isApproved ? "✓ Approved" : hasSlotConflict ? "⚠ Blocked" : "✓ Approve"}
+                              </button>
+                              <button
+                                className={`bk-btn-reject${isRejected ? " is-active" : ""}`}
+                                onClick={() => {
+                                  if (isRejected) {
+                                    void updateSlotStatus(booking.id, slot.date, slot.startTime, null);
+                                    return;
+                                  }
+                                  setSlotConflictWarning(null);
+                                  void updateSlotStatus(booking.id, slot.date, slot.startTime, "rejected");
+                                }}
+                                type="button"
+                              >
+                                {isRejected ? "✕ Rejected" : "✕ Reject"}
+                              </button>
+                            </div>
+                          </div>
+                          {showConflictWarning ? (
+                            <div className="bk-slot-conflict-msg">
+                              ⚠ Cannot approve — conflicts with: {slotConflicts.join("; ")}. Reject
+                              those slots first, then try again.
+                            </div>
+                          ) : null}
+                        </div>
+                      );
+                    })}
+                  </div>
+
+                  {/* ── Footer: bulk + reconciliation ── */}
+                  <div className="bk-footer">
+                    <div className="bk-bulk">
+                      <span className="bk-bulk-label">Bulk:</span>
+                      <button
+                        className="bk-btn-bulk bk-bulk-approve"
+                        onClick={() => void updateBookingStatus(booking.id, "confirmed")}
+                        type="button"
+                      >
+                        Confirm All
+                      </button>
+                      <button
+                        className="bk-btn-bulk bk-bulk-tentative"
+                        onClick={() => void updateBookingStatus(booking.id, "tentative")}
+                        type="button"
+                      >
+                        Tentative
+                      </button>
+                      <button
+                        className="bk-btn-bulk bk-bulk-reject"
+                        onClick={() => void updateBookingStatus(booking.id, "rejected")}
+                        type="button"
+                      >
+                        Reject All
+                      </button>
+                    </div>
+                    {/* ── Payment Ledger ── */}
+                    <div className="bk-ledger">
+                      <div className="bk-ledger-header">
+                        <span className="bk-ledger-title">Payment Ledger</span>
+                        <button
+                          className="btn btn-secondary bk-ledger-add-btn"
+                          type="button"
+                          onClick={() =>
+                            setPaymentForm(
+                              paymentForm?.bookingId === booking.id
+                                ? null
+                                : { bookingId: booking.id, type: "payment", date: todayYmd, amountLkr: "", receiptNo: "", notes: "" },
+                            )
+                          }
+                        >
+                          {paymentForm?.bookingId === booking.id ? "Cancel" : "+ Add Entry"}
+                        </button>
+                      </div>
+
+                      {booking.paymentEntries.length > 0 ? (
+                        <table className="bk-ledger-table">
+                          <thead>
+                            <tr>
+                              <th>Date</th>
+                              <th>Type</th>
+                              <th>Amount (LKR)</th>
+                              <th>Receipt #</th>
+                              <th>Notes</th>
+                              <th>By</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {booking.paymentEntries.map((entry) => (
+                              <tr key={entry.id} className={`bk-ledger-row bk-ledger-row-${entry.type}`}>
+                                <td>{entry.date}</td>
+                                <td className="bk-ledger-type">
+                                  {entry.type === "payment" ? "Payment" : entry.type === "refund" ? "Refund" : "Credit Note"}
+                                </td>
+                                <td className={entry.type === "payment" ? "bk-ledger-credit" : "bk-ledger-debit"}>
+                                  {entry.type === "payment" ? "+" : "−"} {currencyFormatter.format(entry.amountLkr)}
+                                </td>
+                                <td>{entry.receiptNo || "—"}</td>
+                                <td>{entry.notes}</td>
+                                <td className="bk-ledger-by">{entry.createdBy}</td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      ) : (
+                        <p className="bk-ledger-empty">No payment entries yet.</p>
+                      )}
+
+                      {paymentForm?.bookingId === booking.id ? (
+                        <div className="bk-ledger-form">
+                          <div className="bk-ledger-form-row">
+                            <select
+                              className="bk-recon-select"
+                              value={paymentForm.type}
+                              onChange={(e) =>
+                                setPaymentForm((f) => f && { ...f, type: e.target.value as typeof f.type })
+                              }
+                            >
+                              <option value="payment">Payment</option>
+                              <option value="refund">Refund</option>
+                              <option value="credit_note">Credit Note</option>
+                            </select>
+                            <input
+                              type="date"
+                              className="bk-paid-input"
+                              value={paymentForm.date}
+                              onChange={(e) => setPaymentForm((f) => f && { ...f, date: e.target.value })}
+                            />
+                            <input
+                              type="number"
+                              className="bk-paid-input"
+                              placeholder="Amount (LKR)"
+                              min={1}
+                              value={paymentForm.amountLkr}
+                              onChange={(e) => setPaymentForm((f) => f && { ...f, amountLkr: e.target.value })}
+                            />
+                            <input
+                              type="text"
+                              className="bk-paid-input"
+                              placeholder="Receipt # (optional)"
+                              value={paymentForm.receiptNo}
+                              onChange={(e) => setPaymentForm((f) => f && { ...f, receiptNo: e.target.value })}
+                            />
+                          </div>
+                          <div className="bk-ledger-form-row">
+                            <input
+                              type="text"
+                              className="bk-recon-notes"
+                              placeholder="Notes (required)"
+                              value={paymentForm.notes}
+                              onChange={(e) => setPaymentForm((f) => f && { ...f, notes: e.target.value })}
+                            />
+                            <button
+                              className="btn btn-primary bk-save-btn"
+                              type="button"
+                              onClick={() => {
+                                void addPaymentEntry(booking.id, paymentForm).then((ok) => {
+                                  if (ok) setPaymentForm(null);
+                                });
+                              }}
+                            >
+                              Save Entry
+                            </button>
+                          </div>
+                        </div>
+                      ) : null}
+                    </div>
+                  </div>
+                </article>
+              );
+            })}
+          </div>
         </section>
       ) : null}
     </div>

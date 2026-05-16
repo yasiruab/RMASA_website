@@ -6,3 +6,10 @@ dist
 .DS_Store
 coverage
 *.log
+
+# IDE & assistant tooling
+.claude/
+.cursor/
+memory/
+tsconfig.tsbuildinfo
+

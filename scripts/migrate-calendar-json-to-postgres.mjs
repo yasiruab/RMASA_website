@@ -1,4 +1,5 @@
 import { readFile } from "node:fs/promises";
+import { randomBytes } from "node:crypto";
 import path from "node:path";
 import { PrismaClient } from "@prisma/client";
 
@@ -90,6 +91,7 @@ async function main() {
         },
         create: {
           id: booking.id,
+          reference: `BK-${randomBytes(3).toString("hex").toUpperCase()}`,
           roomTypeId: booking.roomTypeId,
           eventTypeId: booking.eventTypeId,
           acMode: booking.acMode,
@@ -168,7 +170,7 @@ async function main() {
         },
       });
     }
-  });
+  }, { timeout: 60000 });
 
   console.log("Calendar JSON migration completed.");
 }

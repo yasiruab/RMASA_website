@@ -1,6 +1,8 @@
-# RMASA Website (Phase 1)
+# RMASA Website (Royal MAS Arena)
 
-Custom website scaffold for Royal MAS Arena built from scratch with Next.js and TypeScript.
+Booking and information website for the Royal MAS Arena, the indoor sports complex of Royal College Colombo.  
+The arena was originally donated to the school and is now managed by the college and the Old Boys’ Union.  
+This site exists to promote impact sports (boxing, karate, etc.) and to **rent out unused timeslots** so the arena can generate income to cover maintenance costs.
 
 ## Run locally
 

@@ -15,6 +15,7 @@ export async function readCalendarDb(): Promise<CalendarDb> {
         slots: true,
         amountBreakdown: true,
         overriddenTargets: true,
+        paymentEntries: { orderBy: { createdAt: "asc" } },
       },
     }),
     prisma.calendarBlock.findMany(),
@@ -46,6 +47,7 @@ export async function readCalendarDb(): Promise<CalendarDb> {
     })),
     bookings: bookings.map((booking) => ({
       id: booking.id,
+      reference: booking.reference,
       roomTypeId: booking.roomTypeId,
       eventTypeId: booking.eventTypeId,
       acMode: booking.acMode,
@@ -54,6 +56,7 @@ export async function readCalendarDb(): Promise<CalendarDb> {
         date: slot.date,
         startTime: slot.startTime,
         endTime: slot.endTime,
+        slotStatus: slot.slotStatus ?? undefined,
       })),
       customer: {
         name: booking.customerName,
@@ -67,6 +70,7 @@ export async function readCalendarDb(): Promise<CalendarDb> {
         occurrences: booking.recurrenceOccurrences ?? undefined,
       },
       totalAmountLkr: booking.totalAmountLkr,
+      paidAmountLkr: booking.paidAmountLkr,
       amountBreakdown: booking.amountBreakdown.map((item) => ({
         date: item.date,
         slot: item.slot,
@@ -75,6 +79,17 @@ export async function readCalendarDb(): Promise<CalendarDb> {
       })),
       reconciliationStatus: booking.reconciliationStatus,
       reconciliationNotes: booking.reconciliationNotes,
+      paymentEntries: booking.paymentEntries.map((entry) => ({
+        id: entry.id,
+        bookingId: entry.bookingId,
+        type: entry.type as "payment" | "refund" | "credit_note",
+        date: entry.date,
+        amountLkr: entry.amountLkr,
+        receiptNo: entry.receiptNo,
+        notes: entry.notes,
+        createdAt: toIso(entry.createdAt),
+        createdBy: entry.createdBy,
+      })),
       createdAt: toIso(booking.createdAt),
       updatedAt: toIso(booking.updatedAt),
       overriddenBookingIds: booking.overriddenTargets.map((item) => item.overriddenBookingId),
@@ -99,6 +114,7 @@ export async function updateCalendarDb(mutator: (current: CalendarDb) => Calenda
     await tx.bookingOverride.deleteMany();
     await tx.bookingAmountBreakdown.deleteMany();
     await tx.bookingSlot.deleteMany();
+    await tx.paymentEntry.deleteMany();   // must precede booking delete (FK)
     await tx.booking.deleteMany();
     await tx.calendarBlock.deleteMany();
     await tx.pricingRule.deleteMany();
@@ -145,6 +161,7 @@ export async function updateCalendarDb(mutator: (current: CalendarDb) => Calenda
       await tx.booking.create({
         data: {
           id: booking.id,
+          reference: booking.reference,
           roomTypeId: booking.roomTypeId,
           eventTypeId: booking.eventTypeId,
           acMode: booking.acMode,
@@ -157,6 +174,7 @@ export async function updateCalendarDb(mutator: (current: CalendarDb) => Calenda
           recurrenceEndDate: booking.recurrence.endDate ?? null,
           recurrenceOccurrences: booking.recurrence.occurrences ?? null,
           totalAmountLkr: booking.totalAmountLkr,
+          paidAmountLkr: booking.paidAmountLkr,
           reconciliationStatus: booking.reconciliationStatus,
           reconciliationNotes: booking.reconciliationNotes,
           createdAt: new Date(booking.createdAt),
@@ -171,6 +189,7 @@ export async function updateCalendarDb(mutator: (current: CalendarDb) => Calenda
             date: slot.date,
             startTime: slot.startTime,
             endTime: slot.endTime,
+            slotStatus: slot.slotStatus ?? null,
           })),
         });
       }
@@ -192,6 +211,21 @@ export async function updateCalendarDb(mutator: (current: CalendarDb) => Calenda
           data: booking.overriddenBookingIds.map((overriddenBookingId) => ({
             bookingId: booking.id,
             overriddenBookingId,
+          })),
+        });
+      }
+
+      if (booking.paymentEntries.length > 0) {
+        await tx.paymentEntry.createMany({
+          data: booking.paymentEntries.map((entry) => ({
+            bookingId: booking.id,
+            type: entry.type,
+            date: entry.date,
+            amountLkr: entry.amountLkr,
+            receiptNo: entry.receiptNo,
+            notes: entry.notes,
+            createdAt: new Date(entry.createdAt),
+            createdBy: entry.createdBy,
           })),
         });
       }

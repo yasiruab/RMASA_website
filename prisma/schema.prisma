@@ -135,6 +135,7 @@ model PricingRule {
 
 model Booking {
   id                   String               @id
+  reference            String               @unique @default("")
   roomTypeId           String
   eventTypeId          String
   acMode               AcMode
@@ -147,6 +148,7 @@ model Booking {
   recurrenceEndDate    String?
   recurrenceOccurrences Int?
   totalAmountLkr       Int
+  paidAmountLkr        Int                  @default(0)
   reconciliationStatus ReconciliationStatus
   reconciliationNotes  String
   createdAt            DateTime
@@ -157,17 +159,35 @@ model Booking {
   slots                BookingSlot[]
   amountBreakdown      BookingAmountBreakdown[]
   overriddenTargets    BookingOverride[]
+  paymentEntries       PaymentEntry[]
 
   @@index([status])
   @@index([createdAt])
 }
 
-model BookingSlot {
-  id        Int     @id @default(autoincrement())
+model PaymentEntry {
+  id        Int      @id @default(autoincrement())
   bookingId String
-  date      String
-  startTime String
-  endTime   String
+  type      String   // "payment" | "refund" | "credit_note"
+  date      String   // YYYY-MM-DD (admin-supplied)
+  amountLkr Int      // always positive; direction from type
+  receiptNo String   @default("")
+  notes     String
+  createdAt DateTime @default(now())
+  createdBy String   // admin email
+
+  booking   Booking  @relation(fields: [bookingId], references: [id])
+
+  @@index([bookingId])
+}
+
+model BookingSlot {
+  id          Int            @id @default(autoincrement())
+  bookingId   String
+  date        String
+  startTime   String
+  endTime     String
+  slotStatus  BookingStatus?
 
   booking Booking @relation(fields: [bookingId], references: [id], onDelete: Cascade)
 

@@ -152,7 +152,14 @@ export function getSlotStatus(
     (b) =>
       b.roomTypeId === roomTypeId &&
       ["pending", "confirmed", "tentative"].includes(b.status) &&
-      b.slots.some((s) => overlaps(s, slot)),
+      b.slots.some((s) => {
+        const effectiveStatus = s.slotStatus ?? b.status;
+        return (
+          overlaps(s, slot) &&
+          effectiveStatus !== "rejected" &&
+          effectiveStatus !== "cancelled_override"
+        );
+      }),
   );
 
   if (overlappingBookings.length === 0) return { status: "available" };
@@ -168,8 +175,10 @@ export function getSlotStatus(
   }
 
   const booking = blockingBookings[0];
+  const overlappingSlot = booking.slots.find((s) => overlaps(s, slot));
+  const effectiveStatus = overlappingSlot?.slotStatus ?? booking.status;
 
-  return { status: booking.status as "pending" | "confirmed" | "tentative", bookingId: booking.id };
+  return { status: effectiveStatus as "pending" | "confirmed" | "tentative", bookingId: booking.id };
 }
 
 export function getSlotAvailabilities(

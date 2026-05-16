@@ -1,4 +1,4 @@
-import { randomUUID } from "node:crypto";
+import { randomBytes, randomUUID } from "node:crypto";
 import { NextResponse } from "next/server";
 import {
   assertRecurrenceWindow,
@@ -33,6 +33,10 @@ type BookingPayload = {
 
 function isEmail(value: string) {
   return /^\S+@\S+\.\S+$/.test(value);
+}
+
+function generateBookingReference(): string {
+  return "BK-" + randomBytes(3).toString("hex").toUpperCase();
 }
 
 export async function POST(req: Request) {
@@ -141,6 +145,7 @@ export async function POST(req: Request) {
 
   const booking: Booking = {
     id: randomUUID(),
+    reference: generateBookingReference(),
     roomTypeId,
     eventTypeId,
     acMode,
@@ -154,9 +159,11 @@ export async function POST(req: Request) {
     },
     recurrence,
     totalAmountLkr: breakdown.reduce((sum, item) => sum + item.amountLkr, 0),
+    paidAmountLkr: 0,
     amountBreakdown: breakdown,
     reconciliationStatus: "unpaid",
     reconciliationNotes: "",
+    paymentEntries: [],
     createdAt: new Date().toISOString(),
     updatedAt: new Date().toISOString(),
     overriddenBookingIds: [],
@@ -183,6 +190,7 @@ export async function POST(req: Request) {
   return NextResponse.json({
     message: "Booking submitted and pending admin approval.",
     bookingId: booking.id,
+    reference: booking.reference,
     totalAmountLkr: booking.totalAmountLkr,
     breakdown,
     overriddenBookingIds: overrideTargets,

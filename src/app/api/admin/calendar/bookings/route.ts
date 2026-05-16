@@ -3,7 +3,7 @@ import { logAuditEvent } from "@/lib/audit";
 import { requireAdmin } from "@/lib/auth-guards";
 import { evaluateBookingConflicts } from "@/lib/calendar-core";
 import { readCalendarDb, updateCalendarDb } from "@/lib/calendar-store";
-import { Booking, BookingStatus, ReconciliationStatus } from "@/lib/calendar-types";
+import { Booking, BookingStatus } from "@/lib/calendar-types";
 
 export async function GET() {
   const auth = await requireAdmin();
@@ -20,8 +20,10 @@ export async function GET() {
 type PatchPayload = {
   id?: string;
   status?: BookingStatus;
-  reconciliationStatus?: ReconciliationStatus;
-  reconciliationNotes?: string;
+  // Per-slot update fields:
+  slotDate?: string;
+  slotStartTime?: string;
+  slotStatus?: BookingStatus | null; // null = clear override (inherit booking status)
 };
 
 export async function PATCH(req: Request) {
@@ -39,6 +41,38 @@ export async function PATCH(req: Request) {
   const existing = current.bookings.find((item) => item.id === bookingId);
   if (!existing) {
     return NextResponse.json({ message: "Booking not found." }, { status: 404 });
+  }
+
+  // Per-slot status update (slotStatus can be a status string or null to clear override)
+  if (payload.slotDate && payload.slotStartTime && "slotStatus" in payload) {
+    await updateCalendarDb((db) => ({
+      ...db,
+      bookings: db.bookings.map((item) => {
+        if (item.id !== bookingId) return item;
+        return {
+          ...item,
+          slots: item.slots.map((slot) =>
+            slot.date === payload.slotDate && slot.startTime === payload.slotStartTime
+              ? { ...slot, slotStatus: payload.slotStatus ?? undefined }
+              : slot,
+          ),
+          updatedAt: new Date().toISOString(),
+        };
+      }),
+    }));
+
+    await logAuditEvent({
+      actorUserId: auth.actor.userId,
+      actorEmail: auth.actor.email,
+      action: "ADMIN_SLOT_STATUS_UPDATED",
+      resourceType: "booking",
+      resourceId: bookingId,
+      meta: { slotDate: payload.slotDate, slotStartTime: payload.slotStartTime, slotStatus: payload.slotStatus },
+      ip: req.headers.get("x-forwarded-for"),
+      userAgent: req.headers.get("user-agent"),
+    });
+
+    return NextResponse.json({ message: "Slot updated." });
   }
 
   const nextStatus = payload.status ?? existing.status;
@@ -69,8 +103,10 @@ export async function PATCH(req: Request) {
         return {
           ...item,
           status: nextStatus,
-          reconciliationStatus: payload.reconciliationStatus ?? item.reconciliationStatus,
-          reconciliationNotes: payload.reconciliationNotes ?? item.reconciliationNotes,
+          // Only wipe per-slot overrides when doing an explicit bulk status change.
+          slots: payload.status !== undefined
+            ? item.slots.map((slot) => ({ ...slot, slotStatus: undefined }))
+            : item.slots,
           overriddenBookingIds:
             nextStatus === "confirmed" ? overrideTargets : item.overriddenBookingIds,
           updatedAt: new Date().toISOString(),
@@ -85,9 +121,7 @@ export async function PATCH(req: Request) {
         };
       }
 
-      return {
-        ...item,
-      };
+      return { ...item };
     }),
   }));
 
@@ -97,11 +131,7 @@ export async function PATCH(req: Request) {
     action: "ADMIN_BOOKING_UPDATED",
     resourceType: "booking",
     resourceId: bookingId,
-    meta: {
-      status: payload.status,
-      reconciliationStatus: payload.reconciliationStatus,
-      reconciliationNotes: payload.reconciliationNotes,
-    },
+    meta: { status: payload.status },
     ip: req.headers.get("x-forwarded-for"),
     userAgent: req.headers.get("user-agent"),
   });

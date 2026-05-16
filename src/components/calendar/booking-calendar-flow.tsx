@@ -227,6 +227,7 @@ export function BookingCalendarFlow() {
   const [errorMessage, setErrorMessage] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [customer, setCustomer] = useState({ name: "", email: "", phone: "", purpose: "" });
+  const [availabilityRefreshKey, setAvailabilityRefreshKey] = useState(0);
 
   const weekDates = useMemo(
     () => Array.from({ length: 7 }, (_, i) => formatDate(addDays(weekStartDate, i))),
@@ -242,6 +243,7 @@ export function BookingCalendarFlow() {
   useEffect(() => {
     void (async () => {
       const res = await fetch("/api/calendar/config", { cache: "no-store" });
+      if (!res.ok) return;
       const data = (await res.json()) as {
         rooms: RoomType[];
         eventTypes: EventType[];
@@ -283,7 +285,7 @@ export function BookingCalendarFlow() {
       setWeekSlots(next);
       setErrorMessage(failed ? failed.data.message ?? "Failed to load week availability." : "");
     })();
-  }, [roomTypeId, eventTypeId, weekDates]);
+  }, [roomTypeId, eventTypeId, weekDates, availabilityRefreshKey]);
 
   const allowedEventTypes = useMemo(
     () =>
@@ -599,6 +601,7 @@ export function BookingCalendarFlow() {
     setRecurrenceEndDate("");
     setOccurrences("");
     setIsSubmitting(false);
+    setAvailabilityRefreshKey((k) => k + 1);
   }
 
   function jumpToMonthYear(month: number, year: number) {
