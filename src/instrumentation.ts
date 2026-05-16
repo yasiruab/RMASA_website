@@ -35,6 +35,9 @@ export async function register() {
       DATABASE_URL: process.env._AMPLIFY_DATABASE_URL,
       NEXTAUTH_SECRET: process.env._AMPLIFY_NEXTAUTH_SECRET,
       NEXTAUTH_URL: process.env._AMPLIFY_NEXTAUTH_URL,
+      COGNITO_CLIENT_ID: process.env._AMPLIFY_COGNITO_CLIENT_ID,
+      COGNITO_CLIENT_SECRET: process.env._AMPLIFY_COGNITO_CLIENT_SECRET,
+      COGNITO_ISSUER: process.env._AMPLIFY_COGNITO_ISSUER,
     };
 
     const loadedKeys: string[] = [];

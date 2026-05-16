@@ -1,6 +1,6 @@
 "use client";
 
-import { FormEvent, useState } from "react";
+import { useState } from "react";
 import { signIn } from "next-auth/react";
 
 type AdminLoginFormProps = {
@@ -8,60 +8,27 @@ type AdminLoginFormProps = {
 };
 
 export function AdminLoginForm({ nextPath }: AdminLoginFormProps) {
-  const [email, setEmail] = useState("");
-  const [password, setPassword] = useState("");
   const [submitting, setSubmitting] = useState(false);
-  const [errorMessage, setErrorMessage] = useState("");
 
-  async function onSubmit(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
+  function onClick() {
     setSubmitting(true);
-    setErrorMessage("");
-
-    const result = await signIn("credentials", {
-      email,
-      password,
-      redirect: false,
-      callbackUrl: nextPath,
-    });
-
-    if (!result || result.error) {
-      setErrorMessage(
-        `Sign-in failed${result?.error ? ` (${result.error})` : ""}.`,
-      );
-      setSubmitting(false);
-      return;
-    }
-
-    window.location.href = result.url ?? nextPath;
+    void signIn("cognito", { callbackUrl: nextPath });
   }
 
   return (
-    <form className="contact-form admin-login-form" onSubmit={onSubmit}>
-      <label>
-        Email
-        <input
-          autoComplete="email"
-          onChange={(event) => setEmail(event.target.value)}
-          required
-          type="email"
-          value={email}
-        />
-      </label>
-      <label>
-        Password
-        <input
-          autoComplete="current-password"
-          onChange={(event) => setPassword(event.target.value)}
-          required
-          type="password"
-          value={password}
-        />
-      </label>
-      <button className="btn btn-primary" disabled={submitting} type="submit">
-        {submitting ? "Signing in..." : "Sign In"}
+    <div className="admin-login-form">
+      <p className="admin-login-intro">
+        You&rsquo;ll be redirected to a secure AWS Cognito sign-in page. After your password,
+        Cognito will email you a 6-digit verification code to complete sign-in.
+      </p>
+      <button
+        className="btn btn-primary"
+        disabled={submitting}
+        onClick={onClick}
+        type="button"
+      >
+        {submitting ? "Redirecting…" : "Sign in"}
       </button>
-      {errorMessage ? <p className="form-message error">{errorMessage}</p> : null}
-    </form>
+    </div>
   );
 }
