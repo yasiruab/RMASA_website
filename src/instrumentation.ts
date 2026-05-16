@@ -1,7 +1,3 @@
-const AMPLIFY_APP_ID = "d8k1nfzx3tpc7";
-const AMPLIFY_BRANCH = "main";
-const AWS_REGION = "ap-southeast-1";
-
 declare global {
   // eslint-disable-next-line no-var
   var __instrumentationState:
@@ -32,29 +28,21 @@ export async function register() {
   state.startedAt = new Date().toISOString();
 
   try {
-    const { SSMClient, GetParametersByPathCommand } = await import(
-      "@aws-sdk/client-ssm"
-    );
-
-    const ssm = new SSMClient({
-      region: process.env.AWS_REGION ?? AWS_REGION,
-    });
-
-    const prefix = `/amplify/${AMPLIFY_APP_ID}/${AMPLIFY_BRANCH}/`;
-    const result = await ssm.send(
-      new GetParametersByPathCommand({
-        Path: prefix,
-        Recursive: true,
-        WithDecryption: true,
-      })
-    );
+    // These dot-access references get inlined at build time by Next.js
+    // from the `env` config in next.config.ts (values come from Amplify
+    // build-time environment variables).
+    const inlined: Record<string, string | undefined> = {
+      DATABASE_URL: process.env._AMPLIFY_DATABASE_URL,
+      NEXTAUTH_SECRET: process.env._AMPLIFY_NEXTAUTH_SECRET,
+      NEXTAUTH_URL: process.env._AMPLIFY_NEXTAUTH_URL,
+    };
 
     const loadedKeys: string[] = [];
-    for (const param of result.Parameters ?? []) {
-      if (!param.Name || param.Value === undefined) continue;
-      const key = param.Name.replace(prefix, "");
-      if (key && !process.env[key]) {
-        process.env[key] = param.Value;
+    for (const [key, value] of Object.entries(inlined)) {
+      // Dynamic-key access on process.env is NOT inlined, so this reads
+      // and writes the real runtime environment.
+      if (value && !process.env[key]) {
+        process.env[key] = value;
         loadedKeys.push(key);
       }
     }
@@ -62,10 +50,10 @@ export async function register() {
     state.ran = true;
     state.paramsLoaded = loadedKeys.length;
     state.paramKeys = loadedKeys;
-    console.log(`[instrumentation] Loaded ${loadedKeys.length} SSM params`);
+    console.log(`[instrumentation] Populated ${loadedKeys.length} env vars`);
   } catch (err) {
     state.error = err instanceof Error ? err.message : String(err);
-    console.error("[instrumentation] Failed to load SSM params:", err);
+    console.error("[instrumentation] Failed:", err);
   } finally {
     state.finishedAt = new Date().toISOString();
   }

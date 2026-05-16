@@ -99,21 +99,36 @@ SSM read access.
 - Attempted `output: "standalone"` with embedded `.env.production` — failed Amplify's artifact
   validation (see issues 4 & 5 below).
 
-**Working fix: fetch SSM params at server startup via AWS SDK.**
+**AWS SDK approach attempted (failed):**
+We tried fetching SSM params directly using `@aws-sdk/client-ssm` from `src/instrumentation.ts`.
+The instrumentation hook ran successfully, but the SDK call failed with
+`Could not load credentials from any providers`. **Amplify Gen 1 Web Compute does not expose the
+compute role's IAM credentials to the SSR process** — no `AWS_ACCESS_KEY_ID`, no IMDS endpoint, no
+container credentials URI. The compute role we configured in the console is essentially unused at
+runtime. This is a fundamental Gen 1 limitation, not fixable from our side.
 
-We use Next.js's `instrumentation.ts` hook (runs once before the first request) to read params
-directly from SSM Parameter Store at `/amplify/d8k1nfzx3tpc7/main/` and populate `process.env`
-ourselves. The compute role's `AmplifySSRComputeSSMRead` policy authorises this call.
+**Working fix: build-time inlining via `next.config.ts` env config.**
 
-Files:
-- `src/instrumentation.ts` — the startup hook that fetches and populates env vars.
-- `@aws-sdk/client-ssm` — runtime dependency added for this.
+`next.config.ts` declares an `env` block with prefixed keys (`_AMPLIFY_DATABASE_URL` etc.). At
+build time on Amplify, Amplify's build environment has the real secret values in `process.env`.
+Next.js reads them during build and inlines them as string literals throughout the JS bundle.
 
-This bypasses Amplify's broken runtime injection entirely. Secrets stay in SSM SecureString form
-(KMS-encrypted at rest), are fetched over an IAM-authenticated TLS connection at startup, and live
-only in the running process memory thereafter.
+At server startup, `src/instrumentation.ts` reads the inlined values via the prefixed keys (which
+get replaced with the actual values by Next.js's DefinePlugin) and assigns them to the standard
+key names (`DATABASE_URL`, etc.) on the real runtime `process.env` using dynamic-key access (which
+is *not* inlined). After `register()` runs, Prisma and NextAuth can read `process.env.DATABASE_URL`
+and `process.env.NEXTAUTH_SECRET` normally.
 
-**Cost:** one extra SSM call (~50–150ms) on cold start. Warm requests are unaffected.
+Files involved:
+- `next.config.ts` — declares the build-time env baking with `_AMPLIFY_*` prefix.
+- `src/instrumentation.ts` — copies inlined values to standard env-var names at startup.
+- `src/lib/prisma.ts` — passes `datasourceUrl` explicitly as a safety net.
+
+**Why prefixed keys:** if we used `env: { DATABASE_URL: ... }` directly, Next.js would inline
+*every* `process.env.DATABASE_URL` reference in the codebase — including our debug endpoint and
+any place that reads it dynamically. By using `_AMPLIFY_*` prefixes, we keep the inlining scoped
+to one file (`instrumentation.ts`) and minimise the surface area where secrets can leak into
+client bundles.
 
 ---
 
@@ -217,23 +232,34 @@ outputFileTracingIncludes: {
 
 ## Security Concerns
 
-### 1. Secrets in plaintext deployment artifact (resolved by reverting standalone)
+### 1. Secrets baked into the JS bundle (active tradeoff)
 
-We briefly used `printf` to write `DATABASE_URL`, `NEXTAUTH_SECRET`, and `NEXTAUTH_URL` as
-**plaintext** into `.next/standalone/.env.production` during the build, to work around the runtime
-env-var injection problem. This baked secrets into the deployment artifact.
+Because Amplify Gen 1 Web Compute will not expose IAM credentials at runtime (see issue 1 in the
+issues section), we cannot fetch secrets from SSM on-demand at startup. The working solution is
+to bake secret values into the build JS as string literals at build time via `next.config.ts`'s
+`env` config.
 
-**Why this was a concern:**
-- Plaintext secrets in a deployment artifact are harder to rotate (every rotation requires a
-  rebuild).
-- If the artifact S3 bucket policy were ever misconfigured, secrets would be exposed with no
-  encryption layer.
-- Secrets in plaintext files do not benefit from KMS encryption at rest.
+**Implications:**
+- `DATABASE_URL`, `NEXTAUTH_SECRET`, and `NEXTAUTH_URL` exist as plaintext strings inside the
+  compiled JS in `.next/`, which is uploaded to Amplify's managed S3 bucket.
+- Anywhere `process.env._AMPLIFY_DATABASE_URL` (or the other prefixed keys) is referenced in code,
+  the literal value will be inlined into that bundle — including potentially the client bundle if
+  ever accidentally referenced from a client component.
+- Rotating a secret requires a rebuild.
 
-**Status:** This concern is resolved as of the standalone-revert. The build no longer writes
-secrets to disk. The proper fix — granting the compute role SSM read permission — keeps secrets in
-SSM SecureString form (KMS-encrypted at rest, fetched at runtime over an IAM-authenticated call)
-which is the design Amplify intends.
+**Mitigations in place:**
+- The prefixed keys `_AMPLIFY_*` are referenced **only** in `src/instrumentation.ts` (server-only)
+  and `src/lib/prisma.ts` (server-only). Neither file is reachable from client bundles.
+- The artifact S3 bucket is private, IAM-controlled by Amplify; only AWS console users with
+  access can extract values from it.
+- Production secrets are never committed to git — they live only in Amplify's environment
+  variables UI (encrypted in SSM) and in the build output.
+
+**Lint rule to consider:** add a check to fail CI if `_AMPLIFY_*` is referenced from any file
+under `src/app/` that isn't a server-side route handler or server component.
+
+**Long-term fix:** migrate the app to Amplify Gen 2 (CDK-based, proper runtime env var support)
+or to a hosting platform with native Next.js SSR support (Vercel, Cloudflare Pages with workers).
 
 ---
 
@@ -287,9 +313,11 @@ database is reset.
 
 ## Pending Tasks
 
-- [x] Add SSM read + KMS decrypt permissions to `AmplifySSRComputeRole`
+- [x] Add SSM read + KMS decrypt permissions to `AmplifySSRComputeRole` (unused at runtime; kept
+      in case Amplify Gen 1's behaviour changes or we migrate to Gen 2)
 - [x] Confirm `AmplifySSRComputeRole` is set as the compute role
-- [x] Implement `src/instrumentation.ts` to fetch SSM params at startup
+- [x] SDK-based SSM fetch in `instrumentation.ts` — abandoned (no runtime IAM credentials)
+- [x] Build-time env baking via `next.config.ts` env config + `instrumentation.ts` re-export
 - [ ] Deploy and verify `/api/debug-env` returns `true` for all three env vars
 - [ ] Delete `src/app/api/debug-env/route.ts`
 - [ ] Test the bookings page calendar data in production
