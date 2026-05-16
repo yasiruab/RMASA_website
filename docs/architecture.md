@@ -20,9 +20,11 @@ The site supports that mission by:
 - **Styling**: Global CSS in `src/app/globals.css` plus component-level Tailwind/utility classes (where used).
 - **Database**: Aurora PostgreSQL Serverless v2 (AWS RDS, ap-southeast-1) via Prisma v6.
 - **Auth**: NextAuth v4 (JWT strategy) as the session layer, AWS Cognito User Pool as the
-  identity provider. Cognito holds passwords + email-OTP MFA + account lockout; the Postgres
-  `User` table remains the source of truth for admin role and `active` status. See
-  `docs/deployment.md` for setup details.
+  identity provider. Cognito holds passwords + account lockout; the Postgres `User` table
+  remains the source of truth for admin role and `active` status. Federated sign-out via
+  `/api/auth/federated-logout` clears both the NextAuth and Cognito session cookies. MFA is
+  currently off, pending the `royalmasarena.lk` domain (needed for SES sender verification).
+  See `docs/deployment.md` § Admin Auth for the full flow + setup gotchas.
 - **Runtime**: Node.js — Amplify Gen 1 Web Compute runs standard Next.js output (`.next/`).
   `output: "standalone"` was attempted and reverted; see `docs/deployment.md` issues 4–5.
 - **Hosting**: AWS Amplify Hosting — Web compute platform (managed SSR infrastructure).

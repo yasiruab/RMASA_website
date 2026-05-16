@@ -344,13 +344,13 @@ server-only files.
 
 ## Admin Auth (AWS Cognito + Postgres)
 
-Admin authentication is a hybrid: **Cognito** holds the credential (password + email-OTP MFA +
-lockout); **Postgres `User`** holds the application-level role (`admin` / `super_admin`) and
-`active` flag. NextAuth (JWT strategy) is the session layer.
+Admin authentication is a hybrid: **Cognito** (User Pool `ap-southeast-1_XE0FgWA4X`) holds the
+credential (password + account lockout); **Postgres `User`** holds the application-level role
+(`admin` / `super_admin`) and `active` flag. NextAuth v4 (JWT strategy) is the session layer.
 
 ### Login flow
 1. Admin visits `/admin/login` → clicks "Sign in" → redirected to Cognito hosted UI.
-2. Cognito takes password, then emails a 6-digit OTP.
+2. Cognito takes the password (no MFA currently — see below).
 3. On success, Cognito redirects to `/api/auth/callback/cognito`.
 4. NextAuth `signIn` callback looks up the user by email in Postgres:
    - Not found → reject (audit: `AUTH_LOGIN_FAILED` reason `not_in_postgres`).
@@ -358,14 +358,41 @@ lockout); **Postgres `User`** holds the application-level role (`admin` / `super
    - Otherwise → backfill `cognitoSub` on the Postgres row (first login only), allow.
 5. JWT session cookie is set (4-hour max-age). Role comes from Postgres.
 
+### Sign-out flow (federated)
+NextAuth's default `signOut` clears the app's session cookie but NOT Cognito's session cookie,
+so on next "Sign in" Cognito would auto-complete the OAuth flow without prompting. To prevent
+that, the AdminLogoutButton calls `signOut({ redirect: false })` and then navigates to
+`/api/auth/federated-logout`, which:
+1. Reads Cognito's `end_session_endpoint` from the discovery doc (cached after first hit).
+2. Redirects to it with `client_id` + `logout_uri` so Cognito terminates its own session.
+3. Cognito then redirects to the `logout_uri` (`<NEXTAUTH_URL>/admin/login`).
+
+The `logout_uri` must be in the App Client's allowed sign-out URLs — both
+`https://main.d8k1nfzx3tpc7.amplifyapp.com/admin/login` and
+`http://localhost:3000/admin/login` are configured.
+
+### MFA — deferred until custom domain is registered
+MFA is currently set to **No MFA** on the User Pool. The intended second factor is email OTP,
+which requires Cognito to send via Amazon SES (the default Cognito sender doesn't support MFA
+emails). SES needs a verified domain or per-recipient verified email addresses — neither is
+practical until `royalmasarena.lk` is registered.
+
+When the domain arrives:
+1. Verify the domain in SES (region `ap-southeast-1`).
+2. Request SES production access (removes sandbox restrictions).
+3. Cognito User Pool → Authentication → MFA → set to Required, tick "Email message".
+4. On next sign-in, each admin is prompted to enrol in email MFA.
+
+TOTP authenticator-app MFA is available immediately on any Cognito tier — switch to that any
+time as an interim measure.
+
 ### Adding a new admin (two-step)
-1. **In the website:** super-admin uses Admin Accounts page to create a Postgres User row
-   (email + role + name). No password is taken.
+1. **In the website:** super-admin uses Admin Accounts page (`/admin/calendar/accounts`) to
+   create a Postgres User row (email + role + name). No password is taken.
 2. **In the AWS Cognito console:** super-admin creates a matching Cognito user with the same
-   email, marks the email verified, sets a temporary password (Cognito forces change on first
-   login).
+   email, marks email_verified, sets a temporary password (Cognito forces change on first login).
 3. New admin signs in via `/admin/login`. On first sign-in they're prompted to set a new
-   password and enrol email-OTP MFA.
+   password.
 
 ### Removing / disabling an admin
 - Soft-disable: super-admin toggles `active = false` in the Admin Accounts page. The next
@@ -376,6 +403,20 @@ lockout); **Postgres `User`** holds the application-level role (`admin` / `super
 ### Forgot password
 Admins use the "Forgot password" link in the Cognito hosted UI — Cognito handles email
 verification and reset. The website has no password-reset endpoint of its own.
+
+### Setup gotchas (learned the hard way)
+- **`COGNITO_ISSUER` must be the full URL**, not just the pool ID. Format:
+  `https://cognito-idp.<region>.amazonaws.com/<pool-id>`. Just the pool ID will cause NextAuth
+  to fail with "only valid absolute URLs can be requested".
+- **Callback URLs in the App Client must include both production and `localhost`**:
+  `https://<prod>/api/auth/callback/cognito` AND `http://localhost:3000/api/auth/callback/cognito`.
+- **Sign-out URLs similarly** must include both.
+- **OAuth scopes must include `profile`** — NextAuth's Cognito provider requests
+  `openid email profile` by default; if `profile` isn't ticked in the App Client, the OAuth flow
+  fails after the user authenticates.
+- **Behind Amplify's reverse proxy**, `req.url` reflects the internal Node host
+  (`localhost:3000`). Server code that needs the public origin must read `NEXTAUTH_URL` env var,
+  not derive from `req.url`. See `src/app/api/auth/federated-logout/route.ts`.
 
 ### Why no `AdminCreateUser` from the website?
 Amplify Gen 1 Web Compute doesn't expose IAM credentials to the SSR runtime, so calling the
@@ -405,10 +446,17 @@ in Cognito is intentionally a manual console step.
       width override with `clamp()`-based scaling)
 - [~] EventBridge keep-alive ping — **deferred**. Skeleton UX handles the cold start at near-zero
       cost; revisit if traffic grows enough to justify ≈US$25–40/month.
-- [x] Migrate admin auth to AWS Cognito (password + email-OTP MFA, 4-hour session, security
-      headers, HTTPS redirect on `/admin/*`)
+- [x] Migrate admin auth to AWS Cognito (password-only currently — MFA deferred — 4-hour
+      session, security headers, HTTPS redirect on `/admin/*`)
+- [x] Mirror existing Postgres admin to the Cognito User Pool (renamed dummy
+      `admin@rmasa.local` → real email)
+- [x] Federated sign-out via `/api/auth/federated-logout` so Cognito's session cookie is
+      cleared alongside the NextAuth one
+- [x] Verify admin login at `/admin/login` in production (Cognito flow end-to-end)
+- [~] MFA — **deferred**. Re-enable as **Required** with **Email message** once
+      `royalmasarena.lk` is registered and SES domain verification + production access are
+      complete. TOTP authenticator MFA is available immediately as a stop-gap if desired.
 - [ ] Test the bookings page calendar data in production (verify skeleton shows on a cold cluster)
-- [ ] Test admin login at `/admin/login` in production (Cognito flow end-to-end + MFA)
-- [ ] Mirror existing Postgres admins into the Cognito User Pool (one-time, manual)
 - [ ] Remove `bcrypt` dependency after one week of stable Cognito operation (Phase D cleanup)
-- [ ] Purchase and configure custom domain → update `NEXTAUTH_URL` in Amplify console
+- [ ] Purchase and configure custom domain → update `NEXTAUTH_URL` in Amplify console (also
+      revisit Cognito callback / sign-out URLs to use the new domain)

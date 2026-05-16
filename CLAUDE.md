@@ -74,13 +74,21 @@ bookingOverride → bookingAmountBreakdown → bookingSlot → paymentEntry → 
 - Admin roles: `admin | super_admin`
 - Use `requireAdmin()` from `src/lib/auth-guards.ts` in all admin API routes
 - Super-admin-only features guarded by `requireSuperAdmin()`
-- **Hybrid identity**: AWS Cognito holds password + email-OTP MFA + lockout; Postgres `User`
-  holds role + `active`. The NextAuth `signIn` callback in `src/lib/auth.ts` rejects logins for
-  emails not present in Postgres or where `active === false`.
+- **Hybrid identity**: AWS Cognito holds password + lockout; Postgres `User` holds role +
+  `active`. The NextAuth `signIn` callback in `src/lib/auth.ts` rejects logins for emails not
+  present in Postgres or where `active === false`.
+- **MFA is currently off** — deferred until `royalmasarena.lk` is registered (email MFA needs
+  SES with a verified domain). Don't assume admins have MFA.
+- **Sign-out goes federated** via `/api/auth/federated-logout` so Cognito's session cookie is
+  cleared too. Without that, the next sign-in click auto-completes the OAuth flow.
 - **Adding an admin** is a two-step process: create the Postgres `User` row via the website
   (Admin Accounts page), then create the matching Cognito user in the AWS console. See
   `docs/deployment.md` § Admin Auth.
 - **`cognitoSub`** on `User` is backfilled on first successful sign-in (don't set it manually).
+- **`COGNITO_ISSUER` env var** must be the full URL
+  (`https://cognito-idp.<region>.amazonaws.com/<pool-id>`), not just the pool ID.
+- **Behind Amplify's reverse proxy**, `req.url` reports the internal host (`localhost:3000`).
+  For the public origin in server code, use `NEXTAUTH_URL`.
 
 ## Enum Values
 
