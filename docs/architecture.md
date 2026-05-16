@@ -20,7 +20,8 @@ The site supports that mission by:
 - **Styling**: Global CSS in `src/app/globals.css` plus component-level Tailwind/utility classes (where used).
 - **Database**: Aurora PostgreSQL Serverless v2 (AWS RDS, ap-southeast-1) via Prisma v6.
 - **Auth**: NextAuth v4 with JWT strategy for admin authentication.
-- **Runtime**: Node.js standalone server (`output: "standalone"` in `next.config.ts`).
+- **Runtime**: Node.js — Amplify Gen 1 Web Compute runs standard Next.js output (`.next/`).
+  `output: "standalone"` was attempted and reverted; see `docs/deployment.md` issues 4–5.
 - **Hosting**: AWS Amplify Hosting — Web compute platform (managed SSR infrastructure).
 
 ### Infrastructure
@@ -44,8 +45,8 @@ Key AWS resources:
 |---|---|
 | Amplify app | `main.d8k1nfzx3tpc7.amplifyapp.com` |
 | Aurora cluster | ap-southeast-1, Serverless v2, pauses when idle |
-| Amplify service role | `AmplifySSRLoggingRole` — used during build/deploy |
-| Amplify compute role | `AmplifySSRComputeRole` — used by SSR runtime |
+| Amplify service role | `AmplifySSRLoggingRole` — used during build/deploy. Permissions: default `AmplifySSRLoggingPolicy` + scoped inline `AmplifyBuildSsmAccess` (SSM Put/Get/Delete on `/amplify/*` + KMS via SSM only). |
+| Amplify compute role | `AmplifySSRComputeRole` — assumed by SSR runtime. Permissions: only `AWSLambdaBasicExecutionRole`. (Gen 1 doesn't expose IAM creds to SSR, so SSM at runtime never worked — see deployment.md issue 1.) |
 
 See `docs/deployment.md` for the full deployment history, issues encountered, and security notes.
 

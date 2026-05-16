@@ -279,31 +279,34 @@ state. **Deleted** once env var injection was confirmed working. No longer in th
 Aurora Serverless v2 pauses when idle. The first database request after a pause period incurs a
 cold start (typically 3–10 seconds, occasionally longer if the cluster scales from 0 ACUs).
 
-**Current handling — not graceful.** The booking calendar flow fetches `/api/calendar/config` and
-`/api/calendar/availability` from `useEffect` with no skeleton state, no timeout, no retry, and no
-visible error message on failure (see `src/components/calendar/booking-calendar-flow.tsx` lines
-243–264 and 266–288). On a cold start, the customer sees an empty calendar with no feedback for
-up to 10 seconds; if the request fails, they see nothing change at all. The API routes
-(`src/app/api/calendar/config/route.ts`, `availability/route.ts`) have no try/catch — an Aurora
-connection failure surfaces as a generic 500.
+**Approach taken — accept the cold start, mask it in the UI.** Given the site sees fewer than five
+bookings a day, the cost of keeping Aurora warm (≈US$25–40/month for business-hours-only keep-alive,
+≈US$50/month for 24/7) was not justified. Instead the booking calendar handles cold starts
+gracefully in the client:
 
-**Customer impact:** worst case, a first-time visitor lands on `/bookings`, sees a blank room
-selector and empty calendar for ~10 seconds, and abandons before the data loads. The likelihood is
-proportional to how often the cluster pauses (configured to pause when idle).
+- **Skeleton-shimmer placeholder** replaces the empty calendar during the first fetch
+  (`CalendarLoadingSkeleton` in `src/components/calendar/booking-calendar-flow.tsx`). User sees
+  a structured loading state, not a blank page.
+- **Friendly copy:** "Warming up the courts… your booking calendar is on its way." Generic, no
+  time-of-day reference, no exposure of "database is sleeping" framing.
+- **AbortController timeout:** 30 seconds on the first attempt (cold-start tolerant), 15 seconds
+  on retries (the cluster should be warm by then).
+- **Explicit error + retry UI** (`CalendarLoadError`) if the request fails or times out. Different
+  copy for timeout vs network failure, with an in-place **Try again** button that re-runs the
+  fetch without a page reload.
 
-**Mitigation options, ranked by cost/effort:**
-1. **Keep-alive ping (cheap, recommended):** EventBridge schedule → Lambda → ping
-   `/api/calendar/config` every 5 minutes between, say, 07:00–22:00 SLT. Keeps the cluster warm
-   during normal browsing hours, lets it pause overnight.
-2. **Client-side UX improvements (cheap, complementary):** add a loading skeleton to
-   `BookingCalendarFlow`, show an explicit error + retry button on fetch failure, set a request
-   timeout (e.g. 15s) so the UI knows when to surface "still loading…".
-3. **Increase Aurora min capacity** to keep a warm instance (more expensive, eliminates cold start
-   entirely).
-4. **Disable auto-pause** (most expensive, simplest).
+**Trade-offs still to be aware of:**
+- The first customer of any idle period still waits 3–10 seconds. The skeleton makes that wait
+  feel intentional rather than broken, but it doesn't eliminate it.
+- If Aurora is genuinely down (not just paused), users see the error UI with retry. There's no
+  automatic background retry — the user has to click.
 
-**Recommendation:** start with (1) + (2). They're both cheap and address the experience gap from
-both ends.
+**Alternatives if cold-start latency ever becomes a real complaint:**
+1. **Keep-alive ping:** EventBridge schedule → Lambda → ping `/api/calendar/config` every 5
+   minutes between business hours. Cost above. Cheapest infrastructure path.
+2. **Increase Aurora min capacity** to keep an instance warm (more expensive, eliminates cold
+   start entirely).
+3. **Disable auto-pause** (most expensive, simplest).
 
 ---
 
@@ -346,10 +349,11 @@ database is reset.
 - [x] Replace `AmazonSSMFullAccess` on `AmplifySSRLoggingRole` with scoped `AmplifyBuildSsmAccess`
       inline policy
 - [x] Rotate Aurora master password (production credentials had been exposed in chat)
-- [ ] Add a loading skeleton + error/retry UI to `BookingCalendarFlow` (currently silent on
-      slow/failed DB)
-- [ ] Set up EventBridge keep-alive ping to `/api/calendar/config` to mask Aurora cold starts
-      during business hours
-- [ ] Test the bookings page calendar data in production
+- [x] Add a loading skeleton + error/retry UI to `BookingCalendarFlow`
+- [x] Fluid header-logo sizing (replaced 540→340 breakpoint snap and scroll-triggered compact
+      width override with `clamp()`-based scaling)
+- [~] EventBridge keep-alive ping — **deferred**. Skeleton UX handles the cold start at near-zero
+      cost; revisit if traffic grows enough to justify ≈US$25–40/month.
+- [ ] Test the bookings page calendar data in production (verify skeleton shows on a cold cluster)
 - [ ] Test admin login at `/admin/login` in production
 - [ ] Purchase and configure custom domain → update `NEXTAUTH_URL` in Amplify console
