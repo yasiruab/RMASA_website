@@ -28,6 +28,7 @@ Key fields:
 - `id` — UUID (internal)
 - `reference` — `BK-XXXXXX` human-readable ID, generated at creation via `randomBytes(3).toString('hex').toUpperCase()`
 - `status` — `pending | confirmed | tentative | rejected | cancelled_override`
+- `cleanupDurationMinutes` — **snapshot** of the EventType's `cleanupDurationMinutes` at booking creation; immutable per booking; used in conflict detection so past bookings are unaffected when the EventType value changes
 - `totalAmountLkr` — total invoice amount (immutable after creation)
 - `paidAmountLkr` — **cached** net collected amount, derived from `PaymentEntry` ledger; do not mutate directly
 - `reconciliationStatus` — **cached** derived status: `unpaid | part_paid | paid | waived`; recomputed by the payment entry POST endpoint; "waived" is a legacy value only
@@ -96,3 +97,91 @@ bookingOverride → bookingAmountBreakdown → bookingSlot → paymentEntry → 
 - Reconciliation status: `unpaid | part_paid | paid | waived` (waived is legacy only going forward)
 - AC mode: `with_ac | without_ac`
 - Day type: `weekday | weekend | any`
+- Slot status (availability): `available | pending | confirmed | tentative | blocked | cleanup`
+  - `cleanup` — slot falls within a booking's post-event cleanup window; conflicts are enforced the same as occupied slots; displayed as **"Site Preparation"** (warm orange) in the public booking calendar
+
+## EventType: Cleanup Duration
+
+`EventType.cleanupDurationMinutes` (0–480, whole number) defines how long the room must remain reserved for cleanup after each booking of that type. Configured by super-admins in the Event Types section. The value is snapshotted onto `Booking.cleanupDurationMinutes` at booking creation.
+
+Conflict detection uses `effectiveOverlaps()` in `src/lib/calendar-core.ts`, which extends each booking slot's end time by its cleanup duration before comparing. The cleanup window may extend beyond room working hours — no validation is applied to enforce it stays within working hours.
+
+## EventType: Max Advance Booking Days
+
+`EventType.maxAdvanceBookingDays` (0–3650, whole number; default **365**) limits how far in advance customers can book that event type. 0 = no limit.
+
+- **Enforced at booking creation**: `assertAdvanceBookingLimit(slots, eventType)` in `calendar-core.ts` rejects any slot beyond `today + maxAdvanceBookingDays`. Called from `POST /api/calendar/bookings` after recurrence expansion.
+- **Not snapshotted on Booking**: the check runs only at creation time; changing the limit never affects existing bookings.
+- **Client-side disabling** in `booking-calendar-flow.tsx`:
+  - `maxDateStr` memo derived from the selected event type (null when limit = 0)
+  - "Next week" button disabled when next week's start > `maxDateStr`
+  - Day columns beyond limit: `gc-day-past-limit` class (opacity 0.4 on header); `past-limit` class on cells (greyed, `pointer-events: none`)
+  - `toggleSelectionForCell` returns early for past-limit dates
+  - Pre-submit guard blocks submission if any slot > `maxDateStr`
+- **Admin UI**: "Advance (days)" column in Event Types table (between Cleanup and Priority); blank input coerces to 365.
+- **Config validation**: `PUT /api/admin/calendar/config` validates 0–3650 whole number; returns 400 otherwise.
+
+## SlotAvailability
+
+`SlotAvailability` (in `calendar-types.ts`) is the shape returned by `GET /api/calendar/availability`. Key fields:
+
+| Field | Description |
+|---|---|
+| `startTime` / `endTime` | The **candidate** slot window (based on the requested event type's duration) |
+| `status` | One of the slot status values above |
+| `bookingId` | Set for non-available slots; identifies the blocking booking |
+| `bookingStartTime` | Actual booking slot start time — use this for calendar cell coloring, not `startTime` |
+| `bookingEndTime` | Actual booking slot end time (or cleanup window end for `status: "cleanup"`) |
+| `reason` | Human-readable reason string for `blocked` slots |
+
+`bookingStartTime`/`bookingEndTime` are critical for correct display. Because a single booking can block multiple candidate slots (staircase effect), the public calendar uses `busySlotCoversHour()` in `booking-calendar-flow.tsx` which reads these actual booking times. Without them, a Full Day booking at 07:00–17:00 would visually extend to 19:00+ when the user views the calendar with a shorter event type selected.
+
+## Admin Booking Queue: Tab Filtering
+
+The Booking Queue section has a horizontal tab bar that filters the list client-side. Default tab is **Pending**. All filtering happens inside `admin-calendar-console.tsx` — no API changes.
+
+| Tab | Filter |
+|---|---|
+| All | all bookings |
+| Pending | `computeBookingEffectiveStatus(b) === "pending"` |
+| Tentative | `computeBookingEffectiveStatus(b) === "tentative"` |
+| Unpaid | `reconciliationStatus === "unpaid"` AND active status |
+| Part Paid | `reconciliationStatus === "part_paid"` AND active status |
+| Paid | `reconciliationStatus === "paid"` |
+| Overpaid | `paidAmountLkr > totalAmountLkr` AND active status |
+| Conflicts | booking id present in `conflictMap` (existing memo) |
+
+"Active status" = `pending | confirmed | tentative`. Rejected / cancelled_override bookings are only visible under **All**.
+
+The Conflicts tab badge uses an orange outline when its count > 0. The conflict warning banner above the list remains visible regardless of active tab.
+
+Key implementation details in `admin-calendar-console.tsx`:
+- `BookingTab` union type and `isActiveBooking()` helper are module-level (not inside the component).
+- `tabCounts` and `filteredBookings` are `useMemo` hooks that depend on `bookings` + `conflictMap`.
+- CSS classes: `.admin-booking-tabs`, `.admin-booking-tab`, `.admin-booking-tab-count` (in `globals.css`).
+
+## Admin Booking Queue: Effective Status & Pay Tags
+
+### `computeBookingEffectiveStatus()`
+
+Defined at module level in `admin-calendar-console.tsx`. Derives a single display status from a booking's per-slot overrides:
+
+1. Map each slot to its `slotStatus ?? booking.status`.
+2. Filter out `"rejected"` and `"cancelled_override"` entries.
+3. If no active slots remain → return `"rejected"`.
+4. If all active slots share one status → return that status.
+5. Otherwise → fall back to `booking.status`.
+
+**Why step 2 matters**: a booking with some rejected slots and some confirmed slots must display as `"confirmed"` (the status of the remaining active slots), not `"tentative"` (the original booking-level status). Without this filter, mixed-status bookings incorrectly appeared in the Tentative tab.
+
+### Pay tags (booking card meta row)
+
+The payment status tag evaluates in this order — the overpaid check must come first because `reconciliationStatus` is `"paid"` whenever `paidAmountLkr >= totalAmountLkr`, which includes the overpaid case:
+
+| Condition | Tag | CSS class |
+|---|---|---|
+| `effectivePaid > totalAmountLkr` | Overpaid · Refund Due LKR X | `.bk-pay-overpaid` (warm orange) |
+| `reconciliationStatus === "paid"` | Paid in Full | `.bk-pay-paid` (green) |
+| `reconciliationStatus === "waived"` | Waived | `.bk-pay-waived` (grey) |
+| `reconciliationStatus === "part_paid"` | Paid LKR X · Due LKR Y | `.bk-pay-part` (amber) |
+| default | Unpaid | `.bk-pay-unpaid` (red) |

@@ -57,6 +57,34 @@ export async function PUT(req: Request) {
     );
   }
 
+  const invalidCleanup = payload.eventTypes.find(
+    (et) =>
+      typeof et.cleanupDurationMinutes !== "number" ||
+      !Number.isInteger(et.cleanupDurationMinutes) ||
+      et.cleanupDurationMinutes < 0 ||
+      et.cleanupDurationMinutes > 480,
+  );
+  if (invalidCleanup) {
+    return NextResponse.json(
+      { message: `Event type "${invalidCleanup.name}": cleanup duration must be a whole number between 0 and 480 minutes.` },
+      { status: 400 },
+    );
+  }
+
+  const invalidAdvanceLimit = payload.eventTypes.find(
+    (et) =>
+      typeof et.maxAdvanceBookingDays !== "number" ||
+      !Number.isInteger(et.maxAdvanceBookingDays) ||
+      et.maxAdvanceBookingDays < 0 ||
+      et.maxAdvanceBookingDays > 3650,
+  );
+  if (invalidAdvanceLimit) {
+    return NextResponse.json(
+      { message: `Event type "${invalidAdvanceLimit.name}": advance booking limit must be a whole number between 0 and 3650 days.` },
+      { status: 400 },
+    );
+  }
+
   const eventTypeMap = new Map(payload.eventTypes.map((eventType) => [eventType.id, eventType]));
   const invalidPricingRule = payload.pricingRules.find((rule) => {
     const type = eventTypeMap.get(rule.eventTypeId);
@@ -70,12 +98,20 @@ export async function PUT(req: Request) {
     );
   }
 
-  await updateCalendarDb((current) => ({
-    ...current,
-    rooms: payload.rooms ?? current.rooms,
-    eventTypes: payload.eventTypes ?? current.eventTypes,
-    pricingRules: payload.pricingRules ?? current.pricingRules,
-  }));
+  try {
+    await updateCalendarDb((current) => ({
+      ...current,
+      rooms: payload.rooms ?? current.rooms,
+      eventTypes: payload.eventTypes ?? current.eventTypes,
+      pricingRules: payload.pricingRules ?? current.pricingRules,
+    }));
+  } catch (error) {
+    console.error("[config PUT] updateCalendarDb failed:", error);
+    return NextResponse.json(
+      { message: "Failed to save configuration. Please try again or restart the server." },
+      { status: 500 },
+    );
+  }
 
   await logAuditEvent({
     actorUserId: auth.actor.userId,

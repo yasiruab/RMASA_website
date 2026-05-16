@@ -9,7 +9,7 @@ type RoomType = {
   name: string;
   workingHours: { startTime: string; endTime: string };
 };
-type EventType = { id: string; name: string; durationHours: number; priority: number; roomTypeId?: string };
+type EventType = { id: string; name: string; durationHours: number; cleanupDurationMinutes: number; maxAdvanceBookingDays: number; priority: number; roomTypeId?: string };
 type PricingRule = {
   id: string;
   roomTypeId: string;
@@ -58,6 +58,13 @@ type CalendarBlock = {
   reason: string;
 };
 
+type BookingTab = "all" | "pending" | "tentative" | "unpaid" | "part_paid" | "paid" | "overpaid" | "conflicts";
+
+const ACTIVE_STATUSES = ["pending", "confirmed", "tentative"] as const;
+function isActiveBooking(b: Booking) {
+  return (ACTIVE_STATUSES as readonly string[]).includes(b.status);
+}
+
 function uid(prefix: string) {
   return `${prefix}-${Math.random().toString(36).slice(2, 8)}`;
 }
@@ -65,7 +72,9 @@ function uid(prefix: string) {
 function computeBookingEffectiveStatus(booking: Booking): Booking["status"] {
   if (booking.slots.length === 0) return booking.status;
   const effectives = booking.slots.map((s) => s.slotStatus ?? booking.status);
-  if (effectives.every((s) => s === effectives[0])) return effectives[0] as Booking["status"];
+  const active = effectives.filter((s) => s !== "rejected" && s !== "cancelled_override");
+  if (active.length === 0) return "rejected";
+  if (active.every((s) => s === active[0])) return active[0] as Booking["status"];
   return booking.status;
 }
 
@@ -412,6 +421,7 @@ export function AdminCalendarConsole({ section }: AdminCalendarConsoleProps) {
     role: "admin" as "admin" | "super_admin",
     name: "",
   });
+  const [activeBookingTab, setActiveBookingTab] = useState<BookingTab>("pending");
 
   useEffect(() => {
     void refreshAll();
@@ -434,7 +444,15 @@ export function AdminCalendarConsole({ section }: AdminCalendarConsoleProps) {
     const blockData = await safeJson<{ blocks: CalendarBlock[]; rooms: RoomType[] }>(blockRes);
 
     if (configData.rooms) { setRooms(configData.rooms); setSavedRooms(configData.rooms); }
-    if (configData.eventTypes) { setEventTypes(configData.eventTypes); setSavedEventTypes(configData.eventTypes); }
+    if (configData.eventTypes) {
+      const normalisedEventTypes = configData.eventTypes.map((et) => ({
+        ...et,
+        cleanupDurationMinutes: et.cleanupDurationMinutes ?? 0,
+        maxAdvanceBookingDays: et.maxAdvanceBookingDays ?? 365,
+      }));
+      setEventTypes(normalisedEventTypes);
+      setSavedEventTypes(normalisedEventTypes);
+    }
     if (configData.pricingRules) { setPricingRules(configData.pricingRules); setSavedPricingRules(configData.pricingRules); }
     if (bookingData.bookings) setBookings(bookingData.bookings);
     if (blockData.blocks) setBlocks(blockData.blocks);
@@ -821,6 +839,30 @@ export function AdminCalendarConsole({ section }: AdminCalendarConsoleProps) {
     }
     return pairs;
   }, [conflictMap]);
+
+  const tabCounts = useMemo(() => ({
+    all: bookings.length,
+    pending: bookings.filter((b) => computeBookingEffectiveStatus(b) === "pending").length,
+    tentative: bookings.filter((b) => computeBookingEffectiveStatus(b) === "tentative").length,
+    unpaid: bookings.filter((b) => b.reconciliationStatus === "unpaid" && isActiveBooking(b)).length,
+    part_paid: bookings.filter((b) => b.reconciliationStatus === "part_paid" && isActiveBooking(b)).length,
+    paid: bookings.filter((b) => b.reconciliationStatus === "paid").length,
+    overpaid: bookings.filter((b) => b.paidAmountLkr > b.totalAmountLkr && isActiveBooking(b)).length,
+    conflicts: bookings.filter((b) => (conflictMap.get(b.id) ?? []).length > 0).length,
+  }), [bookings, conflictMap]);
+
+  const filteredBookings = useMemo(() => {
+    switch (activeBookingTab) {
+      case "pending":   return bookings.filter((b) => computeBookingEffectiveStatus(b) === "pending");
+      case "tentative": return bookings.filter((b) => computeBookingEffectiveStatus(b) === "tentative");
+      case "unpaid":    return bookings.filter((b) => b.reconciliationStatus === "unpaid" && isActiveBooking(b));
+      case "part_paid": return bookings.filter((b) => b.reconciliationStatus === "part_paid" && isActiveBooking(b));
+      case "paid":      return bookings.filter((b) => b.reconciliationStatus === "paid");
+      case "overpaid":  return bookings.filter((b) => b.paidAmountLkr > b.totalAmountLkr && isActiveBooking(b));
+      case "conflicts": return bookings.filter((b) => (conflictMap.get(b.id) ?? []).length > 0);
+      default:          return bookings;
+    }
+  }, [bookings, activeBookingTab, conflictMap]);
 
   return (
     <div className="admin-console">
@@ -1302,96 +1344,136 @@ export function AdminCalendarConsole({ section }: AdminCalendarConsoleProps) {
         <section className="admin-panel">
         <h2>Event Types</h2>
         <div className="admin-list">
-          <div className="admin-row admin-row-event-types admin-row-header">
+          <div className="admin-row admin-row-event-types admin-row-header admin-event-type-header">
             <span>Name</span>
             <span>Applies To</span>
             <span>Duration (hrs)</span>
+            <span>Cleanup (min)</span>
+            <span>Advance (days)</span>
             <span>Priority</span>
             <span></span>
           </div>
           {eventTypes.map((eventType, index) => (
-            <div className="admin-row admin-row-event-types" key={eventType.id}>
-              <input
-                value={eventType.name}
-                onChange={(event) =>
-                  setEventTypes((current) =>
-                    current.map((item, i) =>
-                      i === index ? { ...item, name: event.target.value } : item,
-                    ),
-                  )
-                }
-              />
-              <select
-                value={eventType.roomTypeId ?? ""}
-                onChange={(event) =>
-                  setEventTypes((current) =>
-                    current.map((item, i) =>
-                      i === index
-                        ? {
-                            ...item,
-                            roomTypeId: event.target.value || undefined,
-                          }
-                        : item,
-                    ),
-                  )
-                }
-              >
-                <option value="">All Rooms</option>
-                {rooms.map((room) => (
-                  <option key={room.id} value={room.id}>
-                    {room.name}
-                  </option>
-                ))}
-              </select>
-              <input
-                min={1}
-                type="number"
-                value={eventType.durationHours}
-                onChange={(event) =>
-                  setEventTypes((current) =>
-                    current.map((item, i) =>
-                      i === index ? { ...item, durationHours: Number(event.target.value) } : item,
-                    ),
-                  )
-                }
-              />
-              <input
-                min={1}
-                type="number"
-                value={eventType.priority}
-                onChange={(event) =>
-                  setEventTypes((current) =>
-                    current.map((item, i) =>
-                      i === index ? { ...item, priority: Number(event.target.value) } : item,
-                    ),
-                  )
-                }
-              />
-              <button
-                className="btn btn-secondary"
-                onClick={() => removeEventType(eventType.id)}
-                type="button"
-              >
-                Delete
-              </button>
+            <div className="admin-event-type-card" key={eventType.id}>
+              <div className="admin-row admin-row-event-types">
+                <input
+                  value={eventType.name}
+                  onChange={(event) =>
+                    setEventTypes((current) =>
+                      current.map((item, i) =>
+                        i === index ? { ...item, name: event.target.value } : item,
+                      ),
+                    )
+                  }
+                />
+                <select
+                  value={eventType.roomTypeId ?? ""}
+                  onChange={(event) =>
+                    setEventTypes((current) =>
+                      current.map((item, i) =>
+                        i === index
+                          ? {
+                              ...item,
+                              roomTypeId: event.target.value || undefined,
+                            }
+                          : item,
+                      ),
+                    )
+                  }
+                >
+                  <option value="">All Rooms</option>
+                  {rooms.map((room) => (
+                    <option key={room.id} value={room.id}>
+                      {room.name}
+                    </option>
+                  ))}
+                </select>
+                <input
+                  min={1}
+                  type="number"
+                  value={eventType.durationHours}
+                  onChange={(event) =>
+                    setEventTypes((current) =>
+                      current.map((item, i) =>
+                        i === index ? { ...item, durationHours: Number(event.target.value) } : item,
+                      ),
+                    )
+                  }
+                />
+                <input
+                  min={0}
+                  step={15}
+                  type="number"
+                  value={eventType.cleanupDurationMinutes ?? 0}
+                  onChange={(event) =>
+                    setEventTypes((current) =>
+                      current.map((item, i) =>
+                        i === index ? { ...item, cleanupDurationMinutes: Number(event.target.value) } : item,
+                      ),
+                    )
+                  }
+                />
+                <input
+                  min={0}
+                  step={1}
+                  type="number"
+                  value={eventType.maxAdvanceBookingDays ?? 365}
+                  onChange={(event) => {
+                    const val = parseInt(event.target.value, 10);
+                    setEventTypes((current) =>
+                      current.map((item, i) =>
+                        i === index ? { ...item, maxAdvanceBookingDays: isNaN(val) ? 365 : val } : item,
+                      ),
+                    );
+                  }}
+                />
+                <input
+                  min={1}
+                  type="number"
+                  value={eventType.priority}
+                  onChange={(event) =>
+                    setEventTypes((current) =>
+                      current.map((item, i) =>
+                        i === index ? { ...item, priority: Number(event.target.value) } : item,
+                      ),
+                    )
+                  }
+                />
+                <button
+                  aria-label={`Delete ${eventType.name}`}
+                  className="btn-icon-delete"
+                  onClick={() => removeEventType(eventType.id)}
+                  type="button"
+                >
+                  <svg aria-hidden="true" fill="none" height="15" stroke="currentColor" strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" viewBox="0 0 24 24" width="15" xmlns="http://www.w3.org/2000/svg">
+                    <polyline points="3 6 5 6 21 6"/>
+                    <path d="M19 6l-1 14H6L5 6"/>
+                    <line x1="10" x2="10" y1="11" y2="17"/>
+                    <line x1="14" x2="14" y1="11" y2="17"/>
+                    <path d="M9 6V4h6v2"/>
+                  </svg>
+                </button>
+              </div>
             </div>
           ))}
         </div>
-        <button
-          className="btn btn-secondary"
-          onClick={() =>
-            setEventTypes((current) => [
-              ...current,
-              { id: uid("event"), name: "New Type", durationHours: 4, priority: 1, roomTypeId: rooms[0]?.id },
-            ])
-          }
-          type="button"
-        >
-          Add Event Type
-        </button>
-        <button className="btn btn-primary" disabled={!isConfigDirty} onClick={saveConfig} type="button">
-          Save Configuration{isConfigDirty ? "" : " (no changes)"}
-        </button>
+        <div className="admin-config-actions">
+          <button
+            className="btn btn-secondary"
+            onClick={() =>
+              setEventTypes((current) => [
+                ...current,
+                { id: uid("event"), name: "New Type", durationHours: 4, cleanupDurationMinutes: 0, maxAdvanceBookingDays: 365, priority: 1, roomTypeId: rooms[0]?.id },
+              ])
+            }
+            type="button"
+          >
+            Add Event Type
+          </button>
+          <button className="btn btn-primary" disabled={!isConfigDirty} onClick={saveConfig} type="button">
+            Save Configuration{isConfigDirty ? "" : " (no changes)"}
+          </button>
+        </div>
         </section>
         ) : (
           <section className="admin-panel">
@@ -1759,6 +1841,37 @@ export function AdminCalendarConsole({ section }: AdminCalendarConsoleProps) {
         <section className="admin-panel">
           <h2>Booking Queue</h2>
 
+          <div className="admin-booking-tabs" role="tablist">
+            {(
+              [
+                ["all", "All"],
+                ["pending", "Pending"],
+                ["tentative", "Tentative"],
+                ["unpaid", "Unpaid"],
+                ["part_paid", "Part Paid"],
+                ["paid", "Paid"],
+                ["overpaid", "Overpaid"],
+                ["conflicts", "Conflicts"],
+              ] as [BookingTab, string][]
+            ).map(([tab, label]) => (
+              <button
+                key={tab}
+                role="tab"
+                aria-selected={activeBookingTab === tab}
+                className={[
+                  "admin-booking-tab",
+                  activeBookingTab === tab ? "active" : "",
+                  tab === "conflicts" && tabCounts.conflicts > 0 ? "has-conflicts" : "",
+                ].filter(Boolean).join(" ")}
+                onClick={() => setActiveBookingTab(tab)}
+                type="button"
+              >
+                {label}
+                <span className="admin-booking-tab-count">{tabCounts[tab]}</span>
+              </button>
+            ))}
+          </div>
+
           {conflictPairs.length > 0 ? (
             <div className="bk-conflicts-banner">
               <div className="bk-conflicts-icon">⚠</div>
@@ -1797,10 +1910,12 @@ export function AdminCalendarConsole({ section }: AdminCalendarConsoleProps) {
           ) : null}
 
           <div className="bk-list">
-            {bookings.length === 0 ? (
-              <p className="admin-revenue-note">No bookings yet.</p>
+            {filteredBookings.length === 0 ? (
+              <p className="admin-revenue-note">
+                {activeBookingTab === "all" || activeBookingTab === "pending" ? "No bookings yet." : "No bookings in this category."}
+              </p>
             ) : null}
-            {bookings.map((booking) => {
+            {filteredBookings.map((booking) => {
               const displayStatus = computeBookingEffectiveStatus(booking);
               const conflictIds = conflictMap.get(booking.id) ?? [];
               const hasBookingConflict = conflictIds.length > 0;
@@ -1887,7 +2002,11 @@ export function AdminCalendarConsole({ section }: AdminCalendarConsoleProps) {
                           LKR {currencyFormatter.format(booking.totalAmountLkr)}
                         </span>
                         <span className="bk-sep">&middot;</span>
-                        {booking.reconciliationStatus === "paid" ? (
+                        {effectivePaid > booking.totalAmountLkr ? (
+                          <span className="bk-pay-tag bk-pay-overpaid">
+                            Overpaid &middot; Refund Due LKR {currencyFormatter.format(effectivePaid - booking.totalAmountLkr)}
+                          </span>
+                        ) : booking.reconciliationStatus === "paid" ? (
                           <span className="bk-pay-tag bk-pay-paid">Paid in Full</span>
                         ) : booking.reconciliationStatus === "waived" ? (
                           <span className="bk-pay-tag bk-pay-waived">Waived</span>

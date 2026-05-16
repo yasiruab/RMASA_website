@@ -1,6 +1,7 @@
 import { randomBytes, randomUUID } from "node:crypto";
 import { NextResponse } from "next/server";
 import {
+  assertAdvanceBookingLimit,
   assertRecurrenceWindow,
   evaluateBookingConflicts,
   expandRecurrence,
@@ -110,6 +111,15 @@ export async function POST(req: Request) {
     );
   }
 
+  try {
+    assertAdvanceBookingLimit(expandedSlots, eventType);
+  } catch (error) {
+    return NextResponse.json(
+      { message: error instanceof Error ? error.message : "Booking exceeds advance booking window." },
+      { status: 400 },
+    );
+  }
+
   const internalConflicts = findInternalSlotConflicts(expandedSlots);
   if (internalConflicts.length > 0) {
     return NextResponse.json(
@@ -150,6 +160,7 @@ export async function POST(req: Request) {
     eventTypeId,
     acMode,
     status: "pending",
+    cleanupDurationMinutes: eventType.cleanupDurationMinutes,
     slots: expandedSlots,
     customer: {
       name: customer.name,

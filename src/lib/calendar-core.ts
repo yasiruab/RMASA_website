@@ -61,6 +61,20 @@ export function overlaps(a: BookingSlot, b: BookingSlot) {
   return aStart < bEnd && bStart < aEnd;
 }
 
+// Like overlaps(), but extends each slot's end by its cleanup window before comparing.
+// Use this when checking whether two bookings' effective blocked periods conflict.
+export function effectiveOverlaps(
+  slotA: BookingSlot, cleanupA: number,
+  slotB: BookingSlot, cleanupB: number,
+): boolean {
+  if (slotA.date !== slotB.date) return false;
+  const aStart = toMinutes(slotA.startTime);
+  const aEnd   = toMinutes(slotA.endTime) + cleanupA;
+  const bStart = toMinutes(slotB.startTime);
+  const bEnd   = toMinutes(slotB.endTime) + cleanupB;
+  return aStart < bEnd && bStart < aEnd;
+}
+
 export function generateSlotsForDuration(
   date: string,
   durationHours: number,
@@ -148,6 +162,7 @@ export function getSlotStatus(
     return { status: "blocked", reason: block.reason };
   }
 
+  // Find all active bookings whose effective period (including cleanup) overlaps this slot.
   const overlappingBookings = db.bookings.filter(
     (b) =>
       b.roomTypeId === roomTypeId &&
@@ -155,7 +170,7 @@ export function getSlotStatus(
       b.slots.some((s) => {
         const effectiveStatus = s.slotStatus ?? b.status;
         return (
-          overlaps(s, slot) &&
+          effectiveOverlaps(s, b.cleanupDurationMinutes, slot, 0) &&
           effectiveStatus !== "rejected" &&
           effectiveStatus !== "cancelled_override"
         );
@@ -164,7 +179,38 @@ export function getSlotStatus(
 
   if (overlappingBookings.length === 0) return { status: "available" };
 
-  const blockingBookings = overlappingBookings.filter((booking) => {
+  // Separate bookings whose slot body overlaps from those whose cleanup-only window overlaps.
+  const bodyOverlapBookings = overlappingBookings.filter((b) =>
+    b.slots.some((s) => {
+      const es = s.slotStatus ?? b.status;
+      return overlaps(s, slot) && es !== "rejected" && es !== "cancelled_override";
+    }),
+  );
+
+  if (bodyOverlapBookings.length === 0) {
+    // Slot falls only within a cleanup window — treat as blocked with "cleanup" status.
+    const cleanupBooking = overlappingBookings[0];
+    if (candidatePriority !== undefined) {
+      const existingType = findEventType(db, cleanupBooking.eventTypeId);
+      if (existingType.priority < candidatePriority) return { status: "available" };
+    }
+    const cleanupSlot = cleanupBooking.slots.find((s) => {
+      const es = s.slotStatus ?? cleanupBooking.status;
+      return effectiveOverlaps(s, cleanupBooking.cleanupDurationMinutes, slot, 0) &&
+             es !== "rejected" && es !== "cancelled_override";
+    });
+    const cleanupWindowEnd = cleanupSlot
+      ? fromMinutes(toMinutes(cleanupSlot.endTime) + cleanupBooking.cleanupDurationMinutes)
+      : undefined;
+    return {
+      status: "cleanup",
+      bookingId: cleanupBooking.id,
+      bookingStartTime: cleanupSlot?.endTime,
+      bookingEndTime: cleanupWindowEnd,
+    };
+  }
+
+  const blockingBookings = bodyOverlapBookings.filter((booking) => {
     if (candidatePriority === undefined) return true;
     const existingType = findEventType(db, booking.eventTypeId);
     return existingType.priority >= candidatePriority;
@@ -178,7 +224,12 @@ export function getSlotStatus(
   const overlappingSlot = booking.slots.find((s) => overlaps(s, slot));
   const effectiveStatus = overlappingSlot?.slotStatus ?? booking.status;
 
-  return { status: effectiveStatus as "pending" | "confirmed" | "tentative", bookingId: booking.id };
+  return {
+    status: effectiveStatus as "pending" | "confirmed" | "tentative",
+    bookingId: booking.id,
+    bookingStartTime: overlappingSlot?.startTime,
+    bookingEndTime: overlappingSlot?.endTime,
+  };
 }
 
 export function getSlotAvailabilities(
@@ -258,7 +309,7 @@ export function evaluateBookingConflicts(db: CalendarDb, candidate: Booking, ign
         "tentative",
       ].includes(booking.status))
         continue;
-      if (!booking.slots.some((s) => overlaps(s, slot))) continue;
+      if (!booking.slots.some((s) => effectiveOverlaps(s, booking.cleanupDurationMinutes, slot, candidateType.cleanupDurationMinutes))) continue;
 
       const existingType = findEventType(db, booking.eventTypeId);
       if (candidateType.priority > existingType.priority) {
@@ -296,6 +347,24 @@ export function assertRecurrenceWindow(recurrence: Recurrence) {
 
   if (recurrence.occurrences && recurrence.occurrences > 26) {
     throw new Error("Recurrence occurrences cannot exceed 26.");
+  }
+}
+
+export function assertAdvanceBookingLimit(
+  slots: BookingSlot[],
+  eventType: EventType,
+  today = new Date(),
+): void {
+  if (!eventType.maxAdvanceBookingDays) return;
+  const maxDate = new Date(today);
+  maxDate.setDate(maxDate.getDate() + eventType.maxAdvanceBookingDays);
+  const maxDateStr = formatDateLocal(maxDate);
+  for (const slot of slots) {
+    if (slot.date > maxDateStr) {
+      throw new Error(
+        `Bookings for "${eventType.name}" cannot be made more than ${eventType.maxAdvanceBookingDays} days in advance.`,
+      );
+    }
   }
 }
 

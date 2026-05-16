@@ -37,6 +37,8 @@ export type EventType = {
   id: string;
   name: string;
   durationHours: number;
+  cleanupDurationMinutes: number;
+  maxAdvanceBookingDays: number;
   priority: number;
   roomTypeId?: string; // optional: when set, event type is restricted to that room
 };
@@ -77,6 +79,7 @@ export type Booking = {
   eventTypeId: string;
   acMode: AcMode;
   status: BookingStatus;
+  cleanupDurationMinutes: number;
   slots: BookingSlot[];
   customer: BookingCustomer;
   recurrence: Recurrence;
@@ -114,7 +117,7 @@ export type CalendarDb = {
   blocks: CalendarBlock[];
 };
 
-export type SlotStatus = "available" | "pending" | "confirmed" | "tentative" | "blocked";
+export type SlotStatus = "available" | "pending" | "confirmed" | "tentative" | "blocked" | "cleanup";
 
 export type SlotAvailability = {
   date: string;
@@ -122,5 +125,7 @@ export type SlotAvailability = {
   endTime: string;
   status: SlotStatus;
   bookingId?: string;
+  bookingStartTime?: string;
+  bookingEndTime?: string;
   reason?: string;
 };
