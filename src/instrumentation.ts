@@ -2,9 +2,34 @@ const AMPLIFY_APP_ID = "d8k1nfzx3tpc7";
 const AMPLIFY_BRANCH = "main";
 const AWS_REGION = "ap-southeast-1";
 
+declare global {
+  // eslint-disable-next-line no-var
+  var __instrumentationState:
+    | {
+        ran: boolean;
+        startedAt: string | null;
+        finishedAt: string | null;
+        paramsLoaded: number;
+        paramKeys: string[];
+        error: string | null;
+      }
+    | undefined;
+}
+
+globalThis.__instrumentationState = {
+  ran: false,
+  startedAt: null,
+  finishedAt: null,
+  paramsLoaded: 0,
+  paramKeys: [],
+  error: null,
+};
+
 export async function register() {
   if (process.env.NEXT_RUNTIME !== "nodejs") return;
-  if (process.env.DATABASE_URL && process.env.NEXTAUTH_SECRET) return;
+
+  const state = globalThis.__instrumentationState!;
+  state.startedAt = new Date().toISOString();
 
   try {
     const { SSMClient, GetParametersByPathCommand } = await import(
@@ -24,18 +49,24 @@ export async function register() {
       })
     );
 
-    let loaded = 0;
+    const loadedKeys: string[] = [];
     for (const param of result.Parameters ?? []) {
       if (!param.Name || param.Value === undefined) continue;
       const key = param.Name.replace(prefix, "");
       if (key && !process.env[key]) {
         process.env[key] = param.Value;
-        loaded += 1;
+        loadedKeys.push(key);
       }
     }
 
-    console.log(`[instrumentation] Loaded ${loaded} SSM params`);
+    state.ran = true;
+    state.paramsLoaded = loadedKeys.length;
+    state.paramKeys = loadedKeys;
+    console.log(`[instrumentation] Loaded ${loadedKeys.length} SSM params`);
   } catch (err) {
+    state.error = err instanceof Error ? err.message : String(err);
     console.error("[instrumentation] Failed to load SSM params:", err);
+  } finally {
+    state.finishedAt = new Date().toISOString();
   }
 }
