@@ -366,6 +366,7 @@ type AdminUser = {
   name: string | null;
   role: "admin" | "super_admin";
   active: boolean;
+  cognitoSub: string | null;
   createdAt: string;
   updatedAt: string;
 };
@@ -408,7 +409,6 @@ export function AdminCalendarConsole({ section }: AdminCalendarConsoleProps) {
   } | null>(null);
   const [accountForm, setAccountForm] = useState({
     email: "",
-    password: "",
     role: "admin" as "admin" | "super_admin",
     name: "",
   });
@@ -585,7 +585,7 @@ export function AdminCalendarConsole({ section }: AdminCalendarConsoleProps) {
     setMessage(data.message ?? (res.ok ? "Account created." : "Failed to create account."));
     if (!res.ok) return;
 
-    setAccountForm((current) => ({ ...current, password: "", email: "", name: "" }));
+    setAccountForm((current) => ({ ...current, email: "", name: "" }));
     await refreshAccounts();
   }
 
@@ -1553,7 +1553,12 @@ export function AdminCalendarConsole({ section }: AdminCalendarConsoleProps) {
         isSuperAdmin ? (
           <section className="admin-panel">
             <h2>Admin Accounts</h2>
-            <p className="admin-revenue-note">Create and manage admin users. Super admin access is required.</p>
+            <p className="admin-revenue-note">
+              Creating an admin is a two-step process: add the account row here, then create a
+              matching user in the AWS Cognito user pool with the same email. The new admin signs
+              in via the standard login page — Cognito handles their password and the email
+              verification code.
+            </p>
             <div className="admin-row admin-row-accounts">
               <input
                 type="text"
@@ -1569,14 +1574,6 @@ export function AdminCalendarConsole({ section }: AdminCalendarConsoleProps) {
                 value={accountForm.email}
                 onChange={(event) =>
                   setAccountForm((current) => ({ ...current, email: event.target.value }))
-                }
-              />
-              <input
-                type="password"
-                placeholder="Temporary password"
-                value={accountForm.password}
-                onChange={(event) =>
-                  setAccountForm((current) => ({ ...current, password: event.target.value }))
                 }
               />
               <select
@@ -1604,6 +1601,7 @@ export function AdminCalendarConsole({ section }: AdminCalendarConsoleProps) {
                     <th>Name</th>
                     <th>Role</th>
                     <th>Status</th>
+                    <th>Cognito</th>
                     <th>Created</th>
                     <th>Actions</th>
                   </tr>
@@ -1618,6 +1616,9 @@ export function AdminCalendarConsole({ section }: AdminCalendarConsoleProps) {
                       <td>{user.name || "-"}</td>
                       <td>{user.role}</td>
                       <td>{user.active ? "active" : "inactive"}</td>
+                      <td title={user.cognitoSub ?? "Not linked yet — create matching user in AWS Cognito console"}>
+                        {user.cognitoSub ? "linked" : "not linked"}
+                      </td>
                       <td>{new Date(user.createdAt).toLocaleDateString("en-LK")}</td>
                       <td>
                         <div className="admin-inline-actions">

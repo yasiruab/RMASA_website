@@ -331,6 +331,57 @@ database is reset.
 | `DATABASE_URL` | Amplify console → Environment variables | Includes `?sslmode=require` for Aurora SSL |
 | `NEXTAUTH_SECRET` | Amplify console → Environment variables | Random 32-byte secret for JWT signing |
 | `NEXTAUTH_URL` | Amplify console → Environment variables | Full URL of the deployed site (e.g. `https://main.d8k1nfzx3tpc7.amplifyapp.com`) — update when custom domain is configured |
+| `COGNITO_CLIENT_ID` | Amplify console → Environment variables | App Client ID from the Cognito User Pool |
+| `COGNITO_CLIENT_SECRET` | Amplify console → Environment variables | App Client secret (confidential client) |
+| `COGNITO_ISSUER` | Amplify console → Environment variables | `https://cognito-idp.<region>.amazonaws.com/<user-pool-id>` |
+
+All six are mirrored into the JS bundle at build time via `next.config.ts` `env` config (prefixed
+`_AMPLIFY_*`) and re-exported at server start by `src/instrumentation.ts`. The bundle-leak
+guardrail (`scripts/check-amplify-secret-leak.mjs`) keeps these references confined to three
+server-only files.
+
+---
+
+## Admin Auth (AWS Cognito + Postgres)
+
+Admin authentication is a hybrid: **Cognito** holds the credential (password + email-OTP MFA +
+lockout); **Postgres `User`** holds the application-level role (`admin` / `super_admin`) and
+`active` flag. NextAuth (JWT strategy) is the session layer.
+
+### Login flow
+1. Admin visits `/admin/login` → clicks "Sign in" → redirected to Cognito hosted UI.
+2. Cognito takes password, then emails a 6-digit OTP.
+3. On success, Cognito redirects to `/api/auth/callback/cognito`.
+4. NextAuth `signIn` callback looks up the user by email in Postgres:
+   - Not found → reject (audit: `AUTH_LOGIN_FAILED` reason `not_in_postgres`).
+   - `active === false` → reject (audit: `AUTH_LOGIN_FAILED` reason `inactive`).
+   - Otherwise → backfill `cognitoSub` on the Postgres row (first login only), allow.
+5. JWT session cookie is set (4-hour max-age). Role comes from Postgres.
+
+### Adding a new admin (two-step)
+1. **In the website:** super-admin uses Admin Accounts page to create a Postgres User row
+   (email + role + name). No password is taken.
+2. **In the AWS Cognito console:** super-admin creates a matching Cognito user with the same
+   email, marks the email verified, sets a temporary password (Cognito forces change on first
+   login).
+3. New admin signs in via `/admin/login`. On first sign-in they're prompted to set a new
+   password and enrol email-OTP MFA.
+
+### Removing / disabling an admin
+- Soft-disable: super-admin toggles `active = false` in the Admin Accounts page. The next
+  login attempt is rejected by the NextAuth `signIn` callback; any existing session naturally
+  expires within 4 hours.
+- Hard-remove: in addition, super-admin deletes the user from the Cognito User Pool.
+
+### Forgot password
+Admins use the "Forgot password" link in the Cognito hosted UI — Cognito handles email
+verification and reset. The website has no password-reset endpoint of its own.
+
+### Why no `AdminCreateUser` from the website?
+Amplify Gen 1 Web Compute doesn't expose IAM credentials to the SSR runtime, so calling the
+Cognito Admin SDK from inside Next.js would require baking AWS access keys into the bundle.
+That trade-off didn't fit the "very secure" goal for the small admin count, so admin creation
+in Cognito is intentionally a manual console step.
 
 ---
 
@@ -354,6 +405,10 @@ database is reset.
       width override with `clamp()`-based scaling)
 - [~] EventBridge keep-alive ping — **deferred**. Skeleton UX handles the cold start at near-zero
       cost; revisit if traffic grows enough to justify ≈US$25–40/month.
+- [x] Migrate admin auth to AWS Cognito (password + email-OTP MFA, 4-hour session, security
+      headers, HTTPS redirect on `/admin/*`)
 - [ ] Test the bookings page calendar data in production (verify skeleton shows on a cold cluster)
-- [ ] Test admin login at `/admin/login` in production
+- [ ] Test admin login at `/admin/login` in production (Cognito flow end-to-end + MFA)
+- [ ] Mirror existing Postgres admins into the Cognito User Pool (one-time, manual)
+- [ ] Remove `bcrypt` dependency after one week of stable Cognito operation (Phase D cleanup)
 - [ ] Purchase and configure custom domain → update `NEXTAUTH_URL` in Amplify console

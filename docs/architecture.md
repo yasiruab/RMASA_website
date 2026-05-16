@@ -19,7 +19,10 @@ The site supports that mission by:
 - **Framework**: Next.js 15 (App Router) with React and TypeScript.
 - **Styling**: Global CSS in `src/app/globals.css` plus component-level Tailwind/utility classes (where used).
 - **Database**: Aurora PostgreSQL Serverless v2 (AWS RDS, ap-southeast-1) via Prisma v6.
-- **Auth**: NextAuth v4 with JWT strategy for admin authentication.
+- **Auth**: NextAuth v4 (JWT strategy) as the session layer, AWS Cognito User Pool as the
+  identity provider. Cognito holds passwords + email-OTP MFA + account lockout; the Postgres
+  `User` table remains the source of truth for admin role and `active` status. See
+  `docs/deployment.md` for setup details.
 - **Runtime**: Node.js — Amplify Gen 1 Web Compute runs standard Next.js output (`.next/`).
   `output: "standalone"` was attempted and reverted; see `docs/deployment.md` issues 4–5.
 - **Hosting**: AWS Amplify Hosting — Web compute platform (managed SSR infrastructure).

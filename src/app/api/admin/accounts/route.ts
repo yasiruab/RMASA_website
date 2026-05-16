@@ -1,4 +1,3 @@
-import bcrypt from "bcrypt";
 import { NextResponse } from "next/server";
 import { logAuditEvent } from "@/lib/audit";
 import { requireSuperAdmin } from "@/lib/auth-guards";
@@ -6,7 +5,6 @@ import { prisma } from "@/lib/prisma";
 
 type CreateAccountPayload = {
   email?: string;
-  password?: string;
   role?: "admin" | "super_admin";
   name?: string;
 };
@@ -15,7 +13,7 @@ function isEmail(value: string) {
   return /^\S+@\S+\.\S+$/.test(value);
 }
 
-export async function GET(req: Request) {
+export async function GET() {
   const auth = await requireSuperAdmin();
   if ("response" in auth) return auth.response;
 
@@ -27,6 +25,7 @@ export async function GET(req: Request) {
       name: true,
       role: true,
       active: true,
+      cognitoSub: true,
       createdAt: true,
       updatedAt: true,
     },
@@ -41,16 +40,11 @@ export async function POST(req: Request) {
 
   const payload = (await req.json()) as CreateAccountPayload;
   const email = String(payload.email ?? "").trim().toLowerCase();
-  const password = String(payload.password ?? "").trim();
   const role = payload.role === "super_admin" ? "super_admin" : "admin";
   const name = String(payload.name ?? "").trim() || null;
 
-  if (!email || !password || !isEmail(email)) {
-    return NextResponse.json({ message: "Valid email and password are required." }, { status: 400 });
-  }
-
-  if (password.length < 8) {
-    return NextResponse.json({ message: "Password must be at least 8 characters." }, { status: 400 });
+  if (!email || !isEmail(email)) {
+    return NextResponse.json({ message: "A valid email is required." }, { status: 400 });
   }
 
   const exists = await prisma.user.findUnique({ where: { email } });
@@ -58,14 +52,12 @@ export async function POST(req: Request) {
     return NextResponse.json({ message: "Account already exists." }, { status: 409 });
   }
 
-  const passwordHash = await bcrypt.hash(password, 12);
   const user = await prisma.user.create({
     data: {
       email,
       name,
       role,
       active: true,
-      passwordHash,
     },
     select: {
       id: true,
@@ -73,6 +65,7 @@ export async function POST(req: Request) {
       name: true,
       role: true,
       active: true,
+      cognitoSub: true,
       createdAt: true,
       updatedAt: true,
     },
@@ -89,5 +82,9 @@ export async function POST(req: Request) {
     userAgent: req.headers.get("user-agent"),
   });
 
-  return NextResponse.json({ message: "Account created.", user });
+  return NextResponse.json({
+    message:
+      "Account row created. Now create a matching user in the AWS Cognito User Pool with this same email so the new admin can sign in.",
+    user,
+  });
 }

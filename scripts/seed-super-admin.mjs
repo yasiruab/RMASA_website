@@ -1,35 +1,31 @@
-import bcrypt from "bcrypt";
 import { PrismaClient } from "@prisma/client";
 
 const prisma = new PrismaClient();
 
 async function main() {
   const email = String(process.env.ADMIN_EMAIL ?? "").trim().toLowerCase();
-  const password = String(process.env.ADMIN_PASSWORD ?? "").trim();
 
-  if (!email || !password) {
-    throw new Error("ADMIN_EMAIL and ADMIN_PASSWORD are required.");
+  if (!email) {
+    throw new Error("ADMIN_EMAIL is required.");
   }
-
-  const passwordHash = await bcrypt.hash(password, 12);
 
   await prisma.user.upsert({
     where: { email },
     update: {
-      passwordHash,
       role: "super_admin",
       active: true,
     },
     create: {
       email,
       name: "Super Admin",
-      passwordHash,
       role: "super_admin",
       active: true,
     },
   });
 
-  console.log(`Super admin ensured for ${email}`);
+  console.log(`Super admin row ensured in Postgres for ${email}.`);
+  console.log("Next: create a matching user in the AWS Cognito User Pool with this same email.");
+  console.log("The Cognito user holds the password and MFA — Postgres only holds the role.");
 }
 
 main()

@@ -51,7 +51,8 @@ model User {
   email          String    @unique
   emailVerified  DateTime?
   image          String?
-  passwordHash   String
+  passwordHash   String?
+  cognitoSub     String?   @unique
   role           AdminRole @default(admin)
   active         Boolean   @default(true)
   createdAt      DateTime  @default(now())
