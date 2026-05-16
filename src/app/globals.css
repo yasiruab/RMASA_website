@@ -812,6 +812,11 @@ main {
   border-color: #d8aeae;
 }
 
+.legend-dot.site-preparation {
+  background: #fff7ed;
+  border-color: #fdba74;
+}
+
 .legend-dot.current-selection {
   background: #ff2f7a;
   border-color: #ff2f7a;
@@ -1156,6 +1161,25 @@ main {
   cursor: not-allowed;
 }
 
+.gc-day-head.gc-day-past-limit {
+  opacity: 0.4;
+}
+
+.gc-cell.past-limit {
+  background: #f0f0f2;
+  color: #aab0be;
+  cursor: not-allowed;
+  pointer-events: none;
+}
+
+.recurrence-limit-notice {
+  font-size: 0.82rem;
+  color: var(--muted);
+  margin: 0;
+  align-self: flex-end;
+  padding-bottom: 2px;
+}
+
 .gc-cell.busy-pending {
   background: #fff9e9;
 }
@@ -1171,6 +1195,12 @@ main {
 .gc-cell.busy-blocked {
   background: #fde8e8;
   color: #991b1b;
+  cursor: not-allowed;
+}
+
+.gc-cell.busy-cleanup {
+  background: #fff7ed;
+  color: #9a3412;
   cursor: not-allowed;
 }
 
@@ -1522,8 +1552,33 @@ main {
   grid-template-columns: 2fr 1fr 1fr 80px;
 }
 
+.admin-event-type-card {
+  background: #fff;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 12px 14px;
+}
+
+.admin-event-type-card .admin-row {
+  margin-bottom: 0;
+}
+
+.admin-event-type-header {
+  padding-left: 15px;
+  padding-right: 15px;
+}
+
+.admin-config-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 16px;
+  padding-top: 12px;
+  border-top: 1px solid var(--line);
+}
+
 .admin-row-event-types {
-  grid-template-columns: 2fr 1.5fr 100px 100px 80px;
+  grid-template-columns: 2fr 1.5fr 100px 100px 110px 80px 34px;
 }
 
 .admin-row-pricing {
@@ -1548,7 +1603,89 @@ main {
   white-space: nowrap;
 }
 
+.btn-icon-delete {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 34px;
+  height: 34px;
+  padding: 0;
+  border-radius: 6px;
+  border: 1px solid rgba(220, 38, 38, 0.25);
+  background: #fff5f5;
+  color: #dc2626;
+  cursor: pointer;
+  flex-shrink: 0;
+  transition: background 0.12s ease, border-color 0.12s ease;
+}
+
+.btn-icon-delete:hover {
+  background: #fee2e2;
+  border-color: rgba(220, 38, 38, 0.5);
+}
+
 /* ─── Booking Queue ─────────────────────────────────────────────── */
+
+.admin-booking-tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-bottom: 16px;
+}
+
+.admin-booking-tab {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 14px;
+  border-radius: 20px;
+  border: 1px solid var(--line);
+  background: var(--panel);
+  color: var(--ink);
+  font-size: 0.8125rem;
+  font-weight: 500;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: background 0.12s ease, border-color 0.12s ease, color 0.12s ease;
+}
+
+.admin-booking-tab:hover {
+  background: #f3f4f6;
+  border-color: #cbd5e1;
+}
+
+.admin-booking-tab.active {
+  background: var(--brand);
+  border-color: var(--brand);
+  color: #fff;
+}
+
+.admin-booking-tab.has-conflicts:not(.active) {
+  border-color: #f97316;
+  color: #9a3412;
+}
+
+.admin-booking-tab-count {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 18px;
+  height: 18px;
+  padding: 0 4px;
+  border-radius: 9px;
+  background: rgba(0, 0, 0, 0.08);
+  font-size: 0.7rem;
+  font-weight: 600;
+  line-height: 1;
+}
+
+.admin-booking-tab.active .admin-booking-tab-count {
+  background: rgba(255, 255, 255, 0.25);
+}
+
+.admin-booking-tab.has-conflicts:not(.active) .admin-booking-tab-count {
+  background: rgba(249, 115, 22, 0.15);
+}
 
 .bk-conflicts-banner {
   display: flex;
@@ -2028,6 +2165,11 @@ main {
 .bk-pay-waived {
   background: #f3f4f6;
   color: #6b7280;
+}
+
+.bk-pay-overpaid {
+  background: #fff7ed;
+  color: #c2410c;
 }
 
 /* Booking reference (BK-XXXXXX) */

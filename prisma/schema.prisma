@@ -110,14 +110,16 @@ model RoomType {
 }
 
 model EventType {
-  id              String        @id
-  name            String
-  durationHours   Int
-  priority        Int
-  roomTypeId      String?
-  roomType        RoomType?     @relation(fields: [roomTypeId], references: [id], onDelete: SetNull)
-  pricingRules    PricingRule[]
-  bookings        Booking[]
+  id                     String        @id
+  name                   String
+  durationHours          Int
+  cleanupDurationMinutes Int           @default(0)
+  maxAdvanceBookingDays  Int           @default(365)
+  priority               Int
+  roomTypeId             String?
+  roomType               RoomType?     @relation(fields: [roomTypeId], references: [id], onDelete: SetNull)
+  pricingRules           PricingRule[]
+  bookings               Booking[]
 }
 
 model PricingRule {
@@ -148,6 +150,7 @@ model Booking {
   recurrenceFrequency  RecurrenceFrequency
   recurrenceEndDate    String?
   recurrenceOccurrences Int?
+  cleanupDurationMinutes Int                @default(0)
   totalAmountLkr       Int
   paidAmountLkr        Int                  @default(0)
   reconciliationStatus ReconciliationStatus

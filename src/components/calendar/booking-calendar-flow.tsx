@@ -7,7 +7,7 @@ type RoomType = {
   name: string;
   workingHours: { startTime: string; endTime: string };
 };
-type EventType = { id: string; name: string; durationHours: number; priority: number; roomTypeId?: string };
+type EventType = { id: string; name: string; durationHours: number; priority: number; roomTypeId?: string; maxAdvanceBookingDays: number };
 type PricingRule = {
   id: string;
   roomTypeId: string;
@@ -21,7 +21,10 @@ type Slot = {
   date: string;
   startTime: string;
   endTime: string;
-  status: "available" | "pending" | "confirmed" | "tentative" | "blocked";
+  status: "available" | "pending" | "confirmed" | "tentative" | "blocked" | "cleanup";
+  bookingId?: string;
+  bookingStartTime?: string;
+  bookingEndTime?: string;
   reason?: string;
 };
 
@@ -34,6 +37,7 @@ const statusLabels: Record<Slot["status"], string> = {
   confirmed: "Confirmed",
   tentative: "Tentative",
   blocked: "Blocked",
+  cleanup: "Site Preparation",
 };
 
 const acModeLabels: Record<"with_ac" | "without_ac", string> = {
@@ -142,6 +146,19 @@ function slotPartForHour(slot: { startTime: string; endTime: string }, hour: num
   if (hour === startHour) return "start";
   if (hour === endHour - 1) return "end";
   return "middle";
+}
+
+// For user-selected / recurrence slots: use the slot's actual startTime + endTime.
+function slotCoversHour(slot: { startTime: string; endTime: string }, hour: number): boolean {
+  return hour >= toHour(slot.startTime) && hour < toHour(slot.endTime);
+}
+
+// For existing busy/cleanup slots: use bookingStartTime/bookingEndTime when present so the
+// calendar shows the actual booking's extent rather than the candidate slot window.
+function busySlotCoversHour(slot: Slot, hour: number): boolean {
+  const start = toHour(slot.bookingStartTime ?? slot.startTime);
+  const end = toHour(slot.bookingEndTime ?? slot.endTime);
+  return hour >= start && hour < end;
 }
 
 function getPrice(
@@ -469,12 +486,51 @@ export function BookingCalendarFlow() {
     return map;
   }, [weekDates, weekSlots]);
 
-  function coversHour(startTime: string, hour: number) {
-    const start = toHour(startTime);
-    return hour >= start && hour < start + durationHours;
+  const maxDateStr = useMemo(() => {
+    const et = eventTypes.find((e) => e.id === eventTypeId);
+    if (!et || !et.maxAdvanceBookingDays) return null;
+    const d = new Date();
+    d.setDate(d.getDate() + et.maxAdvanceBookingDays);
+    return formatDate(d);
+  }, [eventTypes, eventTypeId]);
+
+  const maxOccurrences = useMemo(() => {
+    if (!maxDateStr || frequency === "none" || selectedSlots.length === 0) return 26;
+    const baseDates = [...new Set(selectedSlots.map((slot) => slot.date))].sort();
+    const latestBase = baseDates[baseDates.length - 1];
+    if (latestBase > maxDateStr) return 1;
+    let count = 1;
+    for (let step = 1; step <= 25; step++) {
+      let furthest: string;
+      if (frequency === "daily") furthest = addDaysYmd(latestBase, step);
+      else if (frequency === "weekly") furthest = addDaysYmd(latestBase, step * 7);
+      else furthest = addMonthsYmd(latestBase, step);
+      if (furthest > maxDateStr) break;
+      count += 1;
+    }
+    return count;
+  }, [maxDateStr, frequency, selectedSlots]);
+
+  useEffect(() => {
+    if (maxDateStr && recurrenceEndDate > maxDateStr) setRecurrenceEndDate(maxDateStr);
+  }, [maxDateStr, recurrenceEndDate]);
+
+  useEffect(() => {
+    const occ = Number(occurrences);
+    if (occurrences !== "" && !isNaN(occ) && occ > maxOccurrences) setOccurrences(String(maxOccurrences));
+  }, [maxOccurrences, occurrences]);
+
+  // kept for recurrenceConflict detection which still needs candidate-duration window
+  function candidateCoversHour(startTime: string, hour: number) {
+    return hour >= toHour(startTime) && hour < toHour(startTime) + durationHours;
   }
 
   function toggleSelectionForCell(date: string, hour: number) {
+    if (maxDateStr !== null && date > maxDateStr) {
+      setErrorMessage("This date is outside the available booking window.");
+      return;
+    }
+
     const startTime = `${String(hour).padStart(2, "0")}:00`;
     const slot = slotMap[date]?.[startTime];
 
@@ -555,6 +611,11 @@ export function BookingCalendarFlow() {
         setErrorMessage("Occurrences is required for the selected recurrence limit.");
         return;
       }
+    }
+
+    if (maxDateStr !== null && selectedSlots.some((slot) => slot.date > maxDateStr)) {
+      setErrorMessage("One or more selected slots are outside the available booking window for this event type.");
+      return;
     }
 
     if (frequency !== "none" && recurrenceConflictSlots.length > 0) {
@@ -663,7 +724,12 @@ export function BookingCalendarFlow() {
                 <button className="btn btn-secondary gc-nav-btn" onClick={() => setWeekStartDate(addDays(weekStartDate, -7))} type="button">
                   <span aria-hidden="true">←</span> Prev
                 </button>
-                <button className="btn btn-secondary gc-nav-btn" onClick={() => setWeekStartDate(addDays(weekStartDate, 7))} type="button">
+                <button
+                  className="btn btn-secondary gc-nav-btn"
+                  disabled={maxDateStr !== null && formatDate(addDays(weekStartDate, 7)) > maxDateStr}
+                  onClick={() => setWeekStartDate(addDays(weekStartDate, 7))}
+                  type="button"
+                >
                   Next <span aria-hidden="true">→</span>
                 </button>
               </div>
@@ -771,6 +837,7 @@ export function BookingCalendarFlow() {
             <span className="legend-dot confirmed">Confirmed</span>
             <span className="legend-dot tentative">Tentative</span>
             <span className="legend-dot blocked">Blocked</span>
+            <span className="legend-dot site-preparation">Site Preparation</span>
             <span className="legend-dot current-selection">Current Selection</span>
             <span className="legend-dot recurrence-preview">Recurrence Preview</span>
             <span className="legend-dot recurrence-conflict">Recurrence Conflict</span>
@@ -787,8 +854,9 @@ export function BookingCalendarFlow() {
               <div className="gc-time-head">Time</div>
               {weekDates.map((date) => {
                 const isToday = formatDate(new Date()) === date;
+                const isPastLimit = maxDateStr !== null && date > maxDateStr;
                 return (
-                  <div className="gc-day-head" key={`head-${date}`}>
+                  <div className={`gc-day-head${isPastLimit ? " gc-day-past-limit" : ""}`} key={`head-${date}`}>
                     <span>{new Date(`${date}T00:00:00`).toLocaleDateString("en-US", { weekday: "short" })}</span>
                     <strong className={isToday ? "active" : ""}>{new Date(`${date}T00:00:00`).getDate()}</strong>
                   </div>
@@ -802,14 +870,15 @@ export function BookingCalendarFlow() {
                 <div className="gc-row" key={`row-${hour}`}>
                   <div className="gc-time-label">{toHourLabel(hour)}</div>
                   {weekDates.map((date) => {
+                    const isPastLimit = maxDateStr !== null && date > maxDateStr;
                     const inWorkingHours = hour >= workingStartHour && hour + durationHours <= workingEndHour;
                     const hasClickableSlot = Boolean(slotMap[date]?.[`${String(hour).padStart(2, "0")}:00`]);
-                    const busySlot = (busyByDate[date] ?? []).find((slot) => coversHour(slot.startTime, hour));
-                    const recurrenceSlot = (recurrenceByDate[date] ?? []).find((slot) => coversHour(slot.startTime, hour));
+                    const busySlot = (busyByDate[date] ?? []).find((slot) => busySlotCoversHour(slot, hour));
+                    const recurrenceSlot = (recurrenceByDate[date] ?? []).find((slot) => slotCoversHour(slot, hour));
                     const recurrenceConflictSlot = (recurrenceConflictByDate[date] ?? []).find((slot) =>
-                      coversHour(slot.startTime, hour),
+                      candidateCoversHour(slot.startTime, hour),
                     );
-                    const selectedSlot = (selectedByDate[date] ?? []).find((slot) => coversHour(slot.startTime, hour));
+                    const selectedSlot = (selectedByDate[date] ?? []).find((slot) => slotCoversHour(slot, hour));
                     const recurrencePart = recurrenceSlot ? slotPartForHour(recurrenceSlot, hour) : null;
                     const recurrenceConflictPart = recurrenceConflictSlot
                       ? slotPartForHour(recurrenceConflictSlot, hour)
@@ -817,6 +886,7 @@ export function BookingCalendarFlow() {
                     const selectedPart = selectedSlot ? slotPartForHour(selectedSlot, hour) : null;
 
                     const classes = ["gc-cell"];
+                    if (isPastLimit) classes.push("past-limit");
                     if (!inWorkingHours || !hasClickableSlot) classes.push("off");
                     if (busySlot) classes.push(`busy-${busySlot.status}`);
                     if (recurrenceSlot) classes.push("recurrence");
@@ -833,7 +903,7 @@ export function BookingCalendarFlow() {
                       cellLabel = "↻ Conflict";
                     } else if (recurrenceSlot && toHour(recurrenceSlot.startTime) === hour) {
                       cellLabel = "↻ Recurrence";
-                    } else if (busySlot && toHour(busySlot.startTime) === hour) {
+                    } else if (busySlot && toHour(busySlot.bookingStartTime ?? busySlot.startTime) === hour) {
                       cellLabel = statusLabels[busySlot.status];
                     }
 
@@ -889,13 +959,30 @@ export function BookingCalendarFlow() {
               {recurrenceLimitType === "end_date" ? (
                 <label>
                   End Date (required)
-                  <input type="date" value={recurrenceEndDate} onChange={(event) => setRecurrenceEndDate(event.target.value)} />
+                  <input
+                    type="date"
+                    value={recurrenceEndDate}
+                    max={maxDateStr ?? undefined}
+                    onChange={(event) => setRecurrenceEndDate(event.target.value)}
+                  />
                 </label>
               ) : (
                 <label>
                   Occurrences (required)
-                  <input min={1} max={26} type="number" value={occurrences} onChange={(event) => setOccurrences(event.target.value)} />
+                  <input
+                    min={1}
+                    max={Math.min(26, maxOccurrences)}
+                    type="number"
+                    value={occurrences}
+                    onChange={(event) => setOccurrences(event.target.value)}
+                  />
                 </label>
+              )}
+              {maxDateStr !== null && (
+                <p className="recurrence-limit-notice">
+                  Bookings for this event type are limited to {eventTypes.find((e) => e.id === eventTypeId)?.maxAdvanceBookingDays} days in advance
+                  (until {maxDateStr}).
+                </p>
               )}
             </div>
           ) : null}
