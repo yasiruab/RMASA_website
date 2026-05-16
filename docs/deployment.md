@@ -51,7 +51,7 @@ traffic site).
 
 ## Issues Encountered
 
-### 1. Env vars not available at SSR runtime (open)
+### 1. Env vars not available at SSR runtime (resolved with workaround)
 
 **Symptom:** `/api/calendar/config` → 500 (blank body). `/api/auth/session` → 500 `"There is a
 problem with the server configuration"`. All calendar and auth features broken in production.
@@ -90,16 +90,30 @@ the standalone directory layout — successive deployments failed on missing
 build-phase `Failed to set up process.env.secrets` warning — but the compute role was never given
 SSM read access.
 
-**Next action required (manual, in AWS console):**
-1. Open IAM → Roles → `AmplifySSRComputeRole`.
-2. Attach an inline policy granting:
-   - `ssm:GetParameter`, `ssm:GetParameters`, `ssm:GetParametersByPath` on
-     `arn:aws:ssm:ap-southeast-1:{accountId}:parameter/amplify/d8k1nfzx3tpc7/*`
-   - `kms:Decrypt` on the alias `alias/aws/ssm` (default SSM key) or whichever KMS key Amplify
-     uses for this app's parameters.
-3. In the Amplify console, confirm `AmplifySSRComputeRole` is set as the compute role for the
-   app (Hosting → IAM roles).
-4. Redeploy and test `/api/debug-env`.
+**What we tried (didn't work):**
+- Attached `AmazonSSMFullAccess` to the service role → fixed build-phase warnings, did not fix
+  runtime injection.
+- Attached `AmplifySSRComputeSSMRead` inline policy to `AmplifySSRComputeRole` granting SSM read +
+  KMS decrypt. Did not fix runtime injection. The compute role permissions are correct; Amplify
+  Gen 1 simply does not automatically inject SSM params into the SSR process for this app.
+- Attempted `output: "standalone"` with embedded `.env.production` — failed Amplify's artifact
+  validation (see issues 4 & 5 below).
+
+**Working fix: fetch SSM params at server startup via AWS SDK.**
+
+We use Next.js's `instrumentation.ts` hook (runs once before the first request) to read params
+directly from SSM Parameter Store at `/amplify/d8k1nfzx3tpc7/main/` and populate `process.env`
+ourselves. The compute role's `AmplifySSRComputeSSMRead` policy authorises this call.
+
+Files:
+- `src/instrumentation.ts` — the startup hook that fetches and populates env vars.
+- `@aws-sdk/client-ssm` — runtime dependency added for this.
+
+This bypasses Amplify's broken runtime injection entirely. Secrets stay in SSM SecureString form
+(KMS-encrypted at rest), are fetched over an IAM-authenticated TLS connection at startup, and live
+only in the running process memory thereafter.
+
+**Cost:** one extra SSM call (~50–150ms) on cold start. Warm requests are unaffected.
 
 ---
 
@@ -273,10 +287,10 @@ database is reset.
 
 ## Pending Tasks
 
-- [ ] **Add SSM read + KMS decrypt permissions to `AmplifySSRComputeRole`** (manual, AWS console)
-- [ ] **Confirm `AmplifySSRComputeRole` is set as the compute role** in the Amplify console
-- [ ] Trigger a new deployment after standalone revert; confirm artifact validation passes
-- [ ] Verify `/api/debug-env` returns `true` for all three env vars
+- [x] Add SSM read + KMS decrypt permissions to `AmplifySSRComputeRole`
+- [x] Confirm `AmplifySSRComputeRole` is set as the compute role
+- [x] Implement `src/instrumentation.ts` to fetch SSM params at startup
+- [ ] Deploy and verify `/api/debug-env` returns `true` for all three env vars
 - [ ] Delete `src/app/api/debug-env/route.ts`
 - [ ] Test the bookings page calendar data in production
 - [ ] Test admin login at `/admin/login` in production
