@@ -102,13 +102,8 @@ main {
 }
 
 .logo {
-  width: min(540px, 100%);
+  width: clamp(320px, 42vw, 540px);
   height: auto;
-  transition: width 0.25s ease;
-}
-
-.site-header.is-compact .logo {
-  width: min(420px, 100%);
 }
 
 .header-right {
@@ -645,6 +640,101 @@ main {
 .calendar-panel a:focus-visible {
   outline: 2px solid #1A65CC;
   outline-offset: 2px;
+}
+
+.calendar-skeleton {
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  padding: 16px;
+  background: #F8F9FD;
+  display: grid;
+  gap: 14px;
+}
+
+.calendar-skeleton-message {
+  margin: 0 0 4px;
+  color: var(--muted);
+  font-size: 0.96rem;
+}
+
+.calendar-skeleton-message strong {
+  color: var(--ink);
+}
+
+.skeleton-block {
+  background: linear-gradient(90deg, #E4E9F2 0%, #EFF2F8 50%, #E4E9F2 100%);
+  background-size: 200% 100%;
+  border-radius: 8px;
+  animation: skeleton-shimmer 1.4s ease-in-out infinite;
+}
+
+@keyframes skeleton-shimmer {
+  0% {
+    background-position: 200% 0;
+  }
+  100% {
+    background-position: -200% 0;
+  }
+}
+
+.skeleton-toolbar {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+  align-items: center;
+}
+
+.skeleton-toolbar .skeleton-block.title {
+  height: 28px;
+  width: clamp(160px, 28vw, 240px);
+  margin-right: auto;
+}
+
+.skeleton-toolbar .skeleton-block.btn {
+  height: 32px;
+  width: 70px;
+}
+
+.skeleton-filters {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.skeleton-filters .skeleton-block {
+  height: 56px;
+}
+
+.skeleton-grid {
+  display: grid;
+  grid-template-columns: 64px repeat(7, minmax(0, 1fr));
+  gap: 4px;
+}
+
+.skeleton-grid .skeleton-block {
+  height: 28px;
+}
+
+.calendar-load-error {
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  padding: 20px;
+  background: #F8F9FD;
+  text-align: center;
+  display: grid;
+  gap: 12px;
+  justify-items: center;
+}
+
+.calendar-load-error h3 {
+  margin: 0;
+  color: var(--ink);
+}
+
+.calendar-load-error p {
+  margin: 0;
+  color: var(--muted);
+  max-width: 480px;
 }
 
 .calendar-month-controls {
@@ -2532,11 +2622,7 @@ main {
   }
 
   .logo {
-    width: min(340px, 100%);
-  }
-
-  .site-header.is-compact .logo {
-    width: min(300px, 100%);
+    width: clamp(220px, 60vw, 340px);
   }
 
   .header-contact {

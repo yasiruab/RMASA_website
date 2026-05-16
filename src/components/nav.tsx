@@ -24,13 +24,17 @@ export function Nav() {
   const toggleRef = useRef<HTMLButtonElement>(null);
 
   useEffect(() => {
-    const onScroll = () => {
+    const update = () => {
       setIsCompact(window.scrollY > 72);
     };
 
-    onScroll();
-    window.addEventListener("scroll", onScroll, { passive: true });
-    return () => window.removeEventListener("scroll", onScroll);
+    update();
+    window.addEventListener("scroll", update, { passive: true });
+    window.addEventListener("resize", update, { passive: true });
+    return () => {
+      window.removeEventListener("scroll", update);
+      window.removeEventListener("resize", update);
+    };
   }, []);
 
   useEffect(() => {
@@ -87,7 +91,7 @@ export function Nav() {
             className="logo"
             height={64}
             priority
-            sizes="(max-width: 980px) 340px, (max-width: 1200px) 420px, 540px"
+            sizes="(max-width: 980px) min(340px, 60vw), min(540px, 42vw)"
             src="/rmasa/logo.png"
             width={599}
           />

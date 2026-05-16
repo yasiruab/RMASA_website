@@ -44,8 +44,8 @@ traffic site).
 
 | Role | Purpose |
 |---|---|
-| `AmplifySSRLoggingRole` | Service role — used during build and deploy phases. Needs SSM write access so Amplify can store env var secrets in Parameter Store. Fixed by attaching `AmazonSSMFullAccess`. |
-| `AmplifySSRComputeRole` | Compute role — assumed by the SSR runtime process. Trust policy must include both `amplify.amazonaws.com` AND `lambda.amazonaws.com` as trusted principals. |
+| `AmplifySSRLoggingRole` | Service role — used during build and deploy phases. Needs SSM access so Amplify can store env var secrets in Parameter Store. Attached policies: the default `AmplifySSRLoggingPolicy` (managed) plus the inline `AmplifyBuildSsmAccess` granting `ssm:Put/Get/Delete` on `arn:aws:ssm:*:*:parameter/amplify/*` and KMS decrypt scoped to `ssm.*.amazonaws.com`. `AmazonSSMFullAccess` was previously attached but has been replaced with the tighter inline policy. |
+| `AmplifySSRComputeRole` | Compute role — assumed by the SSR runtime process. Trust policy must include both `amplify.amazonaws.com` AND `lambda.amazonaws.com` as trusted principals. Attached policies: only `AWSLambdaBasicExecutionRole`. SSM permissions removed — Amplify Gen 1 Web Compute doesn't expose IAM credentials to the SSR process, so SSM read at runtime never worked anyway (see issue 1). |
 
 ---
 
@@ -255,35 +255,55 @@ to bake secret values into the build JS as string literals at build time via `ne
 - Production secrets are never committed to git — they live only in Amplify's environment
   variables UI (encrypted in SSM) and in the build output.
 
-**Lint rule to consider:** add a check to fail CI if `_AMPLIFY_*` is referenced from any file
-under `src/app/` that isn't a server-side route handler or server component.
+**Bundle leak guardrail (in place):** `scripts/check-amplify-secret-leak.mjs` runs in the `prebuild`
+npm hook (and therefore on every Amplify build). It fails the build if `_AMPLIFY_*` appears in any
+source file outside the allowlist (`next.config.ts`, `src/instrumentation.ts`, `src/lib/prisma.ts`).
+Without this, a stray reference in a client component would inline the production secret into the
+browser bundle.
 
 **Long-term fix:** migrate the app to Amplify Gen 2 (CDK-based, proper runtime env var support)
 or to a hosting platform with native Next.js SSR support (Vercel, Cloudflare Pages with workers).
 
 ---
 
-### 2. Debug endpoint in codebase (`/api/debug-env`)
+### 2. Debug endpoint in codebase (`/api/debug-env`) — RESOLVED
 
-`src/app/api/debug-env/route.ts` was created to diagnose the env var injection issue. It returns
-whether `NEXTAUTH_SECRET`, `NEXTAUTH_URL`, and `DATABASE_URL` are defined.
-
-**Risk:** Exposes infrastructure information (which secrets are configured) to any unauthenticated
-HTTP client.
-
-**Action required:** Delete this file once the fix is confirmed working and env vars return `true`
-at the endpoint. Do not leave it in production.
+`src/app/api/debug-env/route.ts` was created to diagnose the env var injection issue. It returned
+whether `NEXTAUTH_SECRET`, `NEXTAUTH_URL`, and `DATABASE_URL` were defined, plus instrumentation
+state. **Deleted** once env var injection was confirmed working. No longer in the codebase.
 
 ---
 
 ### 3. Aurora Serverless cold start on first DB connection
 
 Aurora Serverless v2 pauses when idle. The first database request after a pause period incurs a
-cold start (typically 3–10 seconds). This is a UX concern for a low-traffic site, not a security
-concern, but worth noting.
+cold start (typically 3–10 seconds, occasionally longer if the cluster scales from 0 ACUs).
 
-**Mitigation options:** Disable auto-pause (increases cost) or set a keep-alive ping on a schedule
-(e.g. EventBridge → Lambda → ping `/api/calendar/config` every 5 minutes during business hours).
+**Current handling — not graceful.** The booking calendar flow fetches `/api/calendar/config` and
+`/api/calendar/availability` from `useEffect` with no skeleton state, no timeout, no retry, and no
+visible error message on failure (see `src/components/calendar/booking-calendar-flow.tsx` lines
+243–264 and 266–288). On a cold start, the customer sees an empty calendar with no feedback for
+up to 10 seconds; if the request fails, they see nothing change at all. The API routes
+(`src/app/api/calendar/config/route.ts`, `availability/route.ts`) have no try/catch — an Aurora
+connection failure surfaces as a generic 500.
+
+**Customer impact:** worst case, a first-time visitor lands on `/bookings`, sees a blank room
+selector and empty calendar for ~10 seconds, and abandons before the data loads. The likelihood is
+proportional to how often the cluster pauses (configured to pause when idle).
+
+**Mitigation options, ranked by cost/effort:**
+1. **Keep-alive ping (cheap, recommended):** EventBridge schedule → Lambda → ping
+   `/api/calendar/config` every 5 minutes between, say, 07:00–22:00 SLT. Keeps the cluster warm
+   during normal browsing hours, lets it pause overnight.
+2. **Client-side UX improvements (cheap, complementary):** add a loading skeleton to
+   `BookingCalendarFlow`, show an explicit error + retry button on fetch failure, set a request
+   timeout (e.g. 15s) so the UI knows when to surface "still loading…".
+3. **Increase Aurora min capacity** to keep a warm instance (more expensive, eliminates cold start
+   entirely).
+4. **Disable auto-pause** (most expensive, simplest).
+
+**Recommendation:** start with (1) + (2). They're both cheap and address the experience gap from
+both ends.
 
 ---
 
@@ -313,13 +333,23 @@ database is reset.
 
 ## Pending Tasks
 
-- [x] Add SSM read + KMS decrypt permissions to `AmplifySSRComputeRole` (unused at runtime; kept
-      in case Amplify Gen 1's behaviour changes or we migrate to Gen 2)
+- [x] Add SSM read + KMS decrypt permissions to `AmplifySSRComputeRole` — later removed; SSM at
+      runtime never worked on Gen 1 (no IAM creds exposed to SSR)
 - [x] Confirm `AmplifySSRComputeRole` is set as the compute role
 - [x] SDK-based SSM fetch in `instrumentation.ts` — abandoned (no runtime IAM credentials)
 - [x] Build-time env baking via `next.config.ts` env config + `instrumentation.ts` re-export
-- [ ] Deploy and verify `/api/debug-env` returns `true` for all three env vars
-- [ ] Delete `src/app/api/debug-env/route.ts`
+- [x] Deploy and verify env vars are populated at runtime
+- [x] Delete `src/app/api/debug-env/route.ts`
+- [x] Add `_AMPLIFY_*` bundle-leak guardrail (`scripts/check-amplify-secret-leak.mjs` in prebuild)
+- [x] Strip `AmazonSSMFullAccess` from `AmplifySSRComputeRole` (compute role now only has
+      `AWSLambdaBasicExecutionRole`)
+- [x] Replace `AmazonSSMFullAccess` on `AmplifySSRLoggingRole` with scoped `AmplifyBuildSsmAccess`
+      inline policy
+- [x] Rotate Aurora master password (production credentials had been exposed in chat)
+- [ ] Add a loading skeleton + error/retry UI to `BookingCalendarFlow` (currently silent on
+      slow/failed DB)
+- [ ] Set up EventBridge keep-alive ping to `/api/calendar/config` to mask Aurora cold starts
+      during business hours
 - [ ] Test the bookings page calendar data in production
 - [ ] Test admin login at `/admin/login` in production
 - [ ] Purchase and configure custom domain → update `NEXTAUTH_URL` in Amplify console

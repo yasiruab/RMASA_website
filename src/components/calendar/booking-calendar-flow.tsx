@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 
 type RoomType = {
   id: string;
@@ -228,6 +228,9 @@ export function BookingCalendarFlow() {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [customer, setCustomer] = useState({ name: "", email: "", phone: "", purpose: "" });
   const [availabilityRefreshKey, setAvailabilityRefreshKey] = useState(0);
+  const [isConfigLoading, setIsConfigLoading] = useState(true);
+  const [configError, setConfigError] = useState<"timeout" | "failed" | null>(null);
+  const [configAttempt, setConfigAttempt] = useState(0);
 
   const weekDates = useMemo(
     () => Array.from({ length: 7 }, (_, i) => formatDate(addDays(weekStartDate, i))),
@@ -241,26 +244,56 @@ export function BookingCalendarFlow() {
   );
 
   useEffect(() => {
+    const controller = new AbortController();
+    const timeoutMs = configAttempt === 0 ? 30_000 : 15_000;
+    const timeout = setTimeout(() => controller.abort(), timeoutMs);
+    let cancelled = false;
+
+    setIsConfigLoading(true);
+    setConfigError(null);
+
     void (async () => {
-      const res = await fetch("/api/calendar/config", { cache: "no-store" });
-      if (!res.ok) return;
-      const data = (await res.json()) as {
-        rooms: RoomType[];
-        eventTypes: EventType[];
-        pricingRules: PricingRule[];
-      };
-      setRooms(data.rooms);
-      setEventTypes(data.eventTypes);
-      setPricingRules(data.pricingRules);
-      const firstRoomId = data.rooms[0]?.id ?? "";
-      setRoomTypeId(firstRoomId);
-      const firstRoomEventType = data.eventTypes.find(
-        (type) =>
-          (!type.roomTypeId || type.roomTypeId === firstRoomId) &&
-          data.pricingRules.some((rule) => rule.roomTypeId === firstRoomId && rule.eventTypeId === type.id),
-      );
-      setEventTypeId(firstRoomEventType?.id ?? "");
+      try {
+        const res = await fetch("/api/calendar/config", {
+          cache: "no-store",
+          signal: controller.signal,
+        });
+        if (!res.ok) throw new Error(`Config request failed (${res.status})`);
+        const data = (await res.json()) as {
+          rooms: RoomType[];
+          eventTypes: EventType[];
+          pricingRules: PricingRule[];
+        };
+        if (cancelled) return;
+        setRooms(data.rooms);
+        setEventTypes(data.eventTypes);
+        setPricingRules(data.pricingRules);
+        const firstRoomId = data.rooms[0]?.id ?? "";
+        setRoomTypeId(firstRoomId);
+        const firstRoomEventType = data.eventTypes.find(
+          (type) =>
+            (!type.roomTypeId || type.roomTypeId === firstRoomId) &&
+            data.pricingRules.some((rule) => rule.roomTypeId === firstRoomId && rule.eventTypeId === type.id),
+        );
+        setEventTypeId(firstRoomEventType?.id ?? "");
+        setIsConfigLoading(false);
+      } catch (err) {
+        if (cancelled) return;
+        const isAbort = err instanceof DOMException && err.name === "AbortError";
+        setConfigError(isAbort ? "timeout" : "failed");
+        setIsConfigLoading(false);
+      }
     })();
+
+    return () => {
+      cancelled = true;
+      clearTimeout(timeout);
+      controller.abort();
+    };
+  }, [configAttempt]);
+
+  const retryConfig = useCallback(() => {
+    setConfigAttempt((n) => n + 1);
   }, []);
 
   useEffect(() => {
@@ -611,6 +644,12 @@ export function BookingCalendarFlow() {
   return (
     <div className="calendar-booking-wrap">
       <div className="calendar-booking-stack">
+        {isConfigLoading ? (
+          <CalendarLoadingSkeleton />
+        ) : configError ? (
+          <CalendarLoadError errorType={configError} onRetry={retryConfig} />
+        ) : (
+          <>
         <article className="calendar-panel gc-panel">
           <div className="gc-toolbar">
             <div className="gc-toolbar-title">
@@ -926,7 +965,57 @@ export function BookingCalendarFlow() {
           {statusMessage ? <p className="form-message success">{statusMessage}</p> : null}
           {errorMessage ? <p className="form-message error">{errorMessage}</p> : null}
         </article>
+          </>
+        )}
       </div>
+    </div>
+  );
+}
+
+function CalendarLoadingSkeleton() {
+  return (
+    <div className="calendar-skeleton" role="status" aria-live="polite">
+      <p className="calendar-skeleton-message">
+        <strong>Warming up the courts…</strong> your booking calendar is on its way.
+      </p>
+      <div className="skeleton-toolbar">
+        <div className="skeleton-block title" />
+        <div className="skeleton-block btn" />
+        <div className="skeleton-block btn" />
+        <div className="skeleton-block btn" />
+      </div>
+      <div className="skeleton-filters">
+        <div className="skeleton-block" />
+        <div className="skeleton-block" />
+        <div className="skeleton-block" />
+      </div>
+      <div className="skeleton-grid">
+        {Array.from({ length: 8 * 8 }).map((_, i) => (
+          <div className="skeleton-block" key={i} />
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function CalendarLoadError({
+  errorType,
+  onRetry,
+}: {
+  errorType: "timeout" | "failed";
+  onRetry: () => void;
+}) {
+  const message =
+    errorType === "timeout"
+      ? "The calendar is taking a slow lap today. Give it another go?"
+      : "We couldn’t reach the calendar this time. Mind having another try?";
+  return (
+    <div className="calendar-load-error" role="alert">
+      <h3>Hmm, that didn&apos;t go to plan</h3>
+      <p>{message}</p>
+      <button className="btn btn-primary" onClick={onRetry} type="button">
+        Try again
+      </button>
     </div>
   );
 }
