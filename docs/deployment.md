@@ -18,28 +18,21 @@ underlying servers.
 
 ### Next.js build mode
 
-The app is built with `output: "standalone"` (`next.config.ts`). This packages the entire app and
-its dependencies into `.next/standalone/` — a self-contained Node.js server that can run without
-`node_modules` in the project root. This is required for Amplify Web compute to run the SSR server
-correctly.
+The app uses **standard Next.js output** (no `output: "standalone"`). Amplify Gen 1 Web Compute is
+designed for this format — it reads the standard `.next/` build output and runs the SSR server with
+its own managed runtime. We attempted `output: "standalone"` as a workaround for a runtime env-var
+issue (see issue 1 below) but reverted it after multiple deployments failed Amplify's artifact-
+structure validation. The right fix turned out to be IAM-level (compute role SSM permissions), not
+build-output-level.
 
 ### Build pipeline (`amplify.yml`)
-
-Amplify's build is controlled by `amplify.yml` in the repo root. The key steps:
 
 ```
 preBuild:  npm ci
 build:     npx prisma generate
            npm run build
-           cp -r public          → .next/standalone/public/
-           cp -r .next/static    → .next/standalone/.next/static/
-           cp required-server-files.json → .next/standalone/required-server-files.json
-           printf env vars       → .next/standalone/.env.production
-artifact:  .next/standalone/**
+artifact:  .next/**
 ```
-
-The last two `cp` / `printf` steps are not part of a standard Next.js build — they are workarounds
-for Amplify-specific issues described below.
 
 ### Database
 
@@ -58,7 +51,7 @@ traffic site).
 
 ## Issues Encountered
 
-### 1. Env vars not available at SSR runtime
+### 1. Env vars not available at SSR runtime (open)
 
 **Symptom:** `/api/calendar/config` → 500 (blank body). `/api/auth/session` → 500 `"There is a
 problem with the server configuration"`. All calendar and auth features broken in production.
@@ -74,21 +67,39 @@ problem with the server configuration"`. All calendar and auth features broken i
 }
 ```
 `NODE_ENV` was available (baked in at build time by Next.js) but all three Amplify console env vars
-returned `false`. Amplify Web compute was not injecting custom env vars from the Amplify console
-into the SSR Node.js process for this Next.js 15 configuration.
+returned `false`.
 
-**Fix applied (two-layer approach):**
+**How Amplify injects env vars at SSR runtime:**
+1. Env vars set in the Amplify console are stored in SSM Parameter Store at
+   `/amplify/{appId}/{branch}/` (encrypted as SecureStrings).
+2. At runtime, the **compute role** (`AmplifySSRComputeRole`) is assumed by the SSR process.
+3. The SSR process reads SSM parameters and populates `process.env`.
 
-1. Switched to `output: "standalone"` in `next.config.ts`. Standalone deployments have a different
-   packaging model that Amplify handles differently, which may fix the injection path.
+For step 3 to work, the compute role must have `ssm:GetParameter`, `ssm:GetParameters`, and
+`ssm:GetParametersByPath` permissions on `arn:aws:ssm:*:*:parameter/amplify/{appId}/*`, plus KMS
+decrypt permission for the SecureString key.
 
-2. Added a `printf` step in `amplify.yml` to write the env vars directly into
-   `.next/standalone/.env.production` during the build phase. Next.js reads `.env.production` at
-   server startup as a fallback. This guarantees env var availability even if Amplify's runtime
-   injection fails.
+**Failed attempt (standalone output):** Switched to `output: "standalone"` and embedded env vars
+into `.next/standalone/.env.production` during build. This was a workaround intended to bypass the
+SSM injection path entirely. It failed because Amplify Gen 1's artifact validator does not support
+the standalone directory layout — successive deployments failed on missing
+`required-server-files.json`, then missing server trace files. Reverted to standard Next.js output.
 
-**Status:** Fix committed. Pending verification that env vars return `true` at the debug endpoint
-after the next successful deploy.
+**Current hypothesis:** The compute role lacks SSM read + KMS decrypt permissions. We attached
+`AmazonSSMFullAccess` to the **service role** (`AmplifySSRLoggingRole`) earlier — that fixed the
+build-phase `Failed to set up process.env.secrets` warning — but the compute role was never given
+SSM read access.
+
+**Next action required (manual, in AWS console):**
+1. Open IAM → Roles → `AmplifySSRComputeRole`.
+2. Attach an inline policy granting:
+   - `ssm:GetParameter`, `ssm:GetParameters`, `ssm:GetParametersByPath` on
+     `arn:aws:ssm:ap-southeast-1:{accountId}:parameter/amplify/d8k1nfzx3tpc7/*`
+   - `kms:Decrypt` on the alias `alias/aws/ssm` (default SSM key) or whichever KMS key Amplify
+     uses for this app's parameters.
+3. In the Amplify console, confirm `AmplifySSRComputeRole` is set as the compute role for the
+   app (Hosting → IAM roles).
+4. Redeploy and test `/api/debug-env`.
 
 ---
 
@@ -129,7 +140,7 @@ the role.
 
 ---
 
-### 4. `required-server-files.json` not found (Deployment 5)
+### 4. Standalone artifact mismatch — `required-server-files.json` not found (Deployment 5, reverted)
 
 **Symptom:** Build succeeded but packaging failed:
 ```
@@ -151,25 +162,25 @@ cp .next/required-server-files.json .next/standalone/required-server-files.json
 
 ---
 
-### 5. Server trace files not found (Deployment 6)
+### 5. Standalone artifact mismatch — server trace files not found (Deployments 6 & 7, reverted)
 
-**Symptom:** Build succeeded but packaging failed:
+**Symptom:** Build succeeded but packaging failed (same error in both Deployment 6 and Deployment 7
+even after copying `.next/server` into `.next/standalone/server`):
 ```
 CustomerError: Server trace files are not found in .next/standalone, please check your build artifacts path
 ```
 
-**Root cause:** Amplify requires Next.js server trace files (`.nft.json`) to be present at
-`{baseDirectory}/server/app/*.nft.json`. These files exist in `.next/server/` but NOT in
-`.next/standalone/server/` — the standalone build produces a monolithic `server.js` and does not
-copy the trace files into the standalone output.
+**Diagnosis:** Amplify Gen 1's artifact validator does not recognise standalone layouts regardless
+of which files are copied where. The validator appears to enforce a specific path convention that
+the standalone output does not match. After two failed attempts to mimic the expected structure,
+we abandoned the standalone approach.
 
-**Fix:** Added an explicit copy step to `amplify.yml`:
-```bash
-cp -r .next/server .next/standalone/server
-```
-This places the trace files at `.next/standalone/server/app/*.nft.json` where Amplify expects them.
+**Resolution:** Reverted to standard Next.js output (`baseDirectory: .next`, no
+`output: "standalone"`). This passes Amplify's artifact validation because Next.js puts
+`required-server-files.json` and `server/app/*.nft.json` exactly where Amplify expects them.
 
-**Status:** Fix committed (after Deployment 6 failure). Pending Deployment 7.
+**Lesson:** Do not use `output: "standalone"` with Amplify Gen 1 Web Compute. Use standard Next.js
+output and address runtime env var issues at the IAM/compute-role level instead.
 
 ---
 
@@ -192,29 +203,23 @@ outputFileTracingIncludes: {
 
 ## Security Concerns
 
-### 1. Secrets baked into deployment artifact (active concern)
+### 1. Secrets in plaintext deployment artifact (resolved by reverting standalone)
 
-The `amplify.yml` build step writes `DATABASE_URL`, `NEXTAUTH_SECRET`, and `NEXTAUTH_URL` as
-**plaintext** into `.next/standalone/.env.production`. This file is included in the deployment
-artifact uploaded to Amplify's managed S3 bucket.
+We briefly used `printf` to write `DATABASE_URL`, `NEXTAUTH_SECRET`, and `NEXTAUTH_URL` as
+**plaintext** into `.next/standalone/.env.production` during the build, to work around the runtime
+env-var injection problem. This baked secrets into the deployment artifact.
 
-**Why the practical risk is currently low:**
-- The artifact S3 bucket is private and access-controlled by Amplify.
-- `.env.production` is not served over HTTP — it's not a web route.
-- Anyone who could extract it from the artifact already has AWS console access, which gives them
-  the same secrets via the Amplify environment variables UI.
-
-**Why it is still not best practice:**
+**Why this was a concern:**
 - Plaintext secrets in a deployment artifact are harder to rotate (every rotation requires a
   rebuild).
-- If the S3 bucket policy is ever misconfigured, secrets are exposed with no additional layer of
-  protection.
+- If the artifact S3 bucket policy were ever misconfigured, secrets would be exposed with no
+  encryption layer.
 - Secrets in plaintext files do not benefit from KMS encryption at rest.
 
-**Recommended long-term fix:** Migrate secrets from Amplify environment variables to **Amplify
-Secrets** (SSM SecureString, KMS-encrypted). Amplify Secrets are intended to be injected at
-runtime without being baked into the build artifact. Once confirmed working, remove the `printf`
-line from `amplify.yml`.
+**Status:** This concern is resolved as of the standalone-revert. The build no longer writes
+secrets to disk. The proper fix — granting the compute role SSM read permission — keeps secrets in
+SSM SecureString form (KMS-encrypted at rest, fetched at runtime over an IAM-authenticated call)
+which is the design Amplify intends.
 
 ---
 
@@ -268,10 +273,11 @@ database is reset.
 
 ## Pending Tasks
 
-- [ ] Confirm Deployment 6 succeeds after the `required-server-files.json` fix
+- [ ] **Add SSM read + KMS decrypt permissions to `AmplifySSRComputeRole`** (manual, AWS console)
+- [ ] **Confirm `AmplifySSRComputeRole` is set as the compute role** in the Amplify console
+- [ ] Trigger a new deployment after standalone revert; confirm artifact validation passes
 - [ ] Verify `/api/debug-env` returns `true` for all three env vars
 - [ ] Delete `src/app/api/debug-env/route.ts`
 - [ ] Test the bookings page calendar data in production
 - [ ] Test admin login at `/admin/login` in production
 - [ ] Purchase and configure custom domain → update `NEXTAUTH_URL` in Amplify console
-- [ ] Migrate secrets to Amplify Secrets (SSM SecureString) and remove `printf` from `amplify.yml`
