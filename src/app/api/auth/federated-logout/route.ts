@@ -22,18 +22,22 @@ async function getCognitoLogoutEndpoint(): Promise<string | null> {
 }
 
 export async function GET(req: Request) {
-  const url = new URL(req.url);
   const clientId = process.env.COGNITO_CLIENT_ID;
   const logoutEndpoint = await getCognitoLogoutEndpoint();
+
+  // Behind Amplify's reverse proxy, req.url reflects the internal Node
+  // host (localhost:3000), not the public domain. Use NEXTAUTH_URL as
+  // the authoritative public origin instead.
+  const publicOrigin = process.env.NEXTAUTH_URL ?? new URL(req.url).origin;
 
   // If Cognito logout endpoint isn't reachable, fall back to local sign-in.
   // The NextAuth session cookie is already cleared by the caller before
   // hitting this route, so the user is at minimum signed out of the app.
   if (!clientId || !logoutEndpoint) {
-    return NextResponse.redirect(new URL("/admin/login", req.url));
+    return NextResponse.redirect(`${publicOrigin}/admin/login`);
   }
 
-  const logoutUri = `${url.origin}/admin/login`;
+  const logoutUri = `${publicOrigin}/admin/login`;
   const cognitoLogoutUrl =
     `${logoutEndpoint}` +
     `?client_id=${encodeURIComponent(clientId)}` +
