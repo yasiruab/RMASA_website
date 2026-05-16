@@ -11,6 +11,7 @@ frontend:
         - cp -r public .next/standalone/public
         - cp -r .next/static .next/standalone/.next/static
         - cp .next/required-server-files.json .next/standalone/required-server-files.json
+        - cp -r .next/server .next/standalone/server
         - printf 'DATABASE_URL="%s"\nNEXTAUTH_SECRET="%s"\nNEXTAUTH_URL="%s"\n' "$DATABASE_URL" "$NEXTAUTH_SECRET" "$NEXTAUTH_URL" > .next/standalone/.env.production
   artifacts:
     baseDirectory: .next/standalone
