@@ -262,7 +262,7 @@ export function BookingCalendarFlow() {
 
   useEffect(() => {
     const controller = new AbortController();
-    const timeoutMs = configAttempt === 0 ? 30_000 : 15_000;
+    const timeoutMs = configAttempt === 0 ? 60_000 : 20_000;
     const timeout = setTimeout(() => controller.abort(), timeoutMs);
     let cancelled = false;
 

@@ -199,7 +199,7 @@ export async function POST(req: Request) {
     bookings: [...current.bookings, booking],
   }));
 
-  void Promise.all([
+  await Promise.allSettled([
     sendBookingAcknowledgement({
       to: booking.customer.email,
       customerName: booking.customer.name,

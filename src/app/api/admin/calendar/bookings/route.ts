@@ -107,7 +107,7 @@ export async function PATCH(req: Request) {
               : existing.amountBreakdown
                   .filter((b) => activeSlotKeys.has(`${b.date}|${b.slot}`))
                   .reduce((sum, b) => sum + b.amountLkr, 0);
-          void sendBookingStatusNotification({
+          await sendBookingStatusNotification({
             to: existing.customer.email,
             customerName: existing.customer.name,
             reference: existing.reference,
@@ -196,7 +196,7 @@ export async function PATCH(req: Request) {
     const room = current.rooms.find((r) => r.id === existing.roomTypeId);
     const eventType = current.eventTypes.find((et) => et.id === existing.eventTypeId);
     if (room && eventType) {
-      void sendBookingStatusNotification({
+      await sendBookingStatusNotification({
         to: existing.customer.email,
         customerName: existing.customer.name,
         reference: existing.reference,
