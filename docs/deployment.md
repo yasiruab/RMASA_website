@@ -276,24 +276,27 @@ state. **Deleted** once env var injection was confirmed working. No longer in th
 
 ### 3. Aurora Serverless cold start on first DB connection
 
-Aurora Serverless v2 pauses when idle. The first database request after a pause period incurs a
-cold start (typically 3–10 seconds, occasionally longer if the cluster scales from 0 ACUs).
+Aurora Serverless v2 with **min ACU 0** fully pauses when idle. The first database request after a
+pause period incurs a cold start of 15–30 seconds while the cluster scales from 0 ACUs.
 
-**Approach taken — accept the cold start, mask it in the UI.** Given the site sees fewer than five
-bookings a day, the cost of keeping Aurora warm (≈US$25–40/month for business-hours-only keep-alive,
-≈US$50/month for 24/7) was not justified. Instead the booking calendar handles cold starts
-gracefully in the client:
+**Approach taken — accept the cold start, mask it in the UI, retry at the build step.** Given the
+site sees fewer than five bookings a day, the cost of keeping Aurora warm (≈US$43/month at min ACU
+0.5) was not justified. Two mitigations are in place:
 
-- **Skeleton-shimmer placeholder** replaces the empty calendar during the first fetch
-  (`CalendarLoadingSkeleton` in `src/components/calendar/booking-calendar-flow.tsx`). User sees
-  a structured loading state, not a blank page.
-- **Friendly copy:** "Warming up the courts… your booking calendar is on its way." Generic, no
-  time-of-day reference, no exposure of "database is sleeping" framing.
-- **AbortController timeout:** 30 seconds on the first attempt (cold-start tolerant), 15 seconds
-  on retries (the cluster should be warm by then).
-- **Explicit error + retry UI** (`CalendarLoadError`) if the request fails or times out. Different
-  copy for timeout vs network failure, with an in-place **Try again** button that re-runs the
-  fetch without a page reload.
+- **Build step retries `prisma migrate deploy`** — wrapped in a 6× loop with 15s sleeps in
+  `amplify.yml` (~90s of headroom). Without this, deploys randomly fail with `P1001: Can't reach
+  database server` because Prisma's default ~5s connection timeout is shorter than Aurora's wake-up.
+- **Booking calendar masks the runtime cold start in the client:**
+  - **Skeleton-shimmer placeholder** replaces the empty calendar during the first fetch
+    (`CalendarLoadingSkeleton` in `src/components/calendar/booking-calendar-flow.tsx`). User sees
+    a structured loading state, not a blank page.
+  - **Friendly copy:** "Warming up the courts… your booking calendar is on its way." Generic, no
+    time-of-day reference, no exposure of "database is sleeping" framing.
+  - **AbortController timeout:** 60 seconds on the first attempt (cold-start tolerant), 20 seconds
+    on retries (the cluster should be warm by then).
+  - **Explicit error + retry UI** (`CalendarLoadError`) if the request fails or times out. Different
+    copy for timeout vs network failure, with an in-place **Try again** button that re-runs the
+    fetch without a page reload.
 
 **Trade-offs still to be aware of:**
 - The first customer of any idle period still waits 3–10 seconds. The skeleton makes that wait

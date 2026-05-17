@@ -70,9 +70,11 @@ No new routes. Existing routes updated:
 
 ### POST /api/calendar/bookings
 
-After booking is persisted, fires (fire-and-forget):
+After booking is persisted, **awaits** `Promise.allSettled` of:
 - `sendBookingAcknowledgement` → customer
 - `sendAdminNewBookingNotification` → `ADMIN_NOTIFICATION_EMAIL` (skipped if env var unset)
+
+(Each send function catches its own errors and logs to `EmailLog`, so awaiting them never affects the API response. Previously these were fire-and-forget via `void`, but that pattern abandons un-awaited promises in AWS Lambda — see CLAUDE.md "Fire-and-forget" gotcha.)
 
 ### PATCH /api/admin/calendar/bookings
 

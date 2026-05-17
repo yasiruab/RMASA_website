@@ -147,6 +147,14 @@ Amplify SSR Lambdas do **not** receive raw env vars at runtime via `process.env`
 
 **Every new server-only env var must be added to both `next.config.ts` and the consuming code with this pattern.** Setting a var in the Amplify console alone is not sufficient — it only reaches the build step, not the running Lambda, unless it's in `next.config.ts`.
 
+**`_AMPLIFY_*` values are statically inlined, not runtime env vars.** Next.js's `env` block in `next.config.ts` does **build-time string replacement** — every `process.env._AMPLIFY_FOO` reference becomes a literal string in the compiled JS. The key never appears in the runtime `process.env`, so you can't iterate `Object.keys(process.env)` to find it. You must reference each key explicitly by name in source code. This also means `_AMPLIFY_*` references must stay in server-only files; the [`scripts/check-amplify-secret-leak.mjs`](scripts/check-amplify-secret-leak.mjs) prebuild guard enforces an allowlist so stray references can't leak production secrets into the client bundle.
+
+### Aurora Serverless v2 cold-start (min ACU 0)
+
+The production Aurora cluster runs **Serverless v2 with min capacity 0 ACU** — it fully pauses when idle. The first connection after a pause takes 15–30s to wake the cluster, while Prisma's default connection timeout is ~5s. This manifests as `P1001: Can't reach database server` in the Amplify build log, even though the cluster shows "Available" in the RDS console.
+
+The mitigation is in [`amplify.yml`](amplify.yml): `npx prisma migrate deploy` runs inside a 6× retry loop with 15s sleeps (~90s of headroom). Do not remove this loop while min ACU stays at 0. If cold-start delays become a problem at runtime too (first request after a long idle), bump min ACU to 0.5 to keep the cluster warm at the cost of ~USD 43/month baseline.
+
 ### Fire-and-forget (`void`) does not work in Lambda
 
 AWS Lambda freezes the execution context the moment the HTTP response is returned. Any un-awaited promises are abandoned — they will never complete. **Never use `void someAsyncFn()` before a `return NextResponse.json(...)` in a route handler.** Always `await` async work before returning, even if you don't care about the result. Since the email send functions already catch all errors internally, awaiting them is safe and does not affect the response status.
@@ -164,7 +172,7 @@ And handle the `null` case inside the function body.
 
 ## Transactional Email (`src/lib/email.ts`)
 
-Uses the **Resend** SDK. Three exported async functions — all fire-and-forget (wrap with `void`), never throw:
+Uses the **Resend** SDK. Three exported async functions — each catches its own errors internally so they never throw. **Always `await` them** (or `Promise.allSettled` for parallel sends) before returning from a route handler — see the "Fire-and-forget (`void`) does not work in Lambda" gotcha above.
 
 | Function | Trigger |
 |---|---|
