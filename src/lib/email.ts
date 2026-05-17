@@ -2,9 +2,10 @@ import { Resend } from "resend";
 import { prisma } from "@/lib/prisma";
 import type { BookingStatus } from "@/lib/calendar-types";
 
-const resend = process.env.RESEND_API_KEY ? new Resend(process.env.RESEND_API_KEY) : null;
-const FROM = process.env.RESEND_FROM ?? "onboarding@resend.dev";
-const ADMIN_EMAIL = process.env.ADMIN_NOTIFICATION_EMAIL ?? "";
+const RESEND_API_KEY = process.env.RESEND_API_KEY ?? process.env._AMPLIFY_RESEND_API_KEY;
+const resend = RESEND_API_KEY ? new Resend(RESEND_API_KEY) : null;
+const FROM = process.env.RESEND_FROM ?? process.env._AMPLIFY_RESEND_FROM ?? "onboarding@resend.dev";
+const ADMIN_EMAIL = process.env.ADMIN_NOTIFICATION_EMAIL ?? process.env._AMPLIFY_ADMIN_NOTIFICATION_EMAIL ?? "";
 
 // ─── Shared helpers ────────────────────────────────────────────────────────────
 

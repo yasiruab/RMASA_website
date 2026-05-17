@@ -9,6 +9,9 @@ const nextConfig: NextConfig = {
     _AMPLIFY_COGNITO_CLIENT_ID: process.env.COGNITO_CLIENT_ID ?? "",
     _AMPLIFY_COGNITO_CLIENT_SECRET: process.env.COGNITO_CLIENT_SECRET ?? "",
     _AMPLIFY_COGNITO_ISSUER: process.env.COGNITO_ISSUER ?? "",
+    _AMPLIFY_RESEND_API_KEY: process.env.RESEND_API_KEY ?? "",
+    _AMPLIFY_RESEND_FROM: process.env.RESEND_FROM ?? "",
+    _AMPLIFY_ADMIN_NOTIFICATION_EMAIL: process.env.ADMIN_NOTIFICATION_EMAIL ?? "",
   },
   async headers() {
     return [
