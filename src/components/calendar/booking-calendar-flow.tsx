@@ -1,13 +1,24 @@
 "use client";
 
+import Link from "next/link";
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { Breadcrumbs } from "@/components/breadcrumbs";
+
+/* ─── Types ─────────────────────────────────────────────────────── */
 
 type RoomType = {
   id: string;
   name: string;
   workingHours: { startTime: string; endTime: string };
 };
-type EventType = { id: string; name: string; durationHours: number; priority: number; roomTypeId?: string; maxAdvanceBookingDays: number };
+type EventType = {
+  id: string;
+  name: string;
+  durationHours: number;
+  priority: number;
+  roomTypeId?: string;
+  maxAdvanceBookingDays: number;
+};
 type PricingRule = {
   id: string;
   roomTypeId: string;
@@ -31,33 +42,20 @@ type Slot = {
 type RecurrenceFrequency = "none" | "daily" | "weekly" | "monthly";
 type RecurrenceLimitType = "end_date" | "occurrences";
 
-const statusLabels: Record<Slot["status"], string> = {
+const STATUS_LABELS: Record<Slot["status"], string> = {
   available: "Available",
-  pending: "Pending",
-  confirmed: "Confirmed",
-  tentative: "Tentative",
-  blocked: "Blocked",
-  cleanup: "Site Preparation",
+  pending: "PENDING",
+  confirmed: "CONFIRMED",
+  tentative: "HELD",
+  blocked: "BLOCKED",
+  cleanup: "PREP",
 };
 
-const acModeLabels: Record<"with_ac" | "without_ac", string> = {
-  with_ac: "With AC",
-  without_ac: "Without AC",
-};
+/* ─── Date / time helpers ───────────────────────────────────────── */
 
-const monthNames = [
-  "January",
-  "February",
-  "March",
-  "April",
-  "May",
-  "June",
-  "July",
-  "August",
-  "September",
-  "October",
-  "November",
-  "December",
+const MONTH_NAMES = [
+  "January", "February", "March", "April", "May", "June",
+  "July", "August", "September", "October", "November", "December",
 ];
 
 function formatDate(date: Date) {
@@ -99,6 +97,15 @@ function addMonthsYmd(date: string, months: number) {
   return formatDate(d);
 }
 
+function isoWeek(date: Date) {
+  const d = new Date(Date.UTC(date.getFullYear(), date.getMonth(), date.getDate()));
+  const dayNum = d.getUTCDay() || 7;
+  d.setUTCDate(d.getUTCDate() + 4 - dayNum);
+  const yearStart = new Date(Date.UTC(d.getUTCFullYear(), 0, 1));
+  const weekNo = Math.ceil(((d.getTime() - yearStart.getTime()) / 86400000 + 1) / 7);
+  return { year: d.getUTCFullYear(), week: weekNo };
+}
+
 function currency(value: number) {
   return new Intl.NumberFormat("en-LK").format(value);
 }
@@ -121,7 +128,7 @@ function toHourLabel(hour: number) {
   const h = hour % 24;
   const suffix = h >= 12 ? "PM" : "AM";
   const norm = h % 12 === 0 ? 12 : h % 12;
-  return `${norm}${suffix}`;
+  return hour === 0 || hour === 12 ? `${norm} ${suffix}` : `${norm}`;
 }
 
 function slotKey(slot: { date: string; startTime: string; endTime: string }) {
@@ -140,27 +147,6 @@ function overlapsSlots(
   return aStart < bEnd && bStart < aEnd;
 }
 
-function slotPartForHour(slot: { startTime: string; endTime: string }, hour: number): "start" | "middle" | "end" {
-  const startHour = toHour(slot.startTime);
-  const endHour = toHour(slot.endTime);
-  if (hour === startHour) return "start";
-  if (hour === endHour - 1) return "end";
-  return "middle";
-}
-
-// For user-selected / recurrence slots: use the slot's actual startTime + endTime.
-function slotCoversHour(slot: { startTime: string; endTime: string }, hour: number): boolean {
-  return hour >= toHour(slot.startTime) && hour < toHour(slot.endTime);
-}
-
-// For existing busy/cleanup slots: use bookingStartTime/bookingEndTime when present so the
-// calendar shows the actual booking's extent rather than the candidate slot window.
-function busySlotCoversHour(slot: Slot, hour: number): boolean {
-  const start = toHour(slot.bookingStartTime ?? slot.startTime);
-  const end = toHour(slot.bookingEndTime ?? slot.endTime);
-  return hour >= start && hour < end;
-}
-
 function getPrice(
   pricingRules: PricingRule[],
   roomTypeId: string,
@@ -171,18 +157,18 @@ function getPrice(
   const type = dayType(date);
   return (
     pricingRules.find(
-      (rule) =>
-        rule.roomTypeId === roomTypeId &&
-        rule.eventTypeId === eventTypeId &&
-        rule.acMode === acMode &&
-        rule.dayType === type,
+      (r) =>
+        r.roomTypeId === roomTypeId &&
+        r.eventTypeId === eventTypeId &&
+        r.acMode === acMode &&
+        r.dayType === type,
     ) ??
     pricingRules.find(
-      (rule) =>
-        rule.roomTypeId === roomTypeId &&
-        rule.eventTypeId === eventTypeId &&
-        rule.acMode === acMode &&
-        rule.dayType === "any",
+      (r) =>
+        r.roomTypeId === roomTypeId &&
+        r.eventTypeId === eventTypeId &&
+        r.acMode === acMode &&
+        r.dayType === "any",
     )
   );
 }
@@ -226,6 +212,8 @@ function expandRecurrencePreview(
   return results;
 }
 
+/* ─── Main component ───────────────────────────────────────────── */
+
 export function BookingCalendarFlow() {
   const [rooms, setRooms] = useState<RoomType[]>([]);
   const [eventTypes, setEventTypes] = useState<EventType[]>([]);
@@ -235,7 +223,9 @@ export function BookingCalendarFlow() {
   const [acMode, setAcMode] = useState<"with_ac" | "without_ac">("without_ac");
   const [weekStartDate, setWeekStartDate] = useState(startOfWeek(new Date()));
   const [weekSlots, setWeekSlots] = useState<Record<string, Slot[]>>({});
-  const [selectedSlots, setSelectedSlots] = useState<Array<{ date: string; startTime: string; endTime: string }>>([]);
+  const [selectedSlots, setSelectedSlots] = useState<
+    Array<{ date: string; startTime: string; endTime: string }>
+  >([]);
   const [frequency, setFrequency] = useState<RecurrenceFrequency>("none");
   const [recurrenceLimitType, setRecurrenceLimitType] = useState<RecurrenceLimitType>("end_date");
   const [recurrenceEndDate, setRecurrenceEndDate] = useState("");
@@ -248,6 +238,7 @@ export function BookingCalendarFlow() {
   const [isConfigLoading, setIsConfigLoading] = useState(true);
   const [configError, setConfigError] = useState<"timeout" | "failed" | null>(null);
   const [configAttempt, setConfigAttempt] = useState(0);
+  const [showJump, setShowJump] = useState(false);
 
   const weekDates = useMemo(
     () => Array.from({ length: 7 }, (_, i) => formatDate(addDays(weekStartDate, i))),
@@ -260,6 +251,7 @@ export function BookingCalendarFlow() {
     [visibleYear],
   );
 
+  /* ─── Config fetch ───────────────────────────────────────────── */
   useEffect(() => {
     const controller = new AbortController();
     const timeoutMs = configAttempt === 0 ? 60_000 : 20_000;
@@ -290,7 +282,9 @@ export function BookingCalendarFlow() {
         const firstRoomEventType = data.eventTypes.find(
           (type) =>
             (!type.roomTypeId || type.roomTypeId === firstRoomId) &&
-            data.pricingRules.some((rule) => rule.roomTypeId === firstRoomId && rule.eventTypeId === type.id),
+            data.pricingRules.some(
+              (rule) => rule.roomTypeId === firstRoomId && rule.eventTypeId === type.id,
+            ),
         );
         setEventTypeId(firstRoomEventType?.id ?? "");
         setIsConfigLoading(false);
@@ -309,10 +303,9 @@ export function BookingCalendarFlow() {
     };
   }, [configAttempt]);
 
-  const retryConfig = useCallback(() => {
-    setConfigAttempt((n) => n + 1);
-  }, []);
+  const retryConfig = useCallback(() => setConfigAttempt((n) => n + 1), []);
 
+  /* ─── Availability fetch ─────────────────────────────────────── */
   useEffect(() => {
     if (!roomTypeId || !eventTypeId || weekDates.length === 0) return;
 
@@ -328,21 +321,20 @@ export function BookingCalendarFlow() {
 
       const next: Record<string, Slot[]> = {};
       const failed = responses.find((item) => !item.ok);
-      for (const response of responses) {
-        next[response.date] = response.data.slots ?? [];
-      }
+      for (const response of responses) next[response.date] = response.data.slots ?? [];
 
       setWeekSlots(next);
       setErrorMessage(failed ? failed.data.message ?? "Failed to load week availability." : "");
     })();
   }, [roomTypeId, eventTypeId, weekDates, availabilityRefreshKey]);
 
+  /* ─── Derived state ──────────────────────────────────────────── */
   const allowedEventTypes = useMemo(
     () =>
       eventTypes.filter(
         (item) =>
           (!item.roomTypeId || item.roomTypeId === roomTypeId) &&
-          pricingRules.some((rule) => rule.roomTypeId === roomTypeId && rule.eventTypeId === item.id),
+          pricingRules.some((r) => r.roomTypeId === roomTypeId && r.eventTypeId === item.id),
       ),
     [eventTypes, roomTypeId, pricingRules],
   );
@@ -352,7 +344,7 @@ export function BookingCalendarFlow() {
       setEventTypeId("");
       return;
     }
-    if (!allowedEventTypes.some((type) => type.id === eventTypeId)) {
+    if (!allowedEventTypes.some((t) => t.id === eventTypeId)) {
       setEventTypeId(allowedEventTypes[0].id);
     }
   }, [allowedEventTypes, eventTypeId]);
@@ -366,52 +358,82 @@ export function BookingCalendarFlow() {
     if (!roomTypeId || !eventTypeId) return [];
     const values = new Set(
       pricingRules
-        .filter((rule) => rule.roomTypeId === roomTypeId && rule.eventTypeId === eventTypeId)
-        .map((rule) => rule.acMode),
+        .filter((r) => r.roomTypeId === roomTypeId && r.eventTypeId === eventTypeId)
+        .map((r) => r.acMode),
     );
-    return (["with_ac", "without_ac"] as const).filter((mode) => values.has(mode));
+    return (["without_ac", "with_ac"] as const).filter((mode) => values.has(mode));
   }, [pricingRules, roomTypeId, eventTypeId]);
 
   useEffect(() => {
     if (availableAcModes.length === 0) return;
-    if (!availableAcModes.includes(acMode)) {
-      setAcMode(availableAcModes[0]);
-    }
+    if (!availableAcModes.includes(acMode)) setAcMode(availableAcModes[0]);
   }, [availableAcModes, acMode]);
 
-  const activeRoom = useMemo(
-    () => rooms.find((room) => room.id === roomTypeId),
-    [rooms, roomTypeId],
-  );
-  const activeEventType = useMemo(
-    () => allowedEventTypes.find((type) => type.id === eventTypeId),
-    [allowedEventTypes, eventTypeId],
-  );
+  const activeRoom = useMemo(() => rooms.find((r) => r.id === roomTypeId), [rooms, roomTypeId]);
 
   const workingStartHour = activeRoom ? toHour(activeRoom.workingHours.startTime) : 7;
   const workingEndHour = activeRoom ? toHour(activeRoom.workingHours.endTime) : 21;
   const durationHours = eventType?.durationHours ?? 1;
   const firstVisibleHour = Math.max(0, workingStartHour - 2);
   const lastVisibleHour = Math.min(23, workingEndHour + 2);
+  const ROW_HEIGHT = 36;
+  const visibleHours = lastVisibleHour - firstVisibleHour + 1;
 
   const slotMap = useMemo(() => {
     const map: Record<string, Record<string, Slot>> = {};
     for (const date of weekDates) {
       map[date] = {};
-      for (const slot of weekSlots[date] ?? []) {
-        map[date][slot.startTime] = slot;
-      }
+      for (const slot of weekSlots[date] ?? []) map[date][slot.startTime] = slot;
     }
     return map;
   }, [weekDates, weekSlots]);
 
-  const selectedByDate = useMemo(() => {
-    const map: Record<string, Array<{ date: string; startTime: string; endTime: string }>> = {};
-    for (const slot of selectedSlots) {
-      map[slot.date] = [...(map[slot.date] ?? []), slot];
+  // Group busy slots by bookingId per date to render absolutely-positioned blocks.
+  const busyBlocksByDate = useMemo(() => {
+    const map: Record<
+      string,
+      Array<{
+        bookingId: string;
+        status: Slot["status"];
+        startHour: number;
+        endHour: number;
+        startTime: string;
+        endTime: string;
+        reason?: string;
+      }>
+    > = {};
+    for (const date of weekDates) {
+      const seen = new Set<string>();
+      const blocks: Array<{
+        bookingId: string;
+        status: Slot["status"];
+        startHour: number;
+        endHour: number;
+        startTime: string;
+        endTime: string;
+        reason?: string;
+      }> = [];
+      for (const slot of weekSlots[date] ?? []) {
+        if (slot.status === "available" || !slot.bookingId) continue;
+        const key = `${slot.bookingId}-${slot.bookingStartTime ?? slot.startTime}`;
+        if (seen.has(key)) continue;
+        seen.add(key);
+        const sTime = slot.bookingStartTime ?? slot.startTime;
+        const eTime = slot.bookingEndTime ?? slot.endTime;
+        blocks.push({
+          bookingId: slot.bookingId,
+          status: slot.status,
+          startHour: toHour(sTime),
+          endHour: toHour(eTime),
+          startTime: sTime,
+          endTime: eTime,
+          reason: slot.reason,
+        });
+      }
+      map[date] = blocks;
     }
     return map;
-  }, [selectedSlots]);
+  }, [weekDates, weekSlots]);
 
   const recurrenceExpandedSlots = useMemo(() => {
     const expanded = expandRecurrencePreview(
@@ -431,32 +453,20 @@ export function BookingCalendarFlow() {
   );
 
   const allPlannedSlots = useMemo(() => {
-    const map = new Map<string, { date: string; startTime: string; endTime: string; isBase: boolean }>();
-
-    for (const slot of selectedSlots) {
-      map.set(slotKey(slot), { ...slot, isBase: true });
-    }
-
+    const map = new Map<
+      string,
+      { date: string; startTime: string; endTime: string; isBase: boolean }
+    >();
+    for (const slot of selectedSlots) map.set(slotKey(slot), { ...slot, isBase: true });
     for (const slot of recurrenceExpandedSlots) {
       const key = slotKey(slot);
-      if (!map.has(key)) {
-        map.set(key, { ...slot, isBase: false });
-      }
+      if (!map.has(key)) map.set(key, { ...slot, isBase: false });
     }
-
     return [...map.values()].sort((a, b) => {
       if (a.date !== b.date) return a.date.localeCompare(b.date);
       return a.startTime.localeCompare(b.startTime);
     });
   }, [selectedSlots, recurrenceExpandedSlots]);
-
-  const recurrenceByDate = useMemo(() => {
-    const map: Record<string, Array<{ date: string; startTime: string; endTime: string }>> = {};
-    for (const slot of recurrencePreviewSlots) {
-      map[slot.date] = [...(map[slot.date] ?? []), slot];
-    }
-    return map;
-  }, [recurrencePreviewSlots]);
 
   const recurrenceConflictSlots = useMemo(() => {
     return recurrencePreviewSlots.filter((slot, index) => {
@@ -470,21 +480,10 @@ export function BookingCalendarFlow() {
     });
   }, [recurrencePreviewSlots, slotMap, selectedSlots]);
 
-  const recurrenceConflictByDate = useMemo(() => {
-    const map: Record<string, Array<{ date: string; startTime: string; endTime: string }>> = {};
-    for (const slot of recurrenceConflictSlots) {
-      map[slot.date] = [...(map[slot.date] ?? []), slot];
-    }
-    return map;
-  }, [recurrenceConflictSlots]);
-
-  const busyByDate = useMemo(() => {
-    const map: Record<string, Slot[]> = {};
-    for (const date of weekDates) {
-      map[date] = (weekSlots[date] ?? []).filter((slot) => slot.status !== "available");
-    }
-    return map;
-  }, [weekDates, weekSlots]);
+  const recurrenceConflictKeys = useMemo(
+    () => new Set(recurrenceConflictSlots.map((s) => slotKey(s))),
+    [recurrenceConflictSlots],
+  );
 
   const maxDateStr = useMemo(() => {
     const et = eventTypes.find((e) => e.id === eventTypeId);
@@ -496,7 +495,7 @@ export function BookingCalendarFlow() {
 
   const maxOccurrences = useMemo(() => {
     if (!maxDateStr || frequency === "none" || selectedSlots.length === 0) return 26;
-    const baseDates = [...new Set(selectedSlots.map((slot) => slot.date))].sort();
+    const baseDates = [...new Set(selectedSlots.map((s) => s.date))].sort();
     const latestBase = baseDates[baseDates.length - 1];
     if (latestBase > maxDateStr) return 1;
     let count = 1;
@@ -520,11 +519,7 @@ export function BookingCalendarFlow() {
     if (occurrences !== "" && !isNaN(occ) && occ > maxOccurrences) setOccurrences(String(maxOccurrences));
   }, [maxOccurrences, occurrences]);
 
-  // kept for recurrenceConflict detection which still needs candidate-duration window
-  function candidateCoversHour(startTime: string, hour: number) {
-    return hour >= toHour(startTime) && hour < toHour(startTime) + durationHours;
-  }
-
+  /* ─── Selection ──────────────────────────────────────────────── */
   function toggleSelectionForCell(date: string, hour: number) {
     if (maxDateStr !== null && date > maxDateStr) {
       setErrorMessage("This date is outside the available booking window.");
@@ -540,7 +535,7 @@ export function BookingCalendarFlow() {
     }
 
     if (slot.status !== "available") {
-      setErrorMessage(`Cannot select this slot (${statusLabels[slot.status]}).`);
+      setErrorMessage(`Cannot select this slot (${STATUS_LABELS[slot.status]}).`);
       return;
     }
 
@@ -552,15 +547,14 @@ export function BookingCalendarFlow() {
       return;
     }
 
-    const candidateStart = toMinutes(slot.startTime);
-    const candidateEnd = toMinutes(slot.endTime);
+    const cStart = toMinutes(slot.startTime);
+    const cEnd = toMinutes(slot.endTime);
     const overlap = selectedSlots.some((item) => {
       if (item.date !== slot.date) return false;
-      const existingStart = toMinutes(item.startTime);
-      const existingEnd = toMinutes(item.endTime);
-      return candidateStart < existingEnd && existingStart < candidateEnd;
+      const eStart = toMinutes(item.startTime);
+      const eEnd = toMinutes(item.endTime);
+      return cStart < eEnd && eStart < cEnd;
     });
-
     if (overlap) {
       setErrorMessage("This selection overlaps an already selected slot. Remove the existing one first.");
       return;
@@ -573,22 +567,34 @@ export function BookingCalendarFlow() {
     setErrorMessage("");
   }
 
+  /* ─── Pricing + submission ───────────────────────────────────── */
   const pricingPreview = useMemo(() => {
     return allPlannedSlots.map((slot) => {
       const rule = getPrice(pricingRules, roomTypeId, eventTypeId, acMode, slot.date);
-      return {
-        ...slot,
-        amountLkr: rule?.amountLkr ?? 0,
-        missingPrice: !rule,
-      };
+      return { ...slot, amountLkr: rule?.amountLkr ?? 0, missingPrice: !rule };
     });
   }, [allPlannedSlots, pricingRules, roomTypeId, eventTypeId, acMode]);
 
   const total = pricingPreview.reduce((sum, item) => sum + item.amountLkr, 0);
 
+  function resetForm() {
+    setSelectedSlots([]);
+    setCustomer({ name: "", email: "", phone: "", purpose: "" });
+    setFrequency("none");
+    setRecurrenceLimitType("end_date");
+    setRecurrenceEndDate("");
+    setOccurrences("");
+    setErrorMessage("");
+    setStatusMessage("");
+  }
+
   async function submitBooking() {
     if (!roomTypeId || !eventTypeId || selectedSlots.length === 0) {
       setErrorMessage("Select room, event type, and at least one slot.");
+      return;
+    }
+    if (!customer.name.trim() || !customer.email.trim() || !customer.phone.trim()) {
+      setErrorMessage("Name, email, and contact number are required.");
       return;
     }
 
@@ -617,7 +623,6 @@ export function BookingCalendarFlow() {
       setErrorMessage("One or more selected slots are outside the available booking window for this event type.");
       return;
     }
-
     if (frequency !== "none" && recurrenceConflictSlots.length > 0) {
       setErrorMessage(
         `Recurrence has ${recurrenceConflictSlots.length} conflicting slot(s) with existing classes/bookings. Resolve conflicts before submitting.`,
@@ -639,21 +644,16 @@ export function BookingCalendarFlow() {
         : {
             frequency,
             endDate: recurrenceLimitType === "end_date" ? recurrenceEndDate || undefined : undefined,
-            occurrences: recurrenceLimitType === "occurrences" && occurrences ? Number(occurrences) : undefined,
+            occurrences:
+              recurrenceLimitType === "occurrences" && occurrences ? Number(occurrences) : undefined,
           };
 
     const res = await fetch("/api/calendar/bookings", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        roomTypeId,
-        eventTypeId,
-        acMode,
-        selectedSlots,
-        recurrence,
-        customer,
-      }),
+      body: JSON.stringify({ roomTypeId, eventTypeId, acMode, selectedSlots, recurrence, customer }),
     });
+
     let data: {
       message?: string;
       conflicts?: Array<{ slot: { date: string; startTime: string; endTime: string }; reason: string }>;
@@ -672,7 +672,7 @@ export function BookingCalendarFlow() {
         setErrorMessage(
           `${data.message ?? "Conflicts found."} ${data.conflicts
             .slice(0, 5)
-            .map((item) => `${item.slot.date} ${item.slot.startTime}-${item.slot.endTime}`)
+            .map((c) => `${c.slot.date} ${c.slot.startTime}-${c.slot.endTime}`)
             .join(", ")}`,
         );
       } else {
@@ -688,12 +688,7 @@ export function BookingCalendarFlow() {
         : "";
 
     setStatusMessage(`${data.message ?? "Booking submitted."}${overrideNote}`);
-    setSelectedSlots([]);
-    setCustomer({ name: "", email: "", phone: "", purpose: "" });
-    setFrequency("none");
-    setRecurrenceLimitType("end_date");
-    setRecurrenceEndDate("");
-    setOccurrences("");
+    resetForm();
     setIsSubmitting(false);
     setAvailabilityRefreshKey((k) => k + 1);
   }
@@ -702,407 +697,738 @@ export function BookingCalendarFlow() {
     setWeekStartDate(startOfWeek(new Date(year, month, 1)));
   }
 
+  /* ─── Computed labels ────────────────────────────────────────── */
+  const week = isoWeek(weekStartDate);
+  const fixtureId = `FIXTURE #${week.year}-W${String(week.week).padStart(2, "0")}`;
+  const monthYearLabel = `${MONTH_NAMES[visibleMonth].toUpperCase()} ${visibleYear}`;
+  const heroEyebrowTxt = `// BOOKINGS · ${activeRoom?.name?.toUpperCase() ?? "ROOM"} · ${monthYearLabel}`;
+  const todayYmd = formatDate(new Date());
+  const isNextDisabled =
+    maxDateStr !== null && formatDate(addDays(weekStartDate, 7)) > maxDateStr;
+
+  if (isConfigLoading) {
+    return (
+      <section className="ac-bookings-loading">
+        <div className="ac-bookings-loading-inner">
+          <Breadcrumbs current="Bookings" />
+          <p className="ac-bookings-loading-eyebrow">{"// WARMING UP THE COURTS"}</p>
+          <div className="ac-page-hero-title">
+            <span className="ac-display">
+              LOADING<span className="punct">.</span>
+            </span>
+          </div>
+          <p className="ac-page-hero-lede">Your booking calendar is on its way.</p>
+        </div>
+      </section>
+    );
+  }
+
+  if (configError) {
+    return (
+      <section className="ac-bookings-loading">
+        <div className="ac-bookings-loading-inner">
+          <Breadcrumbs current="Bookings" />
+          <p className="ac-bookings-loading-eyebrow ac-bookings-loading-eyebrow-danger">
+            {"// CALENDAR UNAVAILABLE"}
+          </p>
+          <div className="ac-page-hero-title">
+            <span className="ac-display">
+              OFFLINE<span className="punct">.</span>
+            </span>
+          </div>
+          <p className="ac-page-hero-lede">
+            {configError === "timeout"
+              ? "The calendar is taking a slow lap today. Give it another go?"
+              : "We couldn’t reach the calendar this time. Mind having another try?"}
+          </p>
+          <button className="ac-btn-primary" onClick={retryConfig} type="button">
+            Try again <span aria-hidden="true">↗</span>
+          </button>
+        </div>
+      </section>
+    );
+  }
+
   return (
-    <div className="calendar-booking-wrap">
-      <div className="calendar-booking-stack">
-        {isConfigLoading ? (
-          <CalendarLoadingSkeleton />
-        ) : configError ? (
-          <CalendarLoadError errorType={configError} onRetry={retryConfig} />
-        ) : (
-          <>
-        <article className="calendar-panel gc-panel">
-          <div className="gc-toolbar">
-            <div className="gc-toolbar-title">
-              <h2>{weekStartDate.toLocaleDateString("en-US", { month: "long", year: "numeric" })}</h2>
-            </div>
-            <div className="gc-toolbar-controls">
-              <div className="gc-nav gc-nav-quick">
-                <button className="btn btn-secondary gc-nav-btn gc-today-btn" onClick={() => setWeekStartDate(startOfWeek(new Date()))} type="button">
-                  Today
-                </button>
-                <button className="btn btn-secondary gc-nav-btn" onClick={() => setWeekStartDate(addDays(weekStartDate, -7))} type="button">
-                  <span aria-hidden="true">←</span> Prev
-                </button>
-                <button
-                  className="btn btn-secondary gc-nav-btn"
-                  disabled={maxDateStr !== null && formatDate(addDays(weekStartDate, 7)) > maxDateStr}
-                  onClick={() => setWeekStartDate(addDays(weekStartDate, 7))}
-                  type="button"
-                >
-                  Next <span aria-hidden="true">→</span>
-                </button>
+    <>
+      {/* ─── Hero ─────────────────────────────────────────────── */}
+      <section className="ac-page-hero is-gradient ac-bookings-hero" aria-label="Bookings hero">
+        <div className="ac-page-hero-inner">
+          <Breadcrumbs current="Bookings" />
+          <div className="ac-bookings-hero-stamp">{fixtureId}</div>
+          <div className="ac-bookings-hero-grid">
+            <div>
+              <span className="ac-page-hero-eyebrow">{heroEyebrowTxt}</span>
+              <div className="ac-page-hero-title">
+                <span className="ac-display">
+                  BOOK<span className="punct">.</span>
+                </span>
               </div>
-              <div className="gc-nav gc-nav-jump">
-                <label>
-                  <span className="sr-only">Jump to month</span>
-                  <select
-                    aria-label="Jump to month"
-                    value={visibleMonth}
-                    onChange={(event) => jumpToMonthYear(Number(event.target.value), visibleYear)}
-                  >
-                    {monthNames.map((name, index) => (
-                      <option key={name} value={index}>
-                        {name}
-                      </option>
-                    ))}
-                  </select>
-                </label>
-                <label>
-                  <span className="sr-only">Jump to year</span>
-                  <select
-                    aria-label="Jump to year"
-                    value={visibleYear}
-                    onChange={(event) => jumpToMonthYear(visibleMonth, Number(event.target.value))}
-                  >
-                    {visibleYearOptions.map((year) => (
-                      <option key={year} value={year}>
-                        {year}
-                      </option>
-                    ))}
-                  </select>
-                </label>
+              <div className="ac-page-hero-italic">
+                <span className="ac-italic">the floor.</span>
               </div>
+              <p className="ac-page-hero-lede">
+                Reserve the Main Arena or Studio Room. Sport, ceremony, assembly — any use, any
+                week. Requests are reviewed by the bookings desk within 24 hours.
+              </p>
+            </div>
+            <aside className="ac-aside ac-bookings-hero-aside">
+              <span className="ac-aside-eyebrow">FOR ASSISTANCE</span>
+              <p className="ac-aside-quote ac-aside-quote-sm">
+                The desk takes calls between 08:00–18:00 daily.
+              </p>
+              <p className="ac-aside-phone">+94&nbsp;&nbsp;70&nbsp;&nbsp;442&nbsp;&nbsp;1590</p>
+              <a className="ac-aside-link" href="mailto:info@royalmasarena.lk">
+                Or write to the bookings office →
+              </a>
+            </aside>
+          </div>
+        </div>
+      </section>
+
+      {/* ─── 01 / THE ROOM. ───────────────────────────────────── */}
+      <section className="ac-bookings-room-section" aria-label="Choose room and event type">
+        <div className="ac-section-heading">
+          <span className="title">
+            <span className="num">01 /</span> THE ROOM.
+          </span>
+          <span className="meta">SELECT VENUE TO REVEAL CALENDAR</span>
+        </div>
+
+        <div className="ac-bookings-room-grid">
+          {rooms.map((room) => {
+            const selected = room.id === roomTypeId;
+            return (
+              <button
+                aria-pressed={selected}
+                className={`ac-bookings-room-card${selected ? " is-selected" : ""}`}
+                key={room.id}
+                onClick={() => setRoomTypeId(room.id)}
+                type="button"
+              >
+                {selected ? <div className="ac-bookings-room-badge">● SELECTED</div> : null}
+                <span className="ac-bookings-room-tag">{room.name.toUpperCase()}</span>
+                <div className="ac-bookings-room-name">
+                  {room.name.split(" ").map((word) => (
+                    <span className="ac-display" key={word}>
+                      {word.toUpperCase()}
+                    </span>
+                  ))}
+                </div>
+                <p className="ac-bookings-room-sub">
+                  Working hours{" "}
+                  {room.workingHours.startTime}–{room.workingHours.endTime}
+                </p>
+              </button>
+            );
+          })}
+        </div>
+
+        <div className="ac-bookings-config-row">
+          <div>
+            <span className="ac-bookings-config-eyebrow">
+              USE CASE — DURATION &amp; RATE ARE SET PER EVENT TYPE
+            </span>
+            <div className="ac-bookings-event-pills" role="radiogroup" aria-label="Event type">
+              {allowedEventTypes.map((type) => {
+                const active = type.id === eventTypeId;
+                return (
+                  <button
+                    aria-checked={active}
+                    className={`ac-bookings-event-pill${active ? " is-active" : ""}`}
+                    key={type.id}
+                    onClick={() => setEventTypeId(type.id)}
+                    role="radio"
+                    type="button"
+                  >
+                    {type.name}
+                  </button>
+                );
+              })}
             </div>
           </div>
 
-          <section className="gc-filter-card" aria-label="Booking filters">
-            <h3>Booking Filters</h3>
-            <div className="gc-filter-pills" aria-label="Active filters">
-              <span className="gc-filter-pill">Room: {activeRoom?.name ?? "--"}</span>
-              <span className="gc-filter-pill">
-                Appointment: {activeEventType ? `${activeEventType.name} (${activeEventType.durationHours} hrs)` : "--"}
-              </span>
-              <span className="gc-filter-pill">AC: {acModeLabels[acMode]}</span>
+          <div>
+            <span className="ac-bookings-config-eyebrow">AIR CONDITIONING</span>
+            <div className="ac-bookings-ac-toggle" role="radiogroup" aria-label="Air conditioning">
+              {(["without_ac", "with_ac"] as const).map((mode) => {
+                const active = acMode === mode;
+                const disabled = !availableAcModes.includes(mode);
+                return (
+                  <button
+                    aria-checked={active}
+                    className={`ac-bookings-ac-btn${active ? " is-active" : ""}`}
+                    disabled={disabled}
+                    key={mode}
+                    onClick={() => setAcMode(mode)}
+                    role="radio"
+                    type="button"
+                  >
+                    <span className="ac-bookings-ac-label">
+                      {mode === "without_ac" ? "Without A/C" : "With A/C"}
+                    </span>
+                    <span className="ac-bookings-ac-sub">
+                      {mode === "without_ac" ? "open vents · included" : "climate · premium"}
+                    </span>
+                  </button>
+                );
+              })}
             </div>
-            <div className="calendar-form-row">
-              <label>
-                <span className="gc-field-label">Room Type</span>
-                <span className="gc-select-wrap">
-                  <select value={roomTypeId} onChange={(event) => setRoomTypeId(event.target.value)}>
-                    {rooms.map((room) => (
-                      <option key={room.id} value={room.id}>{room.name}</option>
-                    ))}
-                  </select>
-                  <span className="gc-select-caret" aria-hidden="true">⌄</span>
-                </span>
-              </label>
-              <label>
-                <span className="gc-field-label">Appointment Type</span>
-                <span className="gc-select-wrap">
-                  <select value={eventTypeId} onChange={(event) => setEventTypeId(event.target.value)}>
-                    {allowedEventTypes.map((type) => (
-                      <option key={type.id} value={type.id}>{type.name} ({type.durationHours} hrs)</option>
-                    ))}
-                  </select>
-                  <span className="gc-select-caret" aria-hidden="true">⌄</span>
-                </span>
-              </label>
-              <label>
-                <span className="gc-field-label">AC Mode</span>
-                <span className="gc-segmented" role="radiogroup" aria-label="AC mode">
-                  {(["without_ac", "with_ac"] as const).map((mode) => {
-                    const isActive = acMode === mode;
-                    const isDisabled = !availableAcModes.includes(mode);
-                    return (
-                      <button
-                        key={mode}
-                        className={`gc-segmented-btn${isActive ? " is-active" : ""}`}
-                        disabled={isDisabled}
-                        onClick={() => setAcMode(mode)}
-                        role="radio"
-                        aria-checked={isActive}
-                        type="button"
-                      >
-                        {acModeLabels[mode]}
-                      </button>
-                    );
-                  })}
-                </span>
-              </label>
-            </div>
-          </section>
-
-          <div className="gc-meta" aria-label="Booking metadata">
-            <p className="gc-meta-line">
-              <span className="gc-meta-chip">Working Hours: {activeRoom?.workingHours.startTime ?? "--"}-{activeRoom?.workingHours.endTime ?? "--"}</span>
-              <span className="gc-meta-chip">Slot Size: {durationHours} hour{durationHours > 1 ? "s" : ""}</span>
-            </p>
-            <p className="gc-meta-hint">Click a row inside a day to add or remove a {durationHours}-hour block.</p>
           </div>
+        </div>
+      </section>
 
-          <div className="slot-legend" aria-label="Slot status legend">
-            <span className="legend-dot available">Available</span>
-            <span className="legend-dot pending">Pending</span>
-            <span className="legend-dot confirmed">Confirmed</span>
-            <span className="legend-dot tentative">Tentative</span>
-            <span className="legend-dot blocked">Blocked</span>
-            <span className="legend-dot site-preparation">Site Preparation</span>
-            <span className="legend-dot current-selection">Current Selection</span>
-            <span className="legend-dot recurrence-preview">Recurrence Preview</span>
-            <span className="legend-dot recurrence-conflict">Recurrence Conflict</span>
+      {/* ─── 02 / THE WEEK. ───────────────────────────────────── */}
+      <section className="ac-bookings-week-section" aria-label="Weekly calendar">
+        <div className="ac-section-heading">
+          <span className="title">
+            <span className="num">02 /</span> THE WEEK.
+          </span>
+          <span className="meta">
+            {ymdToDate(weekDates[0]).toLocaleDateString("en-US", { day: "numeric", month: "short" })}{" "}
+            →{" "}
+            {ymdToDate(weekDates[6]).toLocaleDateString("en-US", {
+              day: "numeric",
+              month: "short",
+              year: "numeric",
+            })}
+          </span>
+        </div>
+
+        <div className="ac-bookings-week-nav">
+          <button
+            className="ac-bookings-week-btn"
+            onClick={() => setWeekStartDate(addDays(weekStartDate, -7))}
+            type="button"
+          >
+            ◂ WEEK {isoWeek(addDays(weekStartDate, -7)).week}
+          </button>
+          <button
+            className="ac-bookings-week-btn is-current"
+            onClick={() => setWeekStartDate(startOfWeek(new Date()))}
+            type="button"
+          >
+            WEEK {week.week} · {weekDates.includes(todayYmd) ? "NOW" : "GO TO TODAY"}
+          </button>
+          <button
+            className="ac-bookings-week-btn"
+            disabled={isNextDisabled}
+            onClick={() => setWeekStartDate(addDays(weekStartDate, 7))}
+            type="button"
+          >
+            WEEK {isoWeek(addDays(weekStartDate, 7)).week} ▸
+          </button>
+          <button
+            className="ac-bookings-week-btn ac-bookings-jump-toggle"
+            onClick={() => setShowJump((v) => !v)}
+            type="button"
+          >
+            Jump to ▾
+          </button>
+        </div>
+
+        {showJump ? (
+          <div className="ac-bookings-jump-row">
+            <label>
+              <span className="ac-bookings-config-eyebrow">MONTH</span>
+              <select
+                aria-label="Jump to month"
+                onChange={(e) => jumpToMonthYear(Number(e.target.value), visibleYear)}
+                value={visibleMonth}
+              >
+                {MONTH_NAMES.map((name, i) => (
+                  <option key={name} value={i}>
+                    {name}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label>
+              <span className="ac-bookings-config-eyebrow">YEAR</span>
+              <select
+                aria-label="Jump to year"
+                onChange={(e) => jumpToMonthYear(visibleMonth, Number(e.target.value))}
+                value={visibleYear}
+              >
+                {visibleYearOptions.map((year) => (
+                  <option key={year} value={year}>
+                    {year}
+                  </option>
+                ))}
+              </select>
+            </label>
           </div>
-          {frequency !== "none" && recurrenceConflictSlots.length > 0 ? (
-            <p className="form-message error" role="alert">
-              Recurrence warning: {recurrenceConflictSlots.length} slot(s) conflict with existing
-              classes/bookings in this view.
-            </p>
-          ) : null}
+        ) : null}
 
-          <div className="gc-grid-wrap">
-            <div className="gc-head-row">
-              <div className="gc-time-head">Time</div>
+        {/* Legend */}
+        <div className="ac-bookings-legend">
+          <span className="ac-bookings-legend-eyebrow">STATUS</span>
+          <span className="ac-bookings-legend-item is-pending">
+            <span className="dot" /> PENDING
+          </span>
+          <span className="ac-bookings-legend-item is-confirmed">
+            <span className="dot" /> CONFIRMED
+          </span>
+          <span className="ac-bookings-legend-item is-tentative">
+            <span className="dot" /> HELD
+          </span>
+          <span className="ac-bookings-legend-item is-blocked">
+            <span className="dot" /> BLOCKED
+          </span>
+          <span className="ac-bookings-legend-item is-cleanup">
+            <span className="dot" /> PREP
+          </span>
+          <span className="ac-bookings-legend-item is-yours">
+            <span className="dot" /> ★ YOURS
+          </span>
+          <span className="ac-bookings-legend-item is-recurrence">
+            <span className="dot" /> ↻ RECURRENCE
+          </span>
+          <span className="ac-bookings-legend-suffix">
+            SLOT · {durationHours} HR{durationHours > 1 ? "S" : ""} · COLOMBO TIME
+          </span>
+        </div>
+
+        {frequency !== "none" && recurrenceConflictSlots.length > 0 ? (
+          <p className="form-message error ac-bookings-recurrence-warning" role="alert">
+            Recurrence warning: {recurrenceConflictSlots.length} slot(s) conflict with existing
+            classes/bookings in this view.
+          </p>
+        ) : null}
+
+        {/* Grid */}
+        <div className="ac-bookings-grid-wrap">
+          <div className="ac-bookings-grid" style={{ "--row-h": `${ROW_HEIGHT}px` } as React.CSSProperties}>
+            {/* Header row */}
+            <div className="ac-bookings-grid-head">
+              <div className="ac-bookings-grid-time-head">
+                <span>HR</span>
+              </div>
               {weekDates.map((date) => {
-                const isToday = formatDate(new Date()) === date;
+                const d = ymdToDate(date);
+                const isToday = date === todayYmd;
                 const isPastLimit = maxDateStr !== null && date > maxDateStr;
                 return (
-                  <div className={`gc-day-head${isPastLimit ? " gc-day-past-limit" : ""}`} key={`head-${date}`}>
-                    <span>{new Date(`${date}T00:00:00`).toLocaleDateString("en-US", { weekday: "short" })}</span>
-                    <strong className={isToday ? "active" : ""}>{new Date(`${date}T00:00:00`).getDate()}</strong>
+                  <div
+                    className={`ac-bookings-grid-day-head${isToday ? " is-today" : ""}${
+                      isPastLimit ? " is-past-limit" : ""
+                    }`}
+                    key={`head-${date}`}
+                  >
+                    <span className="dow">
+                      {d.toLocaleDateString("en-US", { weekday: "short" }).toUpperCase()}
+                    </span>
+                    <span className="dom">{d.getDate()}</span>
+                    <span className="note">{isToday ? "· TODAY ·" : ""}</span>
                   </div>
                 );
               })}
             </div>
 
-            {Array.from({ length: lastVisibleHour - firstVisibleHour + 1 }, (_, i) => {
-              const hour = firstVisibleHour + i;
-              return (
-                <div className="gc-row" key={`row-${hour}`}>
-                  <div className="gc-time-label">{toHourLabel(hour)}</div>
-                  {weekDates.map((date) => {
-                    const isPastLimit = maxDateStr !== null && date > maxDateStr;
-                    const inWorkingHours = hour >= workingStartHour && hour + durationHours <= workingEndHour;
-                    const hasClickableSlot = Boolean(slotMap[date]?.[`${String(hour).padStart(2, "0")}:00`]);
-                    const busySlot = (busyByDate[date] ?? []).find((slot) => busySlotCoversHour(slot, hour));
-                    const recurrenceSlot = (recurrenceByDate[date] ?? []).find((slot) => slotCoversHour(slot, hour));
-                    const recurrenceConflictSlot = (recurrenceConflictByDate[date] ?? []).find((slot) =>
-                      candidateCoversHour(slot.startTime, hour),
-                    );
-                    const selectedSlot = (selectedByDate[date] ?? []).find((slot) => slotCoversHour(slot, hour));
-                    const recurrencePart = recurrenceSlot ? slotPartForHour(recurrenceSlot, hour) : null;
-                    const recurrenceConflictPart = recurrenceConflictSlot
-                      ? slotPartForHour(recurrenceConflictSlot, hour)
-                      : null;
-                    const selectedPart = selectedSlot ? slotPartForHour(selectedSlot, hour) : null;
+            {/* Body rows with hour labels and click cells */}
+            <div className="ac-bookings-grid-body" style={{ height: `${visibleHours * ROW_HEIGHT}px` }}>
+              {Array.from({ length: visibleHours }, (_, i) => {
+                const hour = firstVisibleHour + i;
+                return (
+                  <div className="ac-bookings-grid-row" key={`row-${hour}`}>
+                    <div className="ac-bookings-grid-time-cell">{toHourLabel(hour)}</div>
+                    {weekDates.map((date) => {
+                      const isPastLimit = maxDateStr !== null && date > maxDateStr;
+                      const inWorkingHours =
+                        hour >= workingStartHour && hour + durationHours <= workingEndHour;
+                      const clickable =
+                        inWorkingHours &&
+                        !isPastLimit &&
+                        Boolean(slotMap[date]?.[`${String(hour).padStart(2, "0")}:00`]);
+                      const isToday = date === todayYmd;
+                      return (
+                        <button
+                          aria-label={`${date} ${toHourLabel(hour)}`}
+                          className={`ac-bookings-grid-cell${clickable ? "" : " is-off"}${
+                            isPastLimit ? " is-past-limit" : ""
+                          }${isToday ? " is-today" : ""}`}
+                          disabled={!clickable}
+                          key={`${date}-${hour}`}
+                          onClick={() => toggleSelectionForCell(date, hour)}
+                          type="button"
+                        />
+                      );
+                    })}
+                  </div>
+                );
+              })}
 
-                    const classes = ["gc-cell"];
-                    if (isPastLimit) classes.push("past-limit");
-                    if (!inWorkingHours || !hasClickableSlot) classes.push("off");
-                    if (busySlot) classes.push(`busy-${busySlot.status}`);
-                    if (recurrenceSlot) classes.push("recurrence");
-                    if (recurrenceConflictSlot) classes.push("recurrence-conflict");
-                    if (selectedSlot) classes.push("selected");
-                    if (recurrencePart) classes.push(`recurrence-${recurrencePart}`);
-                    if (recurrenceConflictPart) classes.push(`recurrence-conflict-${recurrenceConflictPart}`);
-                    if (selectedPart) classes.push(`selected-${selectedPart}`);
+              {/* Slot blocks layer (absolutely positioned) */}
+              <div className="ac-bookings-grid-blocks" aria-hidden="true">
+                {weekDates.map((date, dayIndex) => {
+                  const blocks = busyBlocksByDate[date] ?? [];
+                  const selected = selectedSlots.filter((s) => s.date === date);
+                  const recurrence = recurrencePreviewSlots.filter((s) => s.date === date);
+                  return (
+                    <div className="ac-bookings-day-blocks" data-day={dayIndex} key={`blocks-${date}`}>
+                      {blocks.map((block) => {
+                        const top = (block.startHour - firstVisibleHour) * ROW_HEIGHT;
+                        const height = (block.endHour - block.startHour) * ROW_HEIGHT - 3;
+                        if (top < 0 || height <= 0) return null;
+                        return (
+                          <div
+                            className={`ac-bookings-block is-${block.status}`}
+                            key={`b-${block.bookingId}-${block.startTime}`}
+                            style={{ top, height }}
+                          >
+                            <div className="ac-bookings-block-head">
+                              <span className="chip">{STATUS_LABELS[block.status]}</span>
+                              <span className="time">
+                                {block.startTime}–{block.endTime}
+                              </span>
+                            </div>
+                            <div className="ac-bookings-block-title">
+                              {block.status === "blocked"
+                                ? block.reason ?? "BLOCKED"
+                                : block.status === "cleanup"
+                                  ? "Site preparation"
+                                  : block.status === "pending"
+                                    ? "Pending request"
+                                    : block.status === "tentative"
+                                      ? "Held"
+                                      : "Confirmed booking"}
+                            </div>
+                          </div>
+                        );
+                      })}
 
-                    let cellLabel = "";
-                    if (selectedSlot && toHour(selectedSlot.startTime) === hour) {
-                      cellLabel = `${selectedSlot.startTime}-${selectedSlot.endTime}`;
-                    } else if (recurrenceConflictSlot && toHour(recurrenceConflictSlot.startTime) === hour) {
-                      cellLabel = "↻ Conflict";
-                    } else if (recurrenceSlot && toHour(recurrenceSlot.startTime) === hour) {
-                      cellLabel = "↻ Recurrence";
-                    } else if (busySlot && toHour(busySlot.bookingStartTime ?? busySlot.startTime) === hour) {
-                      cellLabel = statusLabels[busySlot.status];
-                    }
+                      {selected.map((s) => {
+                        const startHour = toHour(s.startTime);
+                        const endHour = toHour(s.endTime);
+                        const top = (startHour - firstVisibleHour) * ROW_HEIGHT;
+                        const height = (endHour - startHour) * ROW_HEIGHT - 3;
+                        if (top < 0 || height <= 0) return null;
+                        return (
+                          <div
+                            className="ac-bookings-block is-selection"
+                            key={`s-${s.date}-${s.startTime}`}
+                            style={{ top, height }}
+                          >
+                            <div className="ac-bookings-block-head">
+                              <span className="chip">★ YOURS</span>
+                              <span className="time">
+                                {s.startTime}–{s.endTime}
+                              </span>
+                            </div>
+                            <div className="ac-bookings-block-title">Your booking</div>
+                            <div className="ac-bookings-block-meta">unsaved · pending submit</div>
+                          </div>
+                        );
+                      })}
 
+                      {recurrence.map((s) => {
+                        const startHour = toHour(s.startTime);
+                        const endHour = toHour(s.endTime);
+                        const top = (startHour - firstVisibleHour) * ROW_HEIGHT;
+                        const height = (endHour - startHour) * ROW_HEIGHT - 3;
+                        if (top < 0 || height <= 0) return null;
+                        const conflict = recurrenceConflictKeys.has(slotKey(s));
+                        return (
+                          <div
+                            className={`ac-bookings-block ${
+                              conflict ? "is-recurrence-conflict" : "is-recurrence"
+                            }`}
+                            key={`r-${s.date}-${s.startTime}`}
+                            style={{ top, height }}
+                          >
+                            <div className="ac-bookings-block-head">
+                              <span className="chip">
+                                {conflict ? "↻ CONFLICT" : "↻ RECURRENCE"}
+                              </span>
+                              <span className="time">
+                                {s.startTime}–{s.endTime}
+                              </span>
+                            </div>
+                            <div className="ac-bookings-block-title">
+                              {conflict ? "Resolve before submit" : "Recurrence preview"}
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      {/* ─── 03 / THE DETAILS. ────────────────────────────────── */}
+      <section className="ac-bookings-details-section" aria-label="Your details and booking fee">
+        <div className="ac-section-heading">
+          <span className="title">
+            <span className="num">03 /</span> THE DETAILS.
+          </span>
+          <span className="meta">{selectedSlots.length === 0 ? "PICK A SLOT TO BEGIN" : "FORM AUTO-SAVES"}</span>
+        </div>
+
+        <div className="ac-bookings-details-grid">
+          <div className="ac-bookings-details-form">
+            {/* Recurrence */}
+            <span className="ac-bookings-config-eyebrow">RECURRENCE</span>
+            <div className="ac-bookings-recurrence-row" role="radiogroup" aria-label="Recurrence">
+              {(
+                [
+                  { v: "none", l: "One-off", sub: "single date" },
+                  { v: "daily", l: "Daily", sub: "every day" },
+                  { v: "weekly", l: "Weekly", sub: "same day each week" },
+                  { v: "monthly", l: "Monthly", sub: "same date each month" },
+                ] as { v: RecurrenceFrequency; l: string; sub: string }[]
+              ).map((opt) => {
+                const active = frequency === opt.v;
+                return (
+                  <button
+                    aria-checked={active}
+                    className={`ac-bookings-ac-btn${active ? " is-active" : ""}`}
+                    key={opt.v}
+                    onClick={() => setFrequency(opt.v)}
+                    role="radio"
+                    type="button"
+                  >
+                    <span className="ac-bookings-ac-label">{opt.l}</span>
+                    <span className="ac-bookings-ac-sub">{opt.sub}</span>
+                  </button>
+                );
+              })}
+            </div>
+
+            {frequency !== "none" ? (
+              <div className="ac-bookings-recurrence-detail">
+                <span className="ac-bookings-config-eyebrow">RECURRENCE LIMIT</span>
+                <div className="ac-bookings-recurrence-row">
+                  {(["end_date", "occurrences"] as RecurrenceLimitType[]).map((opt) => {
+                    const active = recurrenceLimitType === opt;
                     return (
                       <button
-                        className={classes.join(" ")}
-                        key={`${date}-${hour}`}
-                        onClick={() => toggleSelectionForCell(date, hour)}
+                        aria-checked={active}
+                        className={`ac-bookings-ac-btn${active ? " is-active" : ""}`}
+                        key={opt}
+                        onClick={() => {
+                          setRecurrenceLimitType(opt);
+                          if (opt === "end_date") setOccurrences("");
+                          if (opt === "occurrences") setRecurrenceEndDate("");
+                        }}
+                        role="radio"
                         type="button"
                       >
-                        {cellLabel}
+                        <span className="ac-bookings-ac-label">
+                          {opt === "end_date" ? "End Date" : "Number of Recurrences"}
+                        </span>
+                        <span className="ac-bookings-ac-sub">
+                          {opt === "end_date" ? "until a specific date" : `up to ${maxOccurrences}`}
+                        </span>
                       </button>
                     );
                   })}
                 </div>
-              );
-            })}
-          </div>
-        </article>
 
-        <article className="calendar-panel">
-          <h2>2. Recurrence and Customer Details</h2>
+                <div className="ac-bookings-recurrence-input">
+                  {recurrenceLimitType === "end_date" ? (
+                    <label>
+                      <span className="ac-bookings-config-eyebrow">END DATE</span>
+                      <input
+                        max={maxDateStr ?? undefined}
+                        onChange={(e) => setRecurrenceEndDate(e.target.value)}
+                        type="date"
+                        value={recurrenceEndDate}
+                      />
+                    </label>
+                  ) : (
+                    <label>
+                      <span className="ac-bookings-config-eyebrow">OCCURRENCES</span>
+                      <input
+                        max={Math.min(26, maxOccurrences)}
+                        min={1}
+                        onChange={(e) => setOccurrences(e.target.value)}
+                        type="number"
+                        value={occurrences}
+                      />
+                    </label>
+                  )}
+                </div>
 
-          <div className="calendar-form-row recurrence-row">
-            <label>
-              Recurrence
-              <select value={frequency} onChange={(event) => setFrequency(event.target.value as RecurrenceFrequency)}>
-                <option value="none">No recurrence</option>
-                <option value="daily">Daily</option>
-                <option value="weekly">Weekly</option>
-                <option value="monthly">Monthly</option>
-              </select>
-            </label>
-          </div>
+                {maxDateStr !== null ? (
+                  <p className="ac-bookings-limit-note">
+                    Bookings for this event type are limited to{" "}
+                    {eventTypes.find((e) => e.id === eventTypeId)?.maxAdvanceBookingDays} days in
+                    advance (until {maxDateStr}).
+                  </p>
+                ) : null}
+              </div>
+            ) : null}
 
-          {frequency !== "none" ? (
-            <div className="calendar-form-row recurrence-row">
+            {/* Particulars */}
+            <div className="ac-bookings-particulars">
+              <span className="ac-bookings-config-eyebrow">YOUR PARTICULARS</span>
+              <div className="ac-bookings-field-grid">
+                <label>
+                  <span className="ac-bookings-field-label">FULL NAME</span>
+                  <input
+                    onChange={(e) => setCustomer((p) => ({ ...p, name: e.target.value }))}
+                    type="text"
+                    value={customer.name}
+                  />
+                </label>
+                <label>
+                  <span className="ac-bookings-field-label">CONTACT NUMBER</span>
+                  <input
+                    onChange={(e) => setCustomer((p) => ({ ...p, phone: e.target.value }))}
+                    type="tel"
+                    value={customer.phone}
+                  />
+                </label>
+              </div>
               <label>
-                Recurrence Limit
-                <select
-                  value={recurrenceLimitType}
-                  onChange={(event) => {
-                    const next = event.target.value as RecurrenceLimitType;
-                    setRecurrenceLimitType(next);
-                    if (next === "end_date") setOccurrences("");
-                    if (next === "occurrences") setRecurrenceEndDate("");
-                  }}
-                >
-                  <option value="end_date">End Date</option>
-                  <option value="occurrences">Number of Recurrences</option>
-                </select>
+                <span className="ac-bookings-field-label">EMAIL</span>
+                <input
+                  onChange={(e) => setCustomer((p) => ({ ...p, email: e.target.value }))}
+                  type="email"
+                  value={customer.email}
+                />
               </label>
-              {recurrenceLimitType === "end_date" ? (
-                <label>
-                  End Date (required)
-                  <input
-                    type="date"
-                    value={recurrenceEndDate}
-                    max={maxDateStr ?? undefined}
-                    onChange={(event) => setRecurrenceEndDate(event.target.value)}
-                  />
-                </label>
-              ) : (
-                <label>
-                  Occurrences (required)
-                  <input
-                    min={1}
-                    max={Math.min(26, maxOccurrences)}
-                    type="number"
-                    value={occurrences}
-                    onChange={(event) => setOccurrences(event.target.value)}
-                  />
-                </label>
-              )}
-              {maxDateStr !== null && (
-                <p className="recurrence-limit-notice">
-                  Bookings for this event type are limited to {eventTypes.find((e) => e.id === eventTypeId)?.maxAdvanceBookingDays} days in advance
-                  (until {maxDateStr}).
+              <label>
+                <span className="ac-bookings-field-label">PURPOSE OF BOOKING</span>
+                <textarea
+                  onChange={(e) => setCustomer((p) => ({ ...p, purpose: e.target.value }))}
+                  rows={4}
+                  value={customer.purpose}
+                />
+              </label>
+            </div>
+
+            {/* Terms */}
+            <div className="ac-bookings-terms">
+              <div className="ac-bookings-terms-icon" aria-hidden="true">
+                <svg viewBox="0 0 12 12" width="12" height="12">
+                  <path d="M1.5 6 L5 9.5 L10.5 2.5" stroke="currentColor" strokeWidth="2" fill="none" />
+                </svg>
+              </div>
+              <div className="ac-bookings-terms-text">
+                By submitting you accept the{" "}
+                <Link href="/privacy">booking terms</Link> and confirm that the venue will not be
+                used for commercial purposes without prior approval.
+              </div>
+            </div>
+          </div>
+
+          {/* Receipt */}
+          <aside className="ac-bookings-receipt">
+            <div className="ac-bookings-receipt-tag">● BOOKING FEE</div>
+
+            <div className="ac-bookings-receipt-head">
+              <span className="ac-page-hero-eyebrow">{"// YOUR BOOKINGS"}</span>
+              <div className="ac-bookings-receipt-room">
+                {activeRoom
+                  ? activeRoom.name.split(" ").map((w) => (
+                      <span className="ac-display" key={w}>
+                        {w.toUpperCase()}
+                      </span>
+                    ))
+                  : (
+                      <span className="ac-display">—</span>
+                    )}
+              </div>
+              <span className="ac-bookings-receipt-chip">
+                {eventType?.name?.toUpperCase() ?? "—"} ·{" "}
+                {acMode === "without_ac" ? "WITHOUT A/C" : "WITH A/C"}
+              </span>
+            </div>
+
+            <div className="ac-bookings-receipt-entries">
+              <div className="ac-bookings-receipt-entries-head">
+                <span>
+                  {pricingPreview.length} {pricingPreview.length === 1 ? "ENTRY" : "ENTRIES"}
+                  {frequency !== "none" ? ` · ${frequency.toUpperCase()}` : ""}
+                </span>
+              </div>
+              {pricingPreview.length === 0 ? (
+                <p className="ac-bookings-receipt-empty">
+                  Pick at least one slot on the calendar to start.
                 </p>
+              ) : (
+                pricingPreview.map((entry, i) => (
+                  <div className="ac-bookings-receipt-row" key={`${entry.date}-${entry.startTime}`}>
+                    <div className="ac-bookings-receipt-row-left">
+                      <span className="num">
+                        <span className="num-badge">{i + 1}</span> BOOKING {i + 1}
+                      </span>
+                      <div className="when">
+                        {ymdToDate(entry.date).toLocaleDateString("en-US", {
+                          weekday: "short",
+                          month: "short",
+                          day: "numeric",
+                        })}
+                      </div>
+                      <div className="time">
+                        {entry.startTime} — {entry.endTime}{" "}
+                        {entry.isBase ? null : <span className="auto">AUTO</span>}
+                      </div>
+                    </div>
+                    <div className="ac-bookings-receipt-row-right">
+                      <span className="price">
+                        {entry.missingPrice ? "—" : `LKR ${currency(entry.amountLkr)}`}
+                      </span>
+                      {entry.isBase ? (
+                        <button
+                          className="remove"
+                          onClick={() => toggleSelectionForCell(entry.date, toHour(entry.startTime))}
+                          type="button"
+                        >
+                          REMOVE
+                        </button>
+                      ) : null}
+                    </div>
+                  </div>
+                ))
               )}
             </div>
-          ) : null}
 
-          <div className="calendar-form-row customer-row">
-            <label>
-              Name
-              <input type="text" value={customer.name} onChange={(event) => setCustomer((prev) => ({ ...prev, name: event.target.value }))} />
-            </label>
-            <label>
-              Email
-              <input type="email" value={customer.email} onChange={(event) => setCustomer((prev) => ({ ...prev, email: event.target.value }))} />
-            </label>
-            <label>
-              Contact Number
-              <input type="tel" value={customer.phone} onChange={(event) => setCustomer((prev) => ({ ...prev, phone: event.target.value }))} />
-            </label>
-          </div>
+            <div className="ac-bookings-receipt-total">
+              <div>
+                <span className="ac-page-hero-eyebrow">BOOKING FEE · LKR</span>
+                <span className="sub">
+                  {pricingPreview.length === 0
+                    ? "—"
+                    : `${pricingPreview.length} entr${pricingPreview.length === 1 ? "y" : "ies"} · on confirmation`}
+                </span>
+              </div>
+              <span className="ac-display ac-bookings-receipt-amount">{currency(total)}</span>
+            </div>
 
-          <label>
-            Purpose
-            <textarea rows={3} value={customer.purpose} onChange={(event) => setCustomer((prev) => ({ ...prev, purpose: event.target.value }))} />
-          </label>
+            <div className="ac-bookings-receipt-actions">
+              <button
+                className="ac-btn-primary"
+                disabled={isSubmitting || selectedSlots.length === 0}
+                onClick={submitBooking}
+                type="button"
+              >
+                {isSubmitting ? "Submitting…" : "Submit Booking"}{" "}
+                <span aria-hidden="true">↗</span>
+              </button>
+              <button className="ac-btn-ghost" onClick={resetForm} type="button">
+                Reset Form
+              </button>
+            </div>
 
-          <h3>Booking Summary</h3>
-          <div className="booking-summary-wrap">
-            <table className="booking-summary-table">
-              <thead>
-                <tr>
-                  <th>Date</th>
-                  <th>Time</th>
-                  <th>Type</th>
-                  <th>Charge</th>
-                  <th>Action</th>
-                </tr>
-              </thead>
-              <tbody>
-                {pricingPreview.map((item) => (
-                  <tr key={`${item.date}-${item.startTime}-${item.endTime}`}>
-                    <td>{item.date}</td>
-                    <td>{item.startTime}-{item.endTime}</td>
-                    <td>{item.isBase ? "Base" : "Recurrence"}</td>
-                    <td>{item.missingPrice ? "Missing price rule" : `LKR ${currency(item.amountLkr)}`}</td>
-                    <td>
-                      {item.isBase ? (
-                        <button className="btn btn-secondary" onClick={() => toggleSelectionForCell(item.date, toHour(item.startTime))} type="button">
-                          Remove
-                        </button>
-                      ) : (
-                        <span className="booking-summary-note">Auto</span>
-                      )}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-          <p className="charge-total"><strong>Total: LKR {currency(total)}</strong></p>
-
-          <div className="booking-flow-actions">
-            <button className="btn btn-primary" disabled={isSubmitting} onClick={submitBooking} type="button">
-              {isSubmitting ? "Submitting..." : "Submit Booking Request"}
-            </button>
-            <a className="btn btn-secondary" href="/contact">Need help? Go to Contact</a>
-          </div>
-
-          {statusMessage ? <p className="form-message success">{statusMessage}</p> : null}
-          {errorMessage ? <p className="form-message error">{errorMessage}</p> : null}
-        </article>
-          </>
-        )}
-      </div>
-    </div>
-  );
-}
-
-function CalendarLoadingSkeleton() {
-  return (
-    <div className="calendar-skeleton" role="status" aria-live="polite">
-      <p className="calendar-skeleton-message">
-        <strong>Warming up the courts…</strong> your booking calendar is on its way.
-      </p>
-      <div className="skeleton-toolbar">
-        <div className="skeleton-block title" />
-        <div className="skeleton-block btn" />
-        <div className="skeleton-block btn" />
-        <div className="skeleton-block btn" />
-      </div>
-      <div className="skeleton-filters">
-        <div className="skeleton-block" />
-        <div className="skeleton-block" />
-        <div className="skeleton-block" />
-      </div>
-      <div className="skeleton-grid">
-        {Array.from({ length: 8 * 8 }).map((_, i) => (
-          <div className="skeleton-block" key={i} />
-        ))}
-      </div>
-    </div>
-  );
-}
-
-function CalendarLoadError({
-  errorType,
-  onRetry,
-}: {
-  errorType: "timeout" | "failed";
-  onRetry: () => void;
-}) {
-  const message =
-    errorType === "timeout"
-      ? "The calendar is taking a slow lap today. Give it another go?"
-      : "We couldn’t reach the calendar this time. Mind having another try?";
-  return (
-    <div className="calendar-load-error" role="alert">
-      <h3>Hmm, that didn&apos;t go to plan</h3>
-      <p>{message}</p>
-      <button className="btn btn-primary" onClick={onRetry} type="button">
-        Try again
-      </button>
-    </div>
+            {statusMessage ? (
+              <p className="ac-bookings-receipt-message ac-bookings-receipt-message-success" role="status">
+                {statusMessage}
+              </p>
+            ) : null}
+            {errorMessage ? (
+              <p className="ac-bookings-receipt-message ac-bookings-receipt-message-error" role="alert">
+                {errorMessage}
+              </p>
+            ) : null}
+          </aside>
+        </div>
+      </section>
+    </>
   );
 }
