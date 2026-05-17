@@ -58,12 +58,9 @@ type CalendarBlock = {
   reason: string;
 };
 
-type BookingTab = "all" | "pending" | "tentative" | "unpaid" | "part_paid" | "paid" | "overpaid" | "conflicts";
+type BookingTab = "all" | "pending" | "tentative" | "unpaid" | "part_paid" | "paid" | "overpaid" | "rejected" | "conflicts";
 
-const ACTIVE_STATUSES = ["pending", "confirmed", "tentative"] as const;
-function isActiveBooking(b: Booking) {
-  return (ACTIVE_STATUSES as readonly string[]).includes(b.status);
-}
+type BookingDateRange = "all" | "today" | "last_7_days" | "last_30_days" | "custom";
 
 function uid(prefix: string) {
   return `${prefix}-${Math.random().toString(36).slice(2, 8)}`;
@@ -76,6 +73,15 @@ function computeBookingEffectiveStatus(booking: Booking): Booking["status"] {
   if (active.length === 0) return "rejected";
   if (active.every((s) => s === active[0])) return active[0] as Booking["status"];
   return booking.status;
+}
+
+const ACTIVE_EFFECTIVE_STATUSES = ["pending", "confirmed", "tentative"] as const;
+function isActiveBooking(b: Booking) {
+  return (ACTIVE_EFFECTIVE_STATUSES as readonly string[]).includes(computeBookingEffectiveStatus(b));
+}
+
+function hasRejectedSlot(b: Booking) {
+  return b.slots.some((s) => (s.slotStatus ?? b.status) === "rejected");
 }
 
 function formatSlotDate(ymd: string): string {
@@ -422,6 +428,9 @@ export function AdminCalendarConsole({ section }: AdminCalendarConsoleProps) {
     name: "",
   });
   const [activeBookingTab, setActiveBookingTab] = useState<BookingTab>("pending");
+  const [bookingDateRange, setBookingDateRange] = useState<BookingDateRange>("all");
+  const [bookingCustomStart, setBookingCustomStart] = useState<string>("");
+  const [bookingCustomEnd, setBookingCustomEnd] = useState<string>("");
 
   useEffect(() => {
     void refreshAll();
@@ -840,29 +849,54 @@ export function AdminCalendarConsole({ section }: AdminCalendarConsoleProps) {
     return pairs;
   }, [conflictMap]);
 
+  const dateRangeBounds = useMemo<{ start: string; end: string } | null>(() => {
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    const todayStr = toYmd(today);
+    switch (bookingDateRange) {
+      case "today":        return { start: todayStr, end: todayStr };
+      case "last_7_days":  return { start: toYmd(addDays(today, -6)), end: todayStr };
+      case "last_30_days": return { start: toYmd(addDays(today, -29)), end: todayStr };
+      case "custom":
+        if (bookingCustomStart && bookingCustomEnd && bookingCustomStart <= bookingCustomEnd) {
+          return { start: bookingCustomStart, end: bookingCustomEnd };
+        }
+        return null;
+      default: return null;
+    }
+  }, [bookingDateRange, bookingCustomStart, bookingCustomEnd]);
+
+  const dateFilteredBookings = useMemo(() => {
+    if (!dateRangeBounds) return bookings;
+    const { start, end } = dateRangeBounds;
+    return bookings.filter((b) => b.slots.some((s) => s.date >= start && s.date <= end));
+  }, [bookings, dateRangeBounds]);
+
   const tabCounts = useMemo(() => ({
-    all: bookings.length,
-    pending: bookings.filter((b) => computeBookingEffectiveStatus(b) === "pending").length,
-    tentative: bookings.filter((b) => computeBookingEffectiveStatus(b) === "tentative").length,
-    unpaid: bookings.filter((b) => b.reconciliationStatus === "unpaid" && isActiveBooking(b)).length,
-    part_paid: bookings.filter((b) => b.reconciliationStatus === "part_paid" && isActiveBooking(b)).length,
-    paid: bookings.filter((b) => b.reconciliationStatus === "paid").length,
-    overpaid: bookings.filter((b) => b.paidAmountLkr > b.totalAmountLkr && isActiveBooking(b)).length,
-    conflicts: bookings.filter((b) => (conflictMap.get(b.id) ?? []).length > 0).length,
-  }), [bookings, conflictMap]);
+    all: dateFilteredBookings.length,
+    pending: dateFilteredBookings.filter((b) => computeBookingEffectiveStatus(b) === "pending").length,
+    tentative: dateFilteredBookings.filter((b) => computeBookingEffectiveStatus(b) === "tentative").length,
+    unpaid: dateFilteredBookings.filter((b) => b.reconciliationStatus === "unpaid" && isActiveBooking(b)).length,
+    part_paid: dateFilteredBookings.filter((b) => b.reconciliationStatus === "part_paid" && isActiveBooking(b)).length,
+    paid: dateFilteredBookings.filter((b) => b.reconciliationStatus === "paid").length,
+    overpaid: dateFilteredBookings.filter((b) => b.paidAmountLkr > b.totalAmountLkr && isActiveBooking(b)).length,
+    rejected: dateFilteredBookings.filter((b) => hasRejectedSlot(b)).length,
+    conflicts: dateFilteredBookings.filter((b) => (conflictMap.get(b.id) ?? []).length > 0).length,
+  }), [dateFilteredBookings, conflictMap]);
 
   const filteredBookings = useMemo(() => {
     switch (activeBookingTab) {
-      case "pending":   return bookings.filter((b) => computeBookingEffectiveStatus(b) === "pending");
-      case "tentative": return bookings.filter((b) => computeBookingEffectiveStatus(b) === "tentative");
-      case "unpaid":    return bookings.filter((b) => b.reconciliationStatus === "unpaid" && isActiveBooking(b));
-      case "part_paid": return bookings.filter((b) => b.reconciliationStatus === "part_paid" && isActiveBooking(b));
-      case "paid":      return bookings.filter((b) => b.reconciliationStatus === "paid");
-      case "overpaid":  return bookings.filter((b) => b.paidAmountLkr > b.totalAmountLkr && isActiveBooking(b));
-      case "conflicts": return bookings.filter((b) => (conflictMap.get(b.id) ?? []).length > 0);
-      default:          return bookings;
+      case "pending":   return dateFilteredBookings.filter((b) => computeBookingEffectiveStatus(b) === "pending");
+      case "tentative": return dateFilteredBookings.filter((b) => computeBookingEffectiveStatus(b) === "tentative");
+      case "unpaid":    return dateFilteredBookings.filter((b) => b.reconciliationStatus === "unpaid" && isActiveBooking(b));
+      case "part_paid": return dateFilteredBookings.filter((b) => b.reconciliationStatus === "part_paid" && isActiveBooking(b));
+      case "paid":      return dateFilteredBookings.filter((b) => b.reconciliationStatus === "paid");
+      case "overpaid":  return dateFilteredBookings.filter((b) => b.paidAmountLkr > b.totalAmountLkr && isActiveBooking(b));
+      case "rejected":  return dateFilteredBookings.filter((b) => hasRejectedSlot(b));
+      case "conflicts": return dateFilteredBookings.filter((b) => (conflictMap.get(b.id) ?? []).length > 0);
+      default:          return dateFilteredBookings;
     }
-  }, [bookings, activeBookingTab, conflictMap]);
+  }, [dateFilteredBookings, activeBookingTab, conflictMap]);
 
   return (
     <div className="admin-console">
@@ -1183,12 +1217,12 @@ export function AdminCalendarConsole({ section }: AdminCalendarConsoleProps) {
             <article className="admin-kpi-card">
               <h4>Pending Pipeline</h4>
               <p>LKR {currencyFormatter.format(Math.round(pendingPipelineLkr))}</p>
-              <small className="admin-kpi-note">{bookings.filter((b) => b.status === "pending").length} booking{bookings.filter((b) => b.status === "pending").length !== 1 ? "s" : ""}</small>
+              <small className="admin-kpi-note">{bookings.filter((b) => computeBookingEffectiveStatus(b) === "pending").length} booking{bookings.filter((b) => computeBookingEffectiveStatus(b) === "pending").length !== 1 ? "s" : ""}</small>
             </article>
             <article className="admin-kpi-card">
               <h4>Tentative Pipeline</h4>
               <p>LKR {currencyFormatter.format(Math.round(tentativePipelineLkr))}</p>
-              <small className="admin-kpi-note">{bookings.filter((b) => b.status === "tentative").length} booking{bookings.filter((b) => b.status === "tentative").length !== 1 ? "s" : ""}</small>
+              <small className="admin-kpi-note">{bookings.filter((b) => computeBookingEffectiveStatus(b) === "tentative").length} booking{bookings.filter((b) => computeBookingEffectiveStatus(b) === "tentative").length !== 1 ? "s" : ""}</small>
             </article>
           </div>
 
@@ -1841,6 +1875,47 @@ export function AdminCalendarConsole({ section }: AdminCalendarConsoleProps) {
         <section className="admin-panel">
           <h2>Booking Queue</h2>
 
+          <div className="admin-booking-date-filter">
+            <label htmlFor="booking-date-range">Date range:</label>
+            <select
+              id="booking-date-range"
+              value={bookingDateRange}
+              onChange={(e) => setBookingDateRange(e.target.value as BookingDateRange)}
+            >
+              <option value="all">All dates</option>
+              <option value="today">Today</option>
+              <option value="last_7_days">Last 7 days</option>
+              <option value="last_30_days">Last 30 days</option>
+              <option value="custom">Custom range</option>
+            </select>
+            {bookingDateRange === "custom" ? (
+              <>
+                <input
+                  type="date"
+                  aria-label="Start date"
+                  value={bookingCustomStart}
+                  max={bookingCustomEnd || undefined}
+                  onChange={(e) => setBookingCustomStart(e.target.value)}
+                />
+                <span className="admin-booking-date-sep">to</span>
+                <input
+                  type="date"
+                  aria-label="End date"
+                  value={bookingCustomEnd}
+                  min={bookingCustomStart || undefined}
+                  onChange={(e) => setBookingCustomEnd(e.target.value)}
+                />
+              </>
+            ) : null}
+            {dateRangeBounds ? (
+              <span className="admin-booking-date-summary">
+                Showing slots {dateRangeBounds.start === dateRangeBounds.end
+                  ? `on ${formatSlotDate(dateRangeBounds.start)}`
+                  : `from ${formatSlotDate(dateRangeBounds.start)} to ${formatSlotDate(dateRangeBounds.end)}`}
+              </span>
+            ) : null}
+          </div>
+
           <div className="admin-booking-tabs" role="tablist">
             {(
               [
@@ -1851,6 +1926,7 @@ export function AdminCalendarConsole({ section }: AdminCalendarConsoleProps) {
                 ["part_paid", "Part Paid"],
                 ["paid", "Paid"],
                 ["overpaid", "Overpaid"],
+                ["rejected", "Rejected"],
                 ["conflicts", "Conflicts"],
               ] as [BookingTab, string][]
             ).map(([tab, label]) => (

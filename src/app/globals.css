@@ -1626,6 +1626,41 @@ main {
 
 /* ─── Booking Queue ─────────────────────────────────────────────── */
 
+.admin-booking-date-filter {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 12px;
+  font-size: 0.8125rem;
+  color: var(--ink);
+}
+
+.admin-booking-date-filter label {
+  font-weight: 500;
+  color: var(--muted);
+}
+
+.admin-booking-date-filter select,
+.admin-booking-date-filter input[type="date"] {
+  padding: 4px 8px;
+  border-radius: 6px;
+  border: 1px solid var(--line);
+  background: var(--panel);
+  color: var(--ink);
+  font-size: 0.8125rem;
+}
+
+.admin-booking-date-sep {
+  color: var(--muted);
+}
+
+.admin-booking-date-summary {
+  margin-left: 4px;
+  color: var(--muted);
+  font-style: italic;
+}
+
 .admin-booking-tabs {
   display: flex;
   flex-wrap: wrap;

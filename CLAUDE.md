@@ -216,20 +216,35 @@ The Booking Queue section has a horizontal tab bar that filters the list client-
 | All | all bookings |
 | Pending | `computeBookingEffectiveStatus(b) === "pending"` |
 | Tentative | `computeBookingEffectiveStatus(b) === "tentative"` |
-| Unpaid | `reconciliationStatus === "unpaid"` AND active status |
-| Part Paid | `reconciliationStatus === "part_paid"` AND active status |
+| Unpaid | `reconciliationStatus === "unpaid"` AND active effective status |
+| Part Paid | `reconciliationStatus === "part_paid"` AND active effective status |
 | Paid | `reconciliationStatus === "paid"` |
-| Overpaid | `paidAmountLkr > totalAmountLkr` AND active status |
+| Overpaid | `paidAmountLkr > totalAmountLkr` AND active effective status |
+| Rejected | at least one slot has effective status `"rejected"` (covers both full-booking rejections and per-slot rejections) |
 | Conflicts | booking id present in `conflictMap` (existing memo) |
 
-"Active status" = `pending | confirmed | tentative`. Rejected / cancelled_override bookings are only visible under **All**.
+**"Active effective status"** = `computeBookingEffectiveStatus(b) ∈ {pending, confirmed, tentative}`. `isActiveBooking()` always routes through the effective status — never `b.status` directly — so a booking whose every slot has been overridden to `rejected` correctly drops out of Unpaid / Part Paid / Overpaid even when its booking-level `status` is still `pending`. Rejected / cancelled_override bookings are visible under **All** and **Rejected**.
 
 The Conflicts tab badge uses an orange outline when its count > 0. The conflict warning banner above the list remains visible regardless of active tab.
 
 Key implementation details in `admin-calendar-console.tsx`:
-- `BookingTab` union type and `isActiveBooking()` helper are module-level (not inside the component).
-- `tabCounts` and `filteredBookings` are `useMemo` hooks that depend on `bookings` + `conflictMap`.
-- CSS classes: `.admin-booking-tabs`, `.admin-booking-tab`, `.admin-booking-tab-count` (in `globals.css`).
+- `BookingTab` union type, `BookingDateRange` union type, `isActiveBooking()`, `hasRejectedSlot()`, and `computeBookingEffectiveStatus()` are module-level (not inside the component).
+- `tabCounts` and `filteredBookings` derive from `dateFilteredBookings` (a useMemo that applies the date-range filter before tab filtering, so counts reflect the active range).
+- CSS classes: `.admin-booking-tabs`, `.admin-booking-tab`, `.admin-booking-tab-count`, `.admin-booking-date-filter` (in `globals.css`).
+
+## Admin Booking Queue: Date Range Filter
+
+A date-range dropdown above the tabs filters the queue to bookings with at least one slot whose `date` falls inside the range. Options:
+
+| Preset | Range |
+|---|---|
+| All dates | no filter (default) |
+| Today | `[today, today]` |
+| Last 7 days | `[today − 6, today]` |
+| Last 30 days | `[today − 29, today]` |
+| Custom range | user-supplied start and end (inclusive) |
+
+The filter applies BEFORE the tab filter, so tab counts reflect the active range. Date semantics are based on slot dates (`booking.slots[].date`), not booking creation date — the admin is reviewing what is/was happening on the calendar, not when records were entered.
 
 ## Admin Booking Queue: Effective Status & Pay Tags
 
