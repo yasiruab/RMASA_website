@@ -91,9 +91,9 @@ Two code paths — both fire `sendBookingStatusNotification` → customer:
 
 | Variable | Purpose |
 |---|---|
-| `RESEND_API_KEY` | Resend API key (server-only) |
-| `RESEND_FROM` | From address; use `onboarding@resend.dev` until domain verified |
-| `ADMIN_NOTIFICATION_EMAIL` | Admin inbox for new-booking alerts; omit to disable |
+| `RESEND_API_KEY` | Resend API key (server-only) — configured in Amplify |
+| `RESEND_FROM` | From address; `onboarding@resend.dev` until domain verified — configured in Amplify |
+| `ADMIN_NOTIFICATION_EMAIL` | Admin inbox for new-booking alerts; omit to disable — configured in Amplify |
 
 ## Acceptance Criteria
 

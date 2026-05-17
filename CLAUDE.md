@@ -138,9 +138,9 @@ Every send attempt writes a row to `EmailLog` (status `sent` or `failed`). Email
 
 | Variable | Notes |
 |---|---|
-| `RESEND_API_KEY` | Server-only; from Resend dashboard |
-| `RESEND_FROM` | From address; `onboarding@resend.dev` until domain verified |
-| `ADMIN_NOTIFICATION_EMAIL` | Admin inbox for new-booking alerts; omit to disable |
+| `RESEND_API_KEY` | Server-only; from Resend dashboard — set in Amplify console |
+| `RESEND_FROM` | From address; `onboarding@resend.dev` until domain verified — set in Amplify console |
+| `ADMIN_NOTIFICATION_EMAIL` | Admin inbox for new-booking alerts; omit to disable — set in Amplify console |
 
 **`EmailLog` model** (Prisma): `id`, `bookingReference` (denormalized string — no FK), `type`, `toEmail`, `fromEmail`, `subject`, `htmlBody`, `status`, `errorMessage`, `createdAt`.
 
