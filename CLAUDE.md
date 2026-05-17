@@ -18,6 +18,7 @@ Next.js 15 App Router · Prisma v6 · PostgreSQL · NextAuth · Tailwind (admin)
 | Prisma client | `src/lib/prisma.ts` |
 | Auth guards | `src/lib/auth-guards.ts` |
 | Audit logging | `src/lib/audit.ts` |
+| Transactional email | `src/lib/email.ts` |
 | DB schema | `prisma/schema.prisma` |
 
 ## Calendar Data Model
@@ -120,6 +121,28 @@ Conflict detection uses `effectiveOverlaps()` in `src/lib/calendar-core.ts`, whi
   - Pre-submit guard blocks submission if any slot > `maxDateStr`
 - **Admin UI**: "Advance (days)" column in Event Types table (between Cleanup and Priority); blank input coerces to 365.
 - **Config validation**: `PUT /api/admin/calendar/config` validates 0–3650 whole number; returns 400 otherwise.
+
+## Transactional Email (`src/lib/email.ts`)
+
+Uses the **Resend** SDK. Three exported async functions — all fire-and-forget (wrap with `void`), never throw:
+
+| Function | Trigger |
+|---|---|
+| `sendBookingAcknowledgement` | Called in `POST /api/calendar/bookings` after booking saved |
+| `sendBookingStatusNotification` | Called in `PATCH /api/admin/calendar/bookings` on booking-level status change to `confirmed`, `tentative`, or `rejected` |
+| `sendAdminNewBookingNotification` | Called alongside acknowledgement on new booking; skipped if `ADMIN_NOTIFICATION_EMAIL` unset |
+
+Every send attempt writes a row to `EmailLog` (status `sent` or `failed`). Email failures never propagate to the API response.
+
+**Required env vars:**
+
+| Variable | Notes |
+|---|---|
+| `RESEND_API_KEY` | Server-only; from Resend dashboard |
+| `RESEND_FROM` | From address; `onboarding@resend.dev` until domain verified |
+| `ADMIN_NOTIFICATION_EMAIL` | Admin inbox for new-booking alerts; omit to disable |
+
+**`EmailLog` model** (Prisma): `id`, `bookingReference` (denormalized string — no FK), `type`, `toEmail`, `fromEmail`, `subject`, `htmlBody`, `status`, `errorMessage`, `createdAt`.
 
 ## SlotAvailability
 

@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { logAuditEvent } from "@/lib/audit";
 import { requireAdmin } from "@/lib/auth-guards";
+import { sendBookingStatusNotification } from "@/lib/email";
 import { evaluateBookingConflicts } from "@/lib/calendar-core";
 import { readCalendarDb, updateCalendarDb } from "@/lib/calendar-store";
 import { Booking, BookingStatus } from "@/lib/calendar-types";
@@ -72,6 +73,60 @@ export async function PATCH(req: Request) {
       userAgent: req.headers.get("user-agent"),
     });
 
+    // Fire status email when this update completes the final unactioned slot.
+    // Compute updated slots in memory to detect the partial→all-actioned transition.
+    const updatedSlots = existing.slots.map((slot) =>
+      slot.date === payload.slotDate && slot.startTime === payload.slotStartTime
+        ? { ...slot, slotStatus: payload.slotStatus ?? undefined }
+        : slot,
+    );
+    const wasAllActioned = existing.slots.every((s) => s.slotStatus != null);
+    const nowAllActioned = updatedSlots.every((s) => s.slotStatus != null);
+
+    if (!wasAllActioned && nowAllActioned) {
+      const activeSlots = updatedSlots.filter(
+        (s) => s.slotStatus !== "rejected" && s.slotStatus !== "cancelled_override",
+      );
+      let effectiveStatus: BookingStatus | null = null;
+      if (activeSlots.length === 0) {
+        effectiveStatus = "rejected";
+      } else {
+        const uniqueStatuses = [...new Set(activeSlots.map((s) => s.slotStatus!))];
+        if (uniqueStatuses.length === 1) effectiveStatus = uniqueStatuses[0];
+      }
+
+      const notifyStatuses: BookingStatus[] = ["confirmed", "tentative", "rejected"];
+      if (effectiveStatus && notifyStatuses.includes(effectiveStatus)) {
+        const room = current.rooms.find((r) => r.id === existing.roomTypeId);
+        const eventType = current.eventTypes.find((et) => et.id === existing.eventTypeId);
+        if (room && eventType) {
+          const activeSlotKeys = new Set(activeSlots.map((s) => `${s.date}|${s.startTime}-${s.endTime}`));
+          const adjustedTotal =
+            effectiveStatus === "rejected"
+              ? existing.totalAmountLkr
+              : existing.amountBreakdown
+                  .filter((b) => activeSlotKeys.has(`${b.date}|${b.slot}`))
+                  .reduce((sum, b) => sum + b.amountLkr, 0);
+          void sendBookingStatusNotification({
+            to: existing.customer.email,
+            customerName: existing.customer.name,
+            reference: existing.reference,
+            roomName: room.name,
+            eventTypeName: eventType.name,
+            slots: updatedSlots,
+            slotStatuses: updatedSlots.map((s) => ({
+              date: s.date,
+              startTime: s.startTime,
+              endTime: s.endTime,
+              status: s.slotStatus!,
+            })),
+            totalAmountLkr: adjustedTotal,
+            newStatus: effectiveStatus as "confirmed" | "tentative" | "rejected",
+          });
+        }
+      }
+    }
+
     return NextResponse.json({ message: "Slot updated." });
   }
 
@@ -135,6 +190,24 @@ export async function PATCH(req: Request) {
     ip: req.headers.get("x-forwarded-for"),
     userAgent: req.headers.get("user-agent"),
   });
+
+  const notifyStatuses: BookingStatus[] = ["confirmed", "tentative", "rejected"];
+  if (payload.status && notifyStatuses.includes(nextStatus)) {
+    const room = current.rooms.find((r) => r.id === existing.roomTypeId);
+    const eventType = current.eventTypes.find((et) => et.id === existing.eventTypeId);
+    if (room && eventType) {
+      void sendBookingStatusNotification({
+        to: existing.customer.email,
+        customerName: existing.customer.name,
+        reference: existing.reference,
+        roomName: room.name,
+        eventTypeName: eventType.name,
+        slots: existing.slots,
+        totalAmountLkr: existing.totalAmountLkr,
+        newStatus: nextStatus as "confirmed" | "tentative" | "rejected",
+      });
+    }
+  }
 
   return NextResponse.json({ message: "Booking updated." });
 }
