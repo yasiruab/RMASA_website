@@ -13,3 +13,6 @@ coverage
 memory/
 tsconfig.tsbuildinfo
 
+# Design handoff bundles (kept local-only)
+rmasa-website-design/
+

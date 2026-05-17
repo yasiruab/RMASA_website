@@ -28,7 +28,7 @@ export default async function AdminCalendarLayout({ children }: { children: Reac
   const isSuperAdmin = session.user.role === "super_admin";
 
   return (
-    <section className="page-section container content-page">
+    <section className="page-section container admin-content-page">
       <Breadcrumbs current="Admin Calendar" />
       <div className="admin-head-row">
         <div>

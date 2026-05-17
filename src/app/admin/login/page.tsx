@@ -18,7 +18,7 @@ export default async function AdminLoginPage({
   }
 
   return (
-    <section className="page-section container content-page">
+    <section className="page-section container admin-content-page">
       <Breadcrumbs current="Admin Login" />
       <h1>Admin Sign In</h1>
       <p>Sign in with your admin account to access booking operations and configuration tools.</p>
