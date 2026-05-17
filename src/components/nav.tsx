@@ -5,7 +5,9 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
 
-const links = [
+type NavLink = { href: string; label: string };
+
+const NAV_LINKS: NavLink[] = [
   { href: "/", label: "Home" },
   { href: "/about", label: "About" },
   { href: "/facilities", label: "Facilities" },
@@ -16,26 +18,16 @@ const links = [
   { href: "/admin/calendar", label: "Admin" },
 ];
 
+function isLinkActive(pathname: string, href: string) {
+  if (href === "/") return pathname === "/";
+  return pathname.startsWith(href);
+}
+
 export function Nav() {
   const pathname = usePathname();
-  const [isCompact, setIsCompact] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
   const toggleRef = useRef<HTMLButtonElement>(null);
-
-  useEffect(() => {
-    const update = () => {
-      setIsCompact(window.scrollY > 72);
-    };
-
-    update();
-    window.addEventListener("scroll", update, { passive: true });
-    window.addEventListener("resize", update, { passive: true });
-    return () => {
-      window.removeEventListener("scroll", update);
-      window.removeEventListener("resize", update);
-    };
-  }, []);
 
   useEffect(() => {
     setMenuOpen(false);
@@ -62,7 +54,6 @@ export function Nav() {
       const focusable = menuRef.current.querySelectorAll<HTMLElement>(
         'a[href], button:not([disabled]), [tabindex]:not([tabindex="-1"])',
       );
-
       if (focusable.length === 0) return;
 
       const first = focusable[0];
@@ -83,96 +74,100 @@ export function Nav() {
   }, [menuOpen]);
 
   return (
-    <header className={`site-header ${isCompact ? "is-compact" : ""}`} id="masthead">
-      <div className="container header-row">
-        <Link aria-label="Royal MAS Arena home" className="logo-link" href="/">
-          <Image
-            alt="Royal Mas Arena"
-            className="logo"
-            height={64}
-            priority
-            sizes="(max-width: 980px) min(340px, 60vw), min(540px, 42vw)"
-            src="/rmasa/logo.png"
-            width={599}
-          />
-        </Link>
-
-        <div className="header-right">
-          <div className="header-contact">
-            <p>
-              Phone: <a href="tel:+94704421590">+94 (0) 70 442 1590</a>
-            </p>
-            <p>
-              E-Mail: <a href="mailto:info@royalmasarena.lk">info@royalmasarena.lk</a>
-            </p>
-          </div>
-          <Link className="header-cta" href="/bookings">
-            Book Now
-          </Link>
-          <button
-            aria-controls="mobile-menu"
-            aria-expanded={menuOpen}
-            className="menu-toggle"
-            onClick={() => setMenuOpen((current) => !current)}
-            ref={toggleRef}
-            type="button"
-          >
-            Menu
-          </button>
+    <header className="site-header" id="masthead">
+      <div className="ac-live-strip">
+        <div className="ac-live-strip-left">
+          <span className="ac-live-flag">
+            <span className="ac-live-dot" aria-hidden="true" />
+            <span className="live-label">LIVE</span>
+            <span>BOOKINGS DESK · OPEN 08:00–18:00</span>
+          </span>
+          <span aria-hidden="true">·</span>
+          <span>RAJAKEEYA MAWATHA · COLOMBO 07</span>
+        </div>
+        <div className="ac-live-strip-right">
+          <a href="tel:+94704421590">+94 (0) 70 442 1590</a>
+          <a href="mailto:info@royalmasarena.lk">INFO@ROYALMASARENA.LK</a>
+          <span className="ac-lang" aria-hidden="true">EN ▾</span>
         </div>
       </div>
 
-      <nav aria-label="Main navigation" className="site-nav">
-        <div className="container nav-shell">
-          <ul className="nav-list">
-            {links.map((link) => {
-              const isActive = link.href === "/" ? pathname === "/" : pathname.startsWith(link.href);
+      <div className="ac-nav-strip">
+        <Link aria-label="Royal MAS Arena home" className="ac-logo-plaque" href="/">
+          <Image
+            alt="Royal MAS Arena"
+            height={60}
+            priority
+            sizes="120px"
+            src="/rmasa/logo.png"
+            width={200}
+          />
+        </Link>
 
-              return (
-                <li key={link.href}>
-                  <Link aria-current={isActive ? "page" : undefined} className={isActive ? "active" : undefined} href={link.href}>
-                    {link.label}
-                  </Link>
-                </li>
-              );
-            })}
-          </ul>
+        <nav aria-label="Main navigation" className="ac-nav">
+          {NAV_LINKS.map((link) => {
+            const active = isLinkActive(pathname, link.href);
+            return (
+              <Link
+                aria-current={active ? "page" : undefined}
+                className={active ? "active" : undefined}
+                href={link.href}
+                key={link.href}
+              >
+                {link.label}
+              </Link>
+            );
+          })}
+        </nav>
 
-          <div aria-hidden={!menuOpen} className={`mobile-menu ${menuOpen ? "is-open" : ""}`} id="mobile-menu" ref={menuRef}>
-            <p className="mobile-menu-title">Explore</p>
-            <ul className="mobile-menu-list">
-              {links.slice(0, 5).map((link) => {
-                const isActive = link.href === "/" ? pathname === "/" : pathname.startsWith(link.href);
-                return (
-                  <li key={link.href}>
-                    <Link aria-current={isActive ? "page" : undefined} className={isActive ? "active" : undefined} href={link.href}>
-                      {link.label}
-                    </Link>
-                  </li>
-                );
-              })}
-            </ul>
+        <Link className="ac-header-cta" href="/bookings">
+          Book Now <span aria-hidden="true">↗</span>
+        </Link>
 
-            <p className="mobile-menu-title">Plan Your Visit</p>
-            <ul className="mobile-menu-list">
-              {links.slice(5).map((link) => {
-                const isActive = link.href === "/" ? pathname === "/" : pathname.startsWith(link.href);
-                return (
-                  <li key={link.href}>
-                    <Link aria-current={isActive ? "page" : undefined} className={isActive ? "active" : undefined} href={link.href}>
-                      {link.label}
-                    </Link>
-                  </li>
-                );
-              })}
-            </ul>
+        <button
+          aria-controls="mobile-menu"
+          aria-expanded={menuOpen}
+          className="ac-menu-toggle"
+          onClick={() => setMenuOpen((current) => !current)}
+          ref={toggleRef}
+          type="button"
+        >
+          Menu
+        </button>
+      </div>
 
-            <Link className="header-cta mobile-cta" href="/bookings">
-              Book Now
+      <div
+        aria-hidden={!menuOpen}
+        className={`ac-mobile-menu ${menuOpen ? "is-open" : ""}`}
+        id="mobile-menu"
+        ref={menuRef}
+      >
+        <p className="ac-mobile-menu-title">Explore</p>
+        <ul className="ac-mobile-menu-list">
+          {NAV_LINKS.map((link) => {
+            const active = isLinkActive(pathname, link.href);
+            return (
+              <li key={link.href}>
+                <Link
+                  aria-current={active ? "page" : undefined}
+                  className={active ? "active" : undefined}
+                  href={link.href}
+                >
+                  {link.label}
+                </Link>
+              </li>
+            );
+          })}
+        </ul>
+        <p className="ac-mobile-menu-title">Reservations</p>
+        <ul className="ac-mobile-menu-list">
+          <li>
+            <Link className="active" href="/bookings">
+              Book Now ↗
             </Link>
-          </div>
-        </div>
-      </nav>
+          </li>
+        </ul>
+      </div>
     </header>
   );
 }

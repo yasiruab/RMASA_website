@@ -21,6 +21,56 @@ Next.js 15 App Router · Prisma v6 · PostgreSQL · NextAuth · Tailwind (admin)
 | Transactional email | `src/lib/email.ts` |
 | DB schema | `prisma/schema.prisma` |
 
+## Design System
+
+The public site and admin panel use **two separate design systems**.
+
+### Public site — Arena Court Edition (dark navy + gold)
+
+Palette tokens live in `:root` of `src/app/globals.css` with the `--ac-*` prefix.
+
+| Token | Value | Use |
+|---|---|---|
+| `--ac-bg` | `#06112E` | page background |
+| `--ac-ink` | `#08163A` | live strip + footer |
+| `--ac-ink2` | `#0F2255` | nav strip + intro + room compare bg |
+| `--ac-line` | `#1F3360` | hairlines |
+| `--ac-card` | `#0E1F4A` | card backgrounds |
+| `--ac-text` | `#E9ECF4` | body text |
+| `--ac-text-dim` | `#9CA6BF` | secondary text |
+| `--ac-text-mute` | `#6B7494` | tertiary / mono meta |
+| `--ac-gold` | `#E8B73A` | brand accent |
+| `--ac-gold-bright` | `#FFC83D` | hover state |
+| `--ac-gold-deep` | `#B8870A` | underlines |
+| `--ac-live` | `#22D67C` | LIVE booking-desk dot |
+| `--ac-paper` | `#FAF7F0` | logo plaque background |
+| `--ac-hair` | `#E5DFD0` | logo plaque border |
+
+Type families (loaded via `<link>` in `src/app/layout.tsx` from `fonts.googleapis.com`):
+
+| Family | Use |
+|---|---|
+| Archivo (400–900) | Display + nav labels |
+| Newsreader (400–700, italic) | Italic serif suffix + intro lede |
+| Space Grotesk (400–700) | Body text (default `body` font) |
+| Geist Mono (400–500) | Eyebrows / meta / monospace numbers |
+
+Helper classes — use these instead of re-declaring inline:
+
+| Class | Use |
+|---|---|
+| `.ac-display` | Archivo 900, tight tracking, line-height 0.92 — pair with inline `font-size` |
+| `.ac-italic` | Archivo italic 500 — for the secondary italic suffix |
+| `.ac-mono` | Geist Mono 11px, uppercase, letter-spaced eyebrows |
+| `.ac-logo-plaque` | Cream-tile backplate behind the dark wordmark |
+| `.ac-btn-primary` / `.ac-btn-ghost` | Gold-filled / outline buttons (uppercase Archivo) |
+
+The site-wide chrome lives in [`src/components/nav.tsx`](src/components/nav.tsx) (two-strip header: live strip + nav strip) and [`src/components/footer.tsx`](src/components/footer.tsx) (4-col + meta row + edition tag).
+
+### Admin panel — legacy tokens (kept for compatibility)
+
+The legacy `--brand` / `--ink` / `--muted` / `--bg` / `--panel` / `--line` / `--footer` tokens are still defined in `:root` and are used by all `.admin-*`, `.bk-*`, `.rpt-*`, `.gc-*` rules. Do **not** rename or remove these. Admin pages render inside `.content-page` (white card) and read fine on top of the new dark `body` background; the dark perimeter around the admin card is expected and matches the new public chrome that wraps every page in the App Router.
+
 ## Calendar Data Model
 
 ### Booking
