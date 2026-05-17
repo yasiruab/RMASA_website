@@ -2,7 +2,7 @@ import { Resend } from "resend";
 import { prisma } from "@/lib/prisma";
 import type { BookingStatus } from "@/lib/calendar-types";
 
-const resend = new Resend(process.env.RESEND_API_KEY);
+const resend = process.env.RESEND_API_KEY ? new Resend(process.env.RESEND_API_KEY) : null;
 const FROM = process.env.RESEND_FROM ?? "onboarding@resend.dev";
 const ADMIN_EMAIL = process.env.ADMIN_NOTIFICATION_EMAIL ?? "";
 
@@ -115,17 +115,22 @@ async function sendEmail(params: {
   let status: "sent" | "failed" = "failed";
   let errorMessage: string | undefined;
 
-  try {
-    await resend.emails.send({
-      from: FROM,
-      to: params.to,
-      subject: params.subject,
-      html: params.html,
-    });
-    status = "sent";
-  } catch (err) {
-    errorMessage = err instanceof Error ? err.message : String(err);
-    console.error(`[email] Failed to send "${params.subject}" to ${params.to}:`, errorMessage);
+  if (!resend) {
+    errorMessage = "RESEND_API_KEY is not configured";
+    console.error(`[email] ${errorMessage}`);
+  } else {
+    try {
+      await resend.emails.send({
+        from: FROM,
+        to: params.to,
+        subject: params.subject,
+        html: params.html,
+      });
+      status = "sent";
+    } catch (err) {
+      errorMessage = err instanceof Error ? err.message : String(err);
+      console.error(`[email] Failed to send "${params.subject}" to ${params.to}:`, errorMessage);
+    }
   }
 
   try {
