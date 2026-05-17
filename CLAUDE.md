@@ -122,6 +122,31 @@ Conflict detection uses `effectiveOverlaps()` in `src/lib/calendar-core.ts`, whi
 - **Admin UI**: "Advance (days)" column in Event Types table (between Cleanup and Priority); blank input coerces to 365.
 - **Config validation**: `PUT /api/admin/calendar/config` validates 0–3650 whole number; returns 400 otherwise.
 
+## Deployment & Infrastructure
+
+### Amplify build vs. runtime connectivity
+
+The production database (Aurora PostgreSQL) is in a private VPC. **The Amplify build container IS inside that VPC** and can reach Aurora. The developer's local machine cannot (blocked by the security group). This means:
+
+- `npx prisma migrate deploy` runs correctly in the Amplify build step — this is the intended migration path for production
+- **Never remove `prisma migrate deploy` from `amplify.yml`** thinking it "can't connect from the build container" — it can
+- Running migrations locally against production is not possible without temporarily opening the security group or using a bastion host
+
+### Amplify environment variables
+
+Environment variables added or changed in the Amplify console **do not take effect until the next deployment**. Running Lambda functions continue using the env snapshot from their last deploy. If you add an env var after a deploy, you must trigger a new build for the running app to see it.
+
+### SDK client initialisation
+
+Never instantiate SDK clients (Resend, etc.) at module level without guarding against missing env vars. A top-level `new Resend(undefined)` throws immediately, crashing the module on import and causing every route that imports it to return 500 — even routes that never call any email function.
+
+Always guard:
+```typescript
+const resend = process.env.RESEND_API_KEY ? new Resend(process.env.RESEND_API_KEY) : null;
+```
+
+And handle the `null` case inside the function body.
+
 ## Transactional Email (`src/lib/email.ts`)
 
 Uses the **Resend** SDK. Three exported async functions — all fire-and-forget (wrap with `void`), never throw:
