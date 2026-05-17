@@ -15,6 +15,7 @@ const adminSections = [
   { href: "/admin/calendar/pricing", label: "Pricing", requiresSuperAdmin: true },
   { href: "/admin/calendar/bookings", label: "Bookings", requiresSuperAdmin: false },
   { href: "/admin/calendar/blockouts", label: "Blockouts", requiresSuperAdmin: false },
+  { href: "/admin/calendar/reports", label: "Reports", requiresSuperAdmin: false },
 ];
 
 export default async function AdminCalendarLayout({ children }: { children: ReactNode }) {

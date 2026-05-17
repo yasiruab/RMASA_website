@@ -60,6 +60,7 @@ export async function readCalendarDb(): Promise<CalendarDb> {
         startTime: slot.startTime,
         endTime: slot.endTime,
         slotStatus: slot.slotStatus ?? undefined,
+        rejectReason: slot.rejectReason ?? undefined,
       })),
       customer: {
         name: booking.customerName,
@@ -82,10 +83,11 @@ export async function readCalendarDb(): Promise<CalendarDb> {
       })),
       reconciliationStatus: booking.reconciliationStatus,
       reconciliationNotes: booking.reconciliationNotes,
+      rejectReason: booking.rejectReason ?? undefined,
       paymentEntries: booking.paymentEntries.map((entry) => ({
         id: entry.id,
         bookingId: entry.bookingId,
-        type: entry.type as "payment" | "refund" | "credit_note",
+        type: entry.type as "payment" | "refund" | "credit_note" | "waiver",
         date: entry.date,
         amountLkr: entry.amountLkr,
         receiptNo: entry.receiptNo,
@@ -183,6 +185,7 @@ export async function updateCalendarDb(mutator: (current: CalendarDb) => Calenda
           paidAmountLkr: booking.paidAmountLkr,
           reconciliationStatus: booking.reconciliationStatus,
           reconciliationNotes: booking.reconciliationNotes,
+          rejectReason: booking.rejectReason ?? null,
           createdAt: new Date(booking.createdAt),
           updatedAt: new Date(booking.updatedAt),
         },
@@ -196,6 +199,7 @@ export async function updateCalendarDb(mutator: (current: CalendarDb) => Calenda
             startTime: slot.startTime,
             endTime: slot.endTime,
             slotStatus: slot.slotStatus ?? null,
+            rejectReason: slot.rejectReason ?? null,
           })),
         });
       }

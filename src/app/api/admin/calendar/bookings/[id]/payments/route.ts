@@ -3,7 +3,7 @@ import { prisma } from "@/lib/prisma";
 import { logAuditEvent } from "@/lib/audit";
 import { requireAdmin } from "@/lib/auth-guards";
 
-const VALID_TYPES = ["payment", "refund", "credit_note"] as const;
+const VALID_TYPES = ["payment", "refund", "credit_note", "waiver"] as const;
 type EntryType = (typeof VALID_TYPES)[number];
 
 function isValidYmd(value: string): boolean {
@@ -33,7 +33,7 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
 
   if (!VALID_TYPES.includes(type)) {
     return NextResponse.json(
-      { message: "Invalid type. Must be payment, refund, or credit_note." },
+      { message: "Invalid type. Must be payment, refund, credit_note, or waiver." },
       { status: 400 },
     );
   }

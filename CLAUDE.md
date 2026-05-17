@@ -40,14 +40,14 @@ Each booking has an append-only `PaymentEntry[]`. Entries are never deleted or e
 
 | Field | Description |
 |---|---|
-| `type` | `payment` (+ collected) · `refund` (− collected) · `credit_note` (− outstanding, no cash) |
+| `type` | `payment` (+ collected) · `refund` (− collected) · `credit_note` (− outstanding, no cash) · `waiver` (− outstanding, no cash; displayed as "Fee Waiver") |
 | `date` | YYYY-MM-DD, admin-supplied |
 | `amountLkr` | Always positive; direction from `type` |
 | `receiptNo` | Optional; empty string if absent |
 | `notes` | Required |
 | `createdBy` | Admin email (server-set) |
 
-**Net collected** = Σ(payment.amountLkr) − Σ(refund.amountLkr) − Σ(credit_note.amountLkr)
+**Net collected** = Σ(payment.amountLkr) − Σ(refund.amountLkr) − Σ(credit_note.amountLkr) − Σ(waiver.amountLkr)
 
 Derived `reconciliationStatus`:
 - net = 0 → `unpaid`
@@ -179,6 +179,7 @@ Uses the **Resend** SDK. Three exported async functions — each catches its own
 | `sendBookingAcknowledgement` | Called in `POST /api/calendar/bookings` after booking saved |
 | `sendBookingStatusNotification` | Called in `PATCH /api/admin/calendar/bookings` on booking-level status change to `confirmed`, `tentative`, or `rejected` |
 | `sendAdminNewBookingNotification` | Called alongside acknowledgement on new booking; skipped if `ADMIN_NOTIFICATION_EMAIL` unset |
+| `sendAdminRejectionNotification` | Called when any booking is set to `rejected` (booking-level or per-slot via Save); skipped if `ADMIN_NOTIFICATION_EMAIL` unset; includes reject reason |
 
 Every send attempt writes a row to `EmailLog` (status `sent` or `failed`). Email failures never propagate to the API response.
 
@@ -271,3 +272,50 @@ The payment status tag evaluates in this order — the overpaid check must come 
 | `reconciliationStatus === "waived"` | Waived | `.bk-pay-waived` (grey) |
 | `reconciliationStatus === "part_paid"` | Paid LKR X · Due LKR Y | `.bk-pay-part` (amber) |
 | default | Unpaid | `.bk-pay-unpaid` (red) |
+
+## Admin Booking Queue: Staged Slot Changes & Save Button
+
+Per-slot approve/reject actions are **staged locally** in a `Map<bookingId, changes[]>` before being sent to the server. Nothing is persisted until the admin explicitly clicks **Save Changes**.
+
+Key state:
+- `stagedSlotChanges` — `Map<string, Array<{ slotDate, slotStartTime, slotStatus, rejectReason? }>>` — pending per-slot edits
+- `bookingsWithStaged` — useMemo merging staged changes into `bookings` for display only; actual `bookings` state is unchanged until Save succeeds
+- `savingBookingIds` — `Set<string>` of booking IDs currently mid-save
+
+Clicking **Save Changes (N)** calls `savePendingSlotChanges(bookingId)` which sends a single `PATCH /api/admin/calendar/bookings` with `{ id, batchSlotUpdates: [...] }`. On success, the staged changes are cleared and `refreshAll()` is called. On failure, staged changes are preserved so the admin can retry.
+
+Per-slot badges show a `●` indicator when staged. The slot row gets `.bk-slot-staged` CSS class (amber left border).
+
+**Reject reason modals** — per-slot rejection opens `slotRejectModal`; bulk "Reject All" opens `bulkRejectModal`. Both require a non-empty reason before the confirm button is enabled.
+
+**Bulk status changes** (Confirm All / Tentative) remain immediate (no staging) and call `updateBookingStatus()` directly. Bulk rejection now opens the `bulkRejectModal` and requires a reason.
+
+## Admin Booking Queue: Per-Slot Payment Allocation
+
+`computeSlotPaymentAllocation(booking)` returns a `Map<"date|startTime", "paid"|"part_paid"|"unpaid">` for display in each slot row. Logic:
+1. Filter to active (non-rejected, non-cancelled) slots; sort oldest-first
+2. Walk slots oldest-first, consuming `paidAmountLkr` against each slot's `amountBreakdown` amount
+3. `paid` if slot fully covered; `part_paid` if partially; `unpaid` if nothing left
+
+This is display-only — payments are still recorded at booking level, not per-slot.
+
+## Reject Reason Storage
+
+- **Booking-level rejection** (`status: "rejected"` via bulk PATCH): stored in `Booking.rejectReason`
+- **Per-slot rejection** (`slotStatus: "rejected"` via batch PATCH): stored in `BookingSlot.rejectReason`
+- Both fields are `String?` in Prisma schema
+- Reject reason is required (validated in API) for all rejection paths — both booking-level and per-slot
+- Displayed under each slot row as `.bk-slot-reject-reason`
+- Included in customer rejection email and admin rejection notification
+
+## Accounting Report
+
+`GET /api/admin/calendar/reports?from=YYYY-MM-DD&to=YYYY-MM-DD` — returns all booking slots in the date range with per-slot financial allocation.
+
+**Per-slot financial allocation logic** (server-side, same approach as `computeSlotPaymentAllocation`):
+1. Separate payment entries into: `netCash` (payments − refunds), `totalWaiver`, `totalCredit`
+2. Active slots sorted oldest-first
+3. Walk slots: allocate cash first, then waiver, then credit notes until each stream exhausted
+4. `slotBalanceLkr = slotAmountLkr − paidLkr − waiverLkr − creditNoteLkr` (min 0)
+
+Report page at `/admin/calendar/reports` (visible to all admins, not super-admin-only). Columns: Date, Time, Room, Event Type, Ref, Customer, Purpose, Status, Pay Status, Amount (LKR), Paid (LKR), Waiver (LKR), Credit Note (LKR), Balance (LKR), Reject Reason. Summary row shows totals. CSV export available.

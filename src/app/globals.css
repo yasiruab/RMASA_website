@@ -1458,6 +1458,7 @@ main {
 .admin-console {
   margin-top: 16px;
   display: grid;
+  grid-template-columns: minmax(0, 1fr);
   gap: 16px;
 }
 
@@ -2250,6 +2251,124 @@ main {
 .bk-ledger-form-row { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
 .bk-ledger-form-row .bk-recon-notes { flex: 1; min-width: 180px; }
 
+/* Staged slot highlight */
+.bk-slot-row.bk-slot-staged {
+  background: #fffbeb;
+  border-left: 3px solid #f59e0b;
+}
+
+/* Per-slot payment status badges */
+.bk-slot-pay {
+  font-size: 0.72rem;
+  font-weight: 600;
+  padding: 1px 7px;
+  border-radius: 10px;
+  white-space: nowrap;
+}
+.bk-slot-pay-paid    { background: #dcfce7; color: #15803d; }
+.bk-slot-pay-part_paid { background: #fef3c7; color: #92400e; }
+.bk-slot-pay-unpaid  { background: #fee2e2; color: #be123c; }
+
+/* Reject reason display below a slot */
+.bk-slot-reject-reason {
+  padding: 4px 12px 6px;
+  font-size: 0.78rem;
+  color: #9b1c1c;
+  font-style: italic;
+}
+
+/* Save/discard buttons */
+.bk-save-staged-btn,
+.bk-discard-btn {
+  display: inline-flex;
+  align-items: center;
+  height: 30px;
+  padding: 0 14px;
+  border-radius: 6px;
+  border: 1px solid;
+  font: inherit;
+  font-size: 0.82rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.12s ease;
+}
+.bk-save-staged-btn {
+  background: #1d4ed8;
+  color: #fff;
+  border-color: #1e40af;
+}
+.bk-save-staged-btn:hover:not(:disabled) { background: #1e40af; }
+.bk-save-staged-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+
+.bk-discard-btn {
+  background: #f9fafb;
+  color: #6b7280;
+  border-color: #d1d5db;
+}
+.bk-discard-btn:hover:not(:disabled) { background: #f3f4f6; }
+.bk-discard-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+
+/* Reject / bulk-reject modals */
+.bk-modal-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.45);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+}
+.bk-modal {
+  background: #fff;
+  border-radius: 10px;
+  padding: 24px;
+  width: 100%;
+  max-width: 420px;
+  box-shadow: 0 8px 32px rgba(0,0,0,0.18);
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.bk-modal-title {
+  margin: 0;
+  font-size: 1rem;
+  font-weight: 700;
+  color: #111827;
+}
+.bk-modal-desc {
+  margin: 0;
+  font-size: 0.86rem;
+  color: #6b7280;
+}
+.bk-modal-label {
+  font-size: 0.84rem;
+  font-weight: 600;
+  color: #374151;
+}
+.bk-modal-required { color: #dc2626; }
+.bk-modal-textarea {
+  width: 100%;
+  border: 1px solid #d1d5db;
+  border-radius: 6px;
+  padding: 8px 10px;
+  font: inherit;
+  font-size: 0.84rem;
+  resize: vertical;
+  box-sizing: border-box;
+}
+.bk-modal-textarea:focus { border-color: #2563eb; outline: none; }
+.bk-modal-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}
+.bk-modal-confirm-reject {
+  background: #dc2626 !important;
+  border-color: #b91c1c !important;
+}
+.bk-modal-confirm-reject:hover:not(:disabled) { background: #b91c1c !important; }
+.bk-modal-confirm-reject:disabled { opacity: 0.5; cursor: not-allowed; }
+
 
 .admin-dashboard-grid {
   display: grid;
@@ -2966,3 +3085,132 @@ main {
     bottom: 12px;
   }
 }
+
+/* ── Accounting Report page ── */
+.rpt-filter-bar {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 16px;
+}
+.rpt-filter-bar label {
+  font-size: 0.84rem;
+  font-weight: 600;
+  color: #374151;
+}
+.rpt-filter-bar input[type="date"] {
+  border: 1px solid #d1d5db;
+  border-radius: 6px;
+  padding: 0 10px;
+  height: 34px;
+  font: inherit;
+  font-size: 0.84rem;
+  background: #fff;
+}
+
+.rpt-summary {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  margin-bottom: 16px;
+  padding: 12px 16px;
+  background: #f9fafb;
+  border: 1px solid #e5e7eb;
+  border-radius: 8px;
+}
+.rpt-summary-item {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 110px;
+}
+.rpt-summary-label {
+  font-size: 0.72rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: #9ca3af;
+}
+.rpt-summary-value {
+  font-size: 0.95rem;
+  font-weight: 700;
+  color: #111827;
+}
+.rpt-summary-paid  { color: #15803d; }
+.rpt-summary-balance { color: #b45309; }
+
+.rpt-table-wrap {
+  overflow-x: auto;
+  width: 100%;
+}
+.rpt-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.8rem;
+  min-width: 1400px;
+}
+.rpt-table th {
+  text-align: left;
+  padding: 6px 10px;
+  background: #f3f4f6;
+  border-bottom: 2px solid #e5e7eb;
+  color: #374151;
+  font-weight: 700;
+  font-size: 0.72rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  white-space: nowrap;
+}
+.rpt-table td {
+  padding: 6px 10px;
+  border-bottom: 1px solid #f3f4f6;
+  vertical-align: middle;
+}
+.rpt-table tr:last-child td { border-bottom: none; }
+
+.rpt-num { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.rpt-date { white-space: nowrap; }
+.rpt-time { white-space: nowrap; font-variant-numeric: tabular-nums; }
+.rpt-ref  { font-family: monospace; font-size: 0.78rem; color: #374151; }
+.rpt-customer-name { font-weight: 600; }
+.rpt-customer-sub  { font-size: 0.72rem; color: #9ca3af; }
+.rpt-purpose { max-width: 180px; color: #6b7280; }
+.rpt-reject-reason { max-width: 200px; color: #9b1c1c; font-style: italic; }
+.rpt-paid    { color: #15803d; font-weight: 600; }
+.rpt-balance { color: #b45309; font-weight: 600; }
+
+/* Booking status badges in report */
+.rpt-status {
+  display: inline-block;
+  padding: 2px 8px;
+  border-radius: 10px;
+  font-size: 0.72rem;
+  font-weight: 700;
+  white-space: nowrap;
+}
+.rpt-status-confirmed { background: #dcfce7; color: #15803d; }
+.rpt-status-tentative { background: #ede9fe; color: #5f2d9e; }
+.rpt-status-pending   { background: #fef9c3; color: #854d0e; }
+.rpt-status-rejected  { background: #fee2e2; color: #991b1b; }
+.rpt-status-cancelled_override { background: #f3f4f6; color: #6b7280; }
+
+.rpt-pay-status {
+  display: inline-block;
+  padding: 2px 8px;
+  border-radius: 10px;
+  font-size: 0.72rem;
+  font-weight: 700;
+  white-space: nowrap;
+}
+.rpt-pay-paid     { background: #dcfce7; color: #15803d; }
+.rpt-pay-part_paid { background: #fef3c7; color: #92400e; }
+.rpt-pay-unpaid   { background: #fee2e2; color: #be123c; }
+.rpt-pay-waived   { background: #f3f4f6; color: #6b7280; }
+
+/* Row tinting */
+.rpt-row-paid   { background: #f0fdf4; }
+.rpt-row-part   { background: #fffbeb; }
+.rpt-row-unpaid { background: #fff; }
+.rpt-row-waived { background: #f9fafb; }
+.rpt-row-rejected { background: #fef2f2; opacity: 0.8; }

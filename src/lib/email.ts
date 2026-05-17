@@ -19,7 +19,7 @@ function formatLkr(amount: number): string {
   return `LKR ${amount.toLocaleString("en-LK")}`;
 }
 
-type SlotWithStatus = { date: string; startTime: string; endTime: string; status: BookingStatus };
+type SlotWithStatus = { date: string; startTime: string; endTime: string; status: BookingStatus; rejectReason?: string };
 
 function slotStatusLabel(status: BookingStatus): string {
   switch (status) {
@@ -40,11 +40,13 @@ function slotStatusColor(status: BookingStatus): string {
 }
 
 function formatSlotsWithStatus(slots: SlotWithStatus[]): string {
+  const hasReasons = slots.some((s) => s.rejectReason);
   const rows = slots.map((s) => `
     <tr style="border-top:1px solid #dfe3e8;">
       <td style="padding:6px 8px;font-size:13px;color:#31343a;">${s.date}</td>
       <td style="padding:6px 8px;font-size:13px;color:#31343a;">${s.startTime}–${s.endTime}</td>
       <td style="padding:6px 8px;font-size:13px;font-weight:600;color:${slotStatusColor(s.status)};">${slotStatusLabel(s.status)}</td>
+      ${hasReasons ? `<td style="padding:6px 8px;font-size:13px;color:#6f737a;">${s.rejectReason ?? ""}</td>` : ""}
     </tr>`).join("\n");
   return `
     <table width="100%" cellpadding="0" cellspacing="0" style="border-collapse:collapse;">
@@ -52,6 +54,7 @@ function formatSlotsWithStatus(slots: SlotWithStatus[]): string {
         <th style="padding:6px 8px;font-size:12px;text-align:left;color:#6f737a;font-weight:600;">Date</th>
         <th style="padding:6px 8px;font-size:12px;text-align:left;color:#6f737a;font-weight:600;">Time</th>
         <th style="padding:6px 8px;font-size:12px;text-align:left;color:#6f737a;font-weight:600;">Status</th>
+        ${hasReasons ? '<th style="padding:6px 8px;font-size:12px;text-align:left;color:#6f737a;font-weight:600;">Reason</th>' : ""}
       </tr>
       ${rows}
     </table>`;
@@ -200,14 +203,16 @@ export async function sendBookingStatusNotification(params: {
   slots: SlotList;
   slotStatuses?: SlotWithStatus[]; // when provided, renders per-slot status table
   totalAmountLkr: number;
-  newStatus: "confirmed" | "tentative" | "rejected";
+  newStatus: "confirmed" | "tentative" | "rejected" | "partial_update";
+  rejectReason?: string; // included in rejection email body
 }): Promise<void> {
   const { slotStatuses } = params;
   const hasRejectedAmongConfirmed =
     params.newStatus === "confirmed" &&
     slotStatuses != null &&
     slotStatuses.some((s) => s.status === "rejected" || s.status === "cancelled_override");
-  const isPartial = hasRejectedAmongConfirmed;
+  const isPartial = hasRejectedAmongConfirmed || params.newStatus === "partial_update";
+  const displayStatus = isPartial ? "confirmed" : params.newStatus;
 
   const slotTable = slotStatuses
     ? formatSlotsWithStatus(slotStatuses)
@@ -224,8 +229,14 @@ export async function sendBookingStatusNotification(params: {
   const deadline = paymentDeadline24h();
 
   const confirmedIntro = isPartial
-    ? `We have reviewed your booking request. Some of your requested slots have been approved. Please see the details below.`
+    ? `We have reviewed your booking request. Some of your requested slots have been updated. Please see the details below.`
     : `Great news! Your booking has been <strong style="color:#2e7d32;">confirmed</strong>.`;
+
+  const rejectReasonBlock = params.rejectReason
+    ? `<p style="margin:0 0 16px;font-size:13px;background:#fff3f3;border:1px solid #f5c6c6;border-radius:4px;padding:10px 14px;color:#c62828;">
+        <strong>Reason:</strong> ${params.rejectReason}
+       </p>`
+    : "";
 
   const bodyMap: Record<string, string> = {
     confirmed: `
@@ -274,6 +285,7 @@ export async function sendBookingStatusNotification(params: {
         Thank you for your interest in Royal Masa Arena. Unfortunately, we are unable to accommodate
         your booking request <strong>${params.reference}</strong> at this time.
       </p>
+      ${rejectReasonBlock}
       ${slotStatuses ? `<div style="margin-bottom:20px;">${slotTable}</div>` : ""}
       <p style="margin:0;font-size:13px;color:#6f737a;line-height:1.6;">
         If you would like to explore alternative dates or have any questions, please contact us at
@@ -281,9 +293,29 @@ export async function sendBookingStatusNotification(params: {
         We hope to welcome you to Royal Masa Arena on another occasion.
       </p>
     `,
+    partial_update: `
+      <p style="margin:0 0 16px;font-size:16px;font-weight:600;color:#31343a;">Hi ${params.customerName},</p>
+      <p style="margin:0 0 20px;line-height:1.6;">
+        There has been an update to your booking <strong>${params.reference}</strong>.
+        Some of your requested slots have been reviewed. Please see the details below.
+      </p>
+      <table width="100%" cellpadding="0" cellspacing="0" style="background:#f7f8f9;border:1px solid #dfe3e8;border-radius:6px;padding:16px 20px;margin-bottom:20px;">
+        <tr><td style="padding:4px 0;font-size:13px;color:#6f737a;width:140px;">Reference</td><td style="padding:4px 0;font-size:13px;font-weight:700;color:#31343a;">${params.reference}</td></tr>
+        <tr><td style="padding:4px 0;font-size:13px;color:#6f737a;">Venue</td><td style="padding:4px 0;font-size:13px;color:#31343a;">${params.roomName}</td></tr>
+        <tr><td style="padding:4px 0;font-size:13px;color:#6f737a;">Event Type</td><td style="padding:4px 0;font-size:13px;color:#31343a;">${params.eventTypeName}</td></tr>
+        <tr>
+          <td style="padding:4px 0;font-size:13px;color:#6f737a;vertical-align:top;padding-right:12px;">Booking Slots</td>
+          <td style="padding:4px 0;">${slotTable}</td>
+        </tr>
+      </table>
+      <p style="margin:0;font-size:13px;color:#6f737a;line-height:1.6;">
+        If you have any questions, contact us at
+        <a href="mailto:info@royalmasarena.lk" style="color:#b26c5e;">info@royalmasarena.lk</a>.
+      </p>
+    `,
   };
 
-  const html = card(bodyMap[params.newStatus]);
+  const html = card(bodyMap[displayStatus]);
   await sendEmail({ bookingReference: params.reference, type: "booking_status", to: params.to, subject, html });
 }
 
@@ -322,6 +354,43 @@ export async function sendAdminNewBookingNotification(params: {
     <a href="${adminPortalUrl}" style="display:inline-block;background:#b26c5e;color:#ffffff;text-decoration:none;padding:10px 20px;border-radius:5px;font-size:14px;font-weight:600;">
       View in Admin Portal
     </a>
+  `);
+
+  await sendEmail({ bookingReference: params.reference, type: "admin_notification", to: ADMIN_EMAIL, subject, html });
+}
+
+export async function sendAdminRejectionNotification(params: {
+  reference: string;
+  customerName: string;
+  customerEmail: string;
+  roomName: string;
+  eventTypeName: string;
+  slots: SlotList;
+  rejectReason: string;
+}): Promise<void> {
+  if (!ADMIN_EMAIL) return;
+
+  const subject = `Booking Rejected – ${params.reference}`;
+  const html = card(`
+    <p style="margin:0 0 16px;font-size:16px;font-weight:600;color:#c62828;">Booking Rejected</p>
+    <p style="margin:0 0 20px;line-height:1.6;">
+      A booking has been rejected. Details below.
+    </p>
+    <table width="100%" cellpadding="0" cellspacing="0" style="background:#f7f8f9;border:1px solid #dfe3e8;border-radius:6px;padding:16px 20px;margin-bottom:20px;">
+      <tr><td style="padding:4px 0;font-size:13px;color:#6f737a;width:140px;">Reference</td><td style="padding:4px 0;font-size:13px;font-weight:700;color:#31343a;">${params.reference}</td></tr>
+      <tr><td style="padding:4px 0;font-size:13px;color:#6f737a;">Customer</td><td style="padding:4px 0;font-size:13px;color:#31343a;">${params.customerName}</td></tr>
+      <tr><td style="padding:4px 0;font-size:13px;color:#6f737a;">Email</td><td style="padding:4px 0;font-size:13px;color:#31343a;"><a href="mailto:${params.customerEmail}" style="color:#b26c5e;">${params.customerEmail}</a></td></tr>
+      <tr><td style="padding:4px 0;font-size:13px;color:#6f737a;">Venue</td><td style="padding:4px 0;font-size:13px;color:#31343a;">${params.roomName}</td></tr>
+      <tr><td style="padding:4px 0;font-size:13px;color:#6f737a;">Event Type</td><td style="padding:4px 0;font-size:13px;color:#31343a;">${params.eventTypeName}</td></tr>
+      <tr>
+        <td style="padding:4px 0;font-size:13px;color:#6f737a;vertical-align:top;">Date(s) &amp; Time</td>
+        <td style="padding:4px 0;font-size:13px;color:#31343a;"><ul style="margin:0;padding-left:16px;">${formatSlots(params.slots)}</ul></td>
+      </tr>
+      <tr>
+        <td style="padding:4px 0;font-size:13px;color:#6f737a;vertical-align:top;">Reject Reason</td>
+        <td style="padding:4px 0;font-size:13px;color:#c62828;font-style:italic;">${params.rejectReason}</td>
+      </tr>
+    </table>
   `);
 
   await sendEmail({ bookingReference: params.reference, type: "admin_notification", to: ADMIN_EMAIL, subject, html });

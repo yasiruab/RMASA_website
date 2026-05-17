@@ -155,6 +155,7 @@ model Booking {
   paidAmountLkr        Int                  @default(0)
   reconciliationStatus ReconciliationStatus
   reconciliationNotes  String
+  rejectReason         String?
   createdAt            DateTime
   updatedAt            DateTime
 
@@ -186,12 +187,13 @@ model PaymentEntry {
 }
 
 model BookingSlot {
-  id          Int            @id @default(autoincrement())
-  bookingId   String
-  date        String
-  startTime   String
-  endTime     String
-  slotStatus  BookingStatus?
+  id           Int            @id @default(autoincrement())
+  bookingId    String
+  date         String
+  startTime    String
+  endTime      String
+  slotStatus   BookingStatus?
+  rejectReason String?
 
   booking Booking @relation(fields: [bookingId], references: [id], onDelete: Cascade)
 

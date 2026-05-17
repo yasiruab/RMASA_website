@@ -1,4 +1,4 @@
-export type PaymentEntryType = "payment" | "refund" | "credit_note";
+export type PaymentEntryType = "payment" | "refund" | "credit_note" | "waiver";
 
 export type PaymentEntry = {
   id: number;
@@ -57,6 +57,7 @@ export type BookingSlot = {
   startTime: string; // HH:mm
   endTime: string; // HH:mm
   slotStatus?: BookingStatus; // per-slot override; inherits booking status if absent
+  rejectReason?: string;
 };
 
 export type Recurrence = {
@@ -93,6 +94,7 @@ export type Booking = {
   }>;
   reconciliationStatus: ReconciliationStatus;
   reconciliationNotes: string;
+  rejectReason?: string;
   paymentEntries: PaymentEntry[];
   createdAt: string;
   updatedAt: string;

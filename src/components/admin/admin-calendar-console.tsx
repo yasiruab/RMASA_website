@@ -22,7 +22,7 @@ type PricingRule = {
 type PaymentEntry = {
   id: number;
   bookingId: string;
-  type: "payment" | "refund" | "credit_note";
+  type: "payment" | "refund" | "credit_note" | "waiver";
   date: string;
   amountLkr: number;
   receiptNo: string;
@@ -44,7 +44,8 @@ type Booking = {
   reconciliationNotes: string;
   paymentEntries: PaymentEntry[];
   customer: { name: string; email: string; phone: string; purpose: string };
-  slots: Array<{ date: string; startTime: string; endTime: string; slotStatus?: Booking["status"] }>;
+  rejectReason?: string;
+  slots: Array<{ date: string; startTime: string; endTime: string; slotStatus?: Booking["status"]; rejectReason?: string }>;
   amountBreakdown: Array<{ date: string; slot: string; amountLkr: number; dayType: string }>;
   createdAt: string;
 };
@@ -82,6 +83,36 @@ function isActiveBooking(b: Booking) {
 
 function hasRejectedSlot(b: Booking) {
   return b.slots.some((s) => (s.slotStatus ?? b.status) === "rejected");
+}
+
+function computeSlotPaymentAllocation(booking: Booking): Map<string, "paid" | "part_paid" | "unpaid"> {
+  const activeSlots = booking.slots
+    .filter((s) => {
+      const eff = s.slotStatus ?? booking.status;
+      return eff !== "rejected" && eff !== "cancelled_override";
+    })
+    .sort((a, b) => (a.date !== b.date ? (a.date < b.date ? -1 : 1) : a.startTime < b.startTime ? -1 : 1));
+
+  let remaining = booking.paidAmountLkr;
+  const result = new Map<string, "paid" | "part_paid" | "unpaid">();
+
+  for (const slot of activeSlots) {
+    const key = `${slot.date}|${slot.startTime}`;
+    const bd = booking.amountBreakdown.find((b) => b.date === slot.date && b.slot === `${slot.startTime}-${slot.endTime}`);
+    const amount = bd?.amountLkr ?? 0;
+    if (amount === 0) {
+      result.set(key, "paid");
+    } else if (remaining >= amount) {
+      result.set(key, "paid");
+      remaining -= amount;
+    } else if (remaining > 0) {
+      result.set(key, "part_paid");
+      remaining = 0;
+    } else {
+      result.set(key, "unpaid");
+    }
+  }
+  return result;
 }
 
 function formatSlotDate(ymd: string): string {
@@ -416,7 +447,7 @@ export function AdminCalendarConsole({ section }: AdminCalendarConsoleProps) {
   const [slotConflictWarning, setSlotConflictWarning] = useState<string | null>(null);
   const [paymentForm, setPaymentForm] = useState<{
     bookingId: string;
-    type: "payment" | "refund" | "credit_note";
+    type: "payment" | "refund" | "credit_note" | "waiver";
     date: string;
     amountLkr: string;
     receiptNo: string;
@@ -431,6 +462,10 @@ export function AdminCalendarConsole({ section }: AdminCalendarConsoleProps) {
   const [bookingDateRange, setBookingDateRange] = useState<BookingDateRange>("all");
   const [bookingCustomStart, setBookingCustomStart] = useState<string>("");
   const [bookingCustomEnd, setBookingCustomEnd] = useState<string>("");
+  const [stagedSlotChanges, setStagedSlotChanges] = useState<Map<string, Array<{ slotDate: string; slotStartTime: string; slotStatus: Booking["status"] | null; rejectReason?: string }>>>(new Map());
+  const [savingBookingIds, setSavingBookingIds] = useState<Set<string>>(new Set());
+  const [slotRejectModal, setSlotRejectModal] = useState<{ bookingId: string; slotDate: string; slotStartTime: string; reason: string } | null>(null);
+  const [bulkRejectModal, setBulkRejectModal] = useState<{ bookingId: string; reason: string } | null>(null);
 
   useEffect(() => {
     void refreshAll();
@@ -497,11 +532,11 @@ export function AdminCalendarConsole({ section }: AdminCalendarConsoleProps) {
     await refreshAll();
   }
 
-  async function updateBookingStatus(id: string, status: Booking["status"]) {
+  async function updateBookingStatus(id: string, status: Booking["status"], rejectReason?: string) {
     const res = await fetch("/api/admin/calendar/bookings", {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ id, status }),
+      body: JSON.stringify({ id, status, ...(rejectReason ? { rejectReason } : {}) }),
     });
     const data = await safeJson<{ message?: string }>(res);
     setMessageTone(res.ok ? "success" : "error");
@@ -509,36 +544,58 @@ export function AdminCalendarConsole({ section }: AdminCalendarConsoleProps) {
     await refreshAll();
   }
 
-  async function updateSlotStatus(
+  function stageSlotChange(
     bookingId: string,
     slotDate: string,
     slotStartTime: string,
     slotStatus: Booking["status"] | null,
+    rejectReason?: string,
   ) {
-    // Optimistic update — badge changes immediately, server confirms after
-    setBookings((current) =>
-      current.map((b) => {
-        if (b.id !== bookingId) return b;
-        return {
-          ...b,
-          slots: b.slots.map((s) =>
-            s.date === slotDate && s.startTime === slotStartTime
-              ? { ...s, slotStatus: slotStatus ?? undefined }
-              : s,
-          ),
-        };
-      }),
-    );
+    setStagedSlotChanges((prev) => {
+      const next = new Map(prev);
+      const existing = next.get(bookingId) ?? [];
+      const idx = existing.findIndex((c) => c.slotDate === slotDate && c.slotStartTime === slotStartTime);
+      const updated = [...existing];
+      if (idx >= 0) {
+        updated[idx] = { slotDate, slotStartTime, slotStatus, rejectReason };
+      } else {
+        updated.push({ slotDate, slotStartTime, slotStatus, rejectReason });
+      }
+      next.set(bookingId, updated);
+      return next;
+    });
+  }
 
+  function discardStagedChanges(bookingId: string) {
+    setStagedSlotChanges((prev) => {
+      const next = new Map(prev);
+      next.delete(bookingId);
+      return next;
+    });
+  }
+
+  async function savePendingSlotChanges(bookingId: string) {
+    const staged = stagedSlotChanges.get(bookingId);
+    if (!staged || staged.length === 0) return;
+
+    setSavingBookingIds((prev) => new Set([...prev, bookingId]));
     const res = await fetch("/api/admin/calendar/bookings", {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ id: bookingId, slotDate, slotStartTime, slotStatus }),
+      body: JSON.stringify({ id: bookingId, batchSlotUpdates: staged }),
     });
     const data = await safeJson<{ message?: string }>(res);
     setMessageTone(res.ok ? "success" : "error");
-    setMessage(data.message ?? (res.ok ? "Slot updated." : "Failed to update slot."));
-    await refreshAll();
+    setMessage(data.message ?? (res.ok ? "Booking saved." : "Failed to save."));
+    setSavingBookingIds((prev) => {
+      const next = new Set(prev);
+      next.delete(bookingId);
+      return next;
+    });
+    if (res.ok) {
+      discardStagedChanges(bookingId);
+      await refreshAll();
+    }
   }
 
   async function addPaymentEntry(
@@ -897,6 +954,26 @@ export function AdminCalendarConsole({ section }: AdminCalendarConsoleProps) {
       default:          return dateFilteredBookings;
     }
   }, [dateFilteredBookings, activeBookingTab, conflictMap]);
+
+  const bookingsWithStaged = useMemo(() => {
+    if (stagedSlotChanges.size === 0) return bookings;
+    return bookings.map((b) => {
+      const staged = stagedSlotChanges.get(b.id);
+      if (!staged) return b;
+      return {
+        ...b,
+        slots: b.slots.map((slot) => {
+          const change = staged.find((c) => c.slotDate === slot.date && c.slotStartTime === slot.startTime);
+          if (!change) return slot;
+          return {
+            ...slot,
+            slotStatus: change.slotStatus ?? undefined,
+            rejectReason: change.slotStatus === "rejected" ? change.rejectReason : undefined,
+          };
+        }),
+      };
+    });
+  }, [bookings, stagedSlotChanges]);
 
   return (
     <div className="admin-console">
@@ -1995,6 +2072,13 @@ export function AdminCalendarConsole({ section }: AdminCalendarConsoleProps) {
               const displayStatus = computeBookingEffectiveStatus(booking);
               const conflictIds = conflictMap.get(booking.id) ?? [];
               const hasBookingConflict = conflictIds.length > 0;
+              const stagedForBooking = stagedSlotChanges.get(booking.id) ?? [];
+              const hasStagedChanges = stagedForBooking.length > 0;
+              const isSaving = savingBookingIds.has(booking.id);
+              const displayBooking = hasStagedChanges
+                ? (bookingsWithStaged.find((b) => b.id === booking.id) ?? booking)
+                : booking;
+              const slotPaymentAlloc = computeSlotPaymentAllocation(booking);
 
               return (
                 <article
@@ -2104,7 +2188,7 @@ export function AdminCalendarConsole({ section }: AdminCalendarConsoleProps) {
 
                   {/* ── Slot list ── */}
                   <div className="bk-slots">
-                    {booking.slots.map((slot) => {
+                    {displayBooking.slots.map((slot) => {
                       const effectiveStatus = slot.slotStatus ?? booking.status;
                       const isApproved = effectiveStatus === "confirmed";
                       const isRejected = effectiveStatus === "rejected";
@@ -2112,11 +2196,15 @@ export function AdminCalendarConsole({ section }: AdminCalendarConsoleProps) {
                       const slotConflicts = slotConflictMap.get(slotKey) ?? [];
                       const hasSlotConflict = slotConflicts.length > 0 && !isRejected;
                       const showConflictWarning = slotConflictWarning === slotKey;
+                      const isStaged = stagedForBooking.some(
+                        (c) => c.slotDate === slot.date && c.slotStartTime === slot.startTime,
+                      );
+                      const payStatus = slotPaymentAlloc.get(`${slot.date}|${slot.startTime}`);
 
                       return (
                         <div
                           key={slotKey}
-                          className={`bk-slot-row${hasSlotConflict ? " bk-slot-conflicted" : ""}`}
+                          className={`bk-slot-row${hasSlotConflict ? " bk-slot-conflicted" : ""}${isStaged ? " bk-slot-staged" : ""}`}
                         >
                           <div className="bk-slot-main">
                             <div className="bk-slot-info">
@@ -2132,14 +2220,20 @@ export function AdminCalendarConsole({ section }: AdminCalendarConsoleProps) {
                                     : effectiveStatus.charAt(0).toUpperCase() +
                                       effectiveStatus.slice(1)}
                                 {hasSlotConflict ? " ⚠" : ""}
+                                {isStaged ? " ●" : ""}
                               </span>
+                              {payStatus && !isRejected ? (
+                                <span className={`bk-slot-pay bk-slot-pay-${payStatus}`}>
+                                  {payStatus === "paid" ? "Paid" : payStatus === "part_paid" ? "Part Paid" : "Unpaid"}
+                                </span>
+                              ) : null}
                             </div>
                             <div className="bk-slot-actions">
                               <button
                                 className={`bk-btn-approve${isApproved ? " is-active" : ""}${hasSlotConflict && !isApproved ? " is-blocked" : ""}`}
                                 onClick={() => {
                                   if (isApproved) {
-                                    void updateSlotStatus(booking.id, slot.date, slot.startTime, null);
+                                    stageSlotChange(booking.id, slot.date, slot.startTime, null);
                                     return;
                                   }
                                   if (hasSlotConflict) {
@@ -2147,7 +2241,7 @@ export function AdminCalendarConsole({ section }: AdminCalendarConsoleProps) {
                                     return;
                                   }
                                   setSlotConflictWarning(null);
-                                  void updateSlotStatus(booking.id, slot.date, slot.startTime, "confirmed");
+                                  stageSlotChange(booking.id, slot.date, slot.startTime, "confirmed");
                                 }}
                                 type="button"
                               >
@@ -2157,11 +2251,11 @@ export function AdminCalendarConsole({ section }: AdminCalendarConsoleProps) {
                                 className={`bk-btn-reject${isRejected ? " is-active" : ""}`}
                                 onClick={() => {
                                   if (isRejected) {
-                                    void updateSlotStatus(booking.id, slot.date, slot.startTime, null);
+                                    stageSlotChange(booking.id, slot.date, slot.startTime, null);
                                     return;
                                   }
                                   setSlotConflictWarning(null);
-                                  void updateSlotStatus(booking.id, slot.date, slot.startTime, "rejected");
+                                  setSlotRejectModal({ bookingId: booking.id, slotDate: slot.date, slotStartTime: slot.startTime, reason: "" });
                                 }}
                                 type="button"
                               >
@@ -2169,6 +2263,9 @@ export function AdminCalendarConsole({ section }: AdminCalendarConsoleProps) {
                               </button>
                             </div>
                           </div>
+                          {slot.rejectReason ? (
+                            <div className="bk-slot-reject-reason">Reason: {slot.rejectReason}</div>
+                          ) : null}
                           {showConflictWarning ? (
                             <div className="bk-slot-conflict-msg">
                               ⚠ Cannot approve — conflicts with: {slotConflicts.join("; ")}. Reject
@@ -2200,11 +2297,31 @@ export function AdminCalendarConsole({ section }: AdminCalendarConsoleProps) {
                       </button>
                       <button
                         className="bk-btn-bulk bk-bulk-reject"
-                        onClick={() => void updateBookingStatus(booking.id, "rejected")}
+                        onClick={() => setBulkRejectModal({ bookingId: booking.id, reason: "" })}
                         type="button"
                       >
                         Reject All
                       </button>
+                      {hasStagedChanges ? (
+                        <>
+                          <button
+                            className="bk-discard-btn"
+                            onClick={() => discardStagedChanges(booking.id)}
+                            type="button"
+                            disabled={isSaving}
+                          >
+                            Discard ({stagedForBooking.length})
+                          </button>
+                          <button
+                            className="bk-save-staged-btn"
+                            onClick={() => void savePendingSlotChanges(booking.id)}
+                            type="button"
+                            disabled={isSaving}
+                          >
+                            {isSaving ? "Saving…" : `Save Changes (${stagedForBooking.length})`}
+                          </button>
+                        </>
+                      ) : null}
                     </div>
                     {/* ── Payment Ledger ── */}
                     <div className="bk-ledger">
@@ -2242,7 +2359,7 @@ export function AdminCalendarConsole({ section }: AdminCalendarConsoleProps) {
                               <tr key={entry.id} className={`bk-ledger-row bk-ledger-row-${entry.type}`}>
                                 <td>{entry.date}</td>
                                 <td className="bk-ledger-type">
-                                  {entry.type === "payment" ? "Payment" : entry.type === "refund" ? "Refund" : "Credit Note"}
+                                  {entry.type === "payment" ? "Payment" : entry.type === "refund" ? "Refund" : entry.type === "waiver" ? "Fee Waiver" : "Credit Note"}
                                 </td>
                                 <td className={entry.type === "payment" ? "bk-ledger-credit" : "bk-ledger-debit"}>
                                   {entry.type === "payment" ? "+" : "−"} {currencyFormatter.format(entry.amountLkr)}
@@ -2268,6 +2385,7 @@ export function AdminCalendarConsole({ section }: AdminCalendarConsoleProps) {
                                 setPaymentForm((f) => f && { ...f, type: e.target.value as typeof f.type })
                               }
                             >
+                              <option value="waiver">Fee Waiver</option>
                               <option value="payment">Payment</option>
                               <option value="refund">Refund</option>
                               <option value="credit_note">Credit Note</option>
@@ -2323,6 +2441,95 @@ export function AdminCalendarConsole({ section }: AdminCalendarConsoleProps) {
             })}
           </div>
         </section>
+      ) : null}
+
+      {/* ── Slot reject modal ── */}
+      {slotRejectModal ? (
+        <div className="bk-modal-overlay" onClick={() => setSlotRejectModal(null)}>
+          <div className="bk-modal" onClick={(e) => e.stopPropagation()}>
+            <h3 className="bk-modal-title">Reject Slot</h3>
+            <p className="bk-modal-desc">
+              {formatSlotDate(slotRejectModal.slotDate)} {slotRejectModal.slotStartTime}
+            </p>
+            <label className="bk-modal-label" htmlFor="slot-reject-reason">
+              Reason for rejection <span className="bk-modal-required">*</span>
+            </label>
+            <textarea
+              id="slot-reject-reason"
+              className="bk-modal-textarea"
+              rows={3}
+              value={slotRejectModal.reason}
+              onChange={(e) => setSlotRejectModal((m) => m && { ...m, reason: e.target.value })}
+              placeholder="Enter a reason (required)"
+            />
+            <div className="bk-modal-actions">
+              <button
+                className="btn btn-secondary"
+                type="button"
+                onClick={() => setSlotRejectModal(null)}
+              >
+                Cancel
+              </button>
+              <button
+                className="btn btn-primary bk-modal-confirm-reject"
+                type="button"
+                disabled={!slotRejectModal.reason.trim()}
+                onClick={() => {
+                  stageSlotChange(
+                    slotRejectModal.bookingId,
+                    slotRejectModal.slotDate,
+                    slotRejectModal.slotStartTime,
+                    "rejected",
+                    slotRejectModal.reason.trim(),
+                  );
+                  setSlotRejectModal(null);
+                }}
+              >
+                Confirm Reject
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
+
+      {/* ── Bulk reject modal ── */}
+      {bulkRejectModal ? (
+        <div className="bk-modal-overlay" onClick={() => setBulkRejectModal(null)}>
+          <div className="bk-modal" onClick={(e) => e.stopPropagation()}>
+            <h3 className="bk-modal-title">Reject All Slots</h3>
+            <label className="bk-modal-label" htmlFor="bulk-reject-reason">
+              Reason for rejection <span className="bk-modal-required">*</span>
+            </label>
+            <textarea
+              id="bulk-reject-reason"
+              className="bk-modal-textarea"
+              rows={3}
+              value={bulkRejectModal.reason}
+              onChange={(e) => setBulkRejectModal((m) => m && { ...m, reason: e.target.value })}
+              placeholder="Enter a reason (required)"
+            />
+            <div className="bk-modal-actions">
+              <button
+                className="btn btn-secondary"
+                type="button"
+                onClick={() => setBulkRejectModal(null)}
+              >
+                Cancel
+              </button>
+              <button
+                className="btn btn-primary bk-modal-confirm-reject"
+                type="button"
+                disabled={!bulkRejectModal.reason.trim()}
+                onClick={() => {
+                  void updateBookingStatus(bulkRejectModal.bookingId, "rejected", bulkRejectModal.reason.trim());
+                  setBulkRejectModal(null);
+                }}
+              >
+                Confirm Reject All
+              </button>
+            </div>
+          </div>
+        </div>
       ) : null}
     </div>
   );
