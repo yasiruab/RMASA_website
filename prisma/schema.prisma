@@ -253,3 +253,19 @@ model AuditLog {
   @@index([createdAt])
   @@index([action])
 }
+
+model EmailLog {
+  id               Int      @id @default(autoincrement())
+  bookingReference String
+  type             String   // "booking_acknowledgement" | "booking_status" | "admin_notification"
+  toEmail          String
+  fromEmail        String
+  subject          String
+  htmlBody         String
+  status           String   // "sent" | "failed"
+  errorMessage     String?
+  createdAt        DateTime @default(now())
+
+  @@index([bookingReference])
+  @@index([createdAt])
+}

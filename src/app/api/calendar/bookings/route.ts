@@ -1,5 +1,6 @@
 import { randomBytes, randomUUID } from "node:crypto";
 import { NextResponse } from "next/server";
+import { sendAdminNewBookingNotification, sendBookingAcknowledgement } from "@/lib/email";
 import {
   assertAdvanceBookingLimit,
   assertRecurrenceWindow,
@@ -198,6 +199,28 @@ export async function POST(req: Request) {
     bookings: [...current.bookings, booking],
   }));
 
+  void Promise.all([
+    sendBookingAcknowledgement({
+      to: booking.customer.email,
+      customerName: booking.customer.name,
+      reference: booking.reference,
+      roomName: room.name,
+      eventTypeName: eventType.name,
+      slots: booking.slots,
+      totalAmountLkr: booking.totalAmountLkr,
+    }),
+    sendAdminNewBookingNotification({
+      reference: booking.reference,
+      customerName: booking.customer.name,
+      customerEmail: booking.customer.email,
+      customerPhone: booking.customer.phone,
+      roomName: room.name,
+      eventTypeName: eventType.name,
+      slots: booking.slots,
+      totalAmountLkr: booking.totalAmountLkr,
+    }),
+  ]);
+
   return NextResponse.json({
     message: "Booking submitted and pending admin approval.",
     bookingId: booking.id,
@@ -205,9 +228,5 @@ export async function POST(req: Request) {
     totalAmountLkr: booking.totalAmountLkr,
     breakdown,
     overriddenBookingIds: overrideTargets,
-    notificationNote:
-      overrideTargets.length > 0
-        ? "Lower-priority overlapping bookings will be cancelled only after admin approval. Email notifications are deferred until integration phase."
-        : undefined,
   });
 }
