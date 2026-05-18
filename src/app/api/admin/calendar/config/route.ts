@@ -46,6 +46,19 @@ export async function PUT(req: Request) {
     );
   }
 
+  const invalidCapacity = payload.rooms.find(
+    (room) =>
+      room.capacity !== undefined &&
+      room.capacity !== null &&
+      (!Number.isInteger(room.capacity) || room.capacity < 0 || room.capacity > 100000),
+  );
+  if (invalidCapacity) {
+    return NextResponse.json(
+      { message: `Room "${invalidCapacity.name}": capacity must be a whole number between 0 and 100000.` },
+      { status: 400 },
+    );
+  }
+
   const roomIds = new Set(payload.rooms.map((room) => room.id));
   const invalidEventType = payload.eventTypes.find(
     (eventType) => Boolean(eventType.roomTypeId) && !roomIds.has(String(eventType.roomTypeId)),

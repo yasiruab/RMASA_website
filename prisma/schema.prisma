@@ -104,6 +104,8 @@ model RoomType {
   name            String
   startTime       String
   endTime         String
+  capacity        Int?
+  description     String?
   eventTypes      EventType[]
   pricingRules    PricingRule[]
   bookings        Booking[]

@@ -29,6 +29,8 @@ export async function readCalendarDb(): Promise<CalendarDb> {
         startTime: room.startTime,
         endTime: room.endTime,
       },
+      capacity: room.capacity ?? undefined,
+      description: room.description ?? undefined,
     })),
     eventTypes: eventTypes.map((eventType) => ({
       id: eventType.id,
@@ -115,6 +117,8 @@ export async function updateCalendarDb(mutator: (current: CalendarDb) => Calenda
   const current = await readCalendarDb();
   const next = await mutator(current);
 
+  // The wipe-and-recreate body runs many sequential round-trips to Neon (Singapore),
+  // so the default 5s interactive-transaction timeout is too tight once real data exists.
   await prisma.$transaction(async (tx) => {
     await tx.bookingOverride.deleteMany();
     await tx.bookingAmountBreakdown.deleteMany();
@@ -133,6 +137,8 @@ export async function updateCalendarDb(mutator: (current: CalendarDb) => Calenda
           name: room.name,
           startTime: room.workingHours.startTime,
           endTime: room.workingHours.endTime,
+          capacity: room.capacity ?? null,
+          description: room.description ?? null,
         },
       });
     }
@@ -254,5 +260,5 @@ export async function updateCalendarDb(mutator: (current: CalendarDb) => Calenda
         },
       });
     }
-  });
+  }, { timeout: 30_000, maxWait: 10_000 });
 }
