@@ -7,6 +7,20 @@ const resend = RESEND_API_KEY ? new Resend(RESEND_API_KEY) : null;
 const FROM = process.env.RESEND_FROM ?? process.env._AMPLIFY_RESEND_FROM ?? "onboarding@resend.dev";
 const ADMIN_EMAIL = process.env.ADMIN_NOTIFICATION_EMAIL ?? process.env._AMPLIFY_ADMIN_NOTIFICATION_EMAIL ?? "";
 
+// HTML-escape any user- or admin-supplied value before interpolating into an
+// email body. Customer fields arrive from the public booking POST without any
+// sanitisation, and the rendered HTML is also stored in EmailLog.htmlBody, so
+// missing this would create a social-engineering vector in admin inboxes and
+// a latent XSS sink if EmailLog is ever rendered in the admin UI.
+function esc(value: string | number | null | undefined): string {
+  return String(value ?? "")
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;")
+    .replaceAll('"', "&quot;")
+    .replaceAll("'", "&#39;");
+}
+
 // ─── Shared helpers ────────────────────────────────────────────────────────────
 
 function formatSlots(slots: Array<{ date: string; startTime: string; endTime: string }>): string {
@@ -46,7 +60,7 @@ function formatSlotsWithStatus(slots: SlotWithStatus[]): string {
       <td style="padding:6px 8px;font-size:13px;color:#31343a;">${s.date}</td>
       <td style="padding:6px 8px;font-size:13px;color:#31343a;">${s.startTime}–${s.endTime}</td>
       <td style="padding:6px 8px;font-size:13px;font-weight:600;color:${slotStatusColor(s.status)};">${slotStatusLabel(s.status)}</td>
-      ${hasReasons ? `<td style="padding:6px 8px;font-size:13px;color:#6f737a;">${s.rejectReason ?? ""}</td>` : ""}
+      ${hasReasons ? `<td style="padding:6px 8px;font-size:13px;color:#6f737a;">${esc(s.rejectReason ?? "")}</td>` : ""}
     </tr>`).join("\n");
   return `
     <table width="100%" cellpadding="0" cellspacing="0" style="border-collapse:collapse;">
@@ -168,17 +182,17 @@ export async function sendBookingAcknowledgement(params: {
   slots: SlotList;
   totalAmountLkr: number;
 }): Promise<void> {
-  const subject = `Booking Request Received – ${params.reference}`;
+  const subject = `Booking Request Received – ${esc(params.reference)}`;
   const html = card(`
-    <p style="margin:0 0 16px;font-size:16px;font-weight:600;color:#31343a;">Hi ${params.customerName},</p>
+    <p style="margin:0 0 16px;font-size:16px;font-weight:600;color:#31343a;">Hi ${esc(params.customerName)},</p>
     <p style="margin:0 0 20px;line-height:1.6;">
       Thank you for your booking request. We have received it and will review it shortly.
       You will receive another email once a decision has been made.
     </p>
     <table width="100%" cellpadding="0" cellspacing="0" style="background:#f7f8f9;border:1px solid #dfe3e8;border-radius:6px;padding:16px 20px;margin-bottom:20px;">
-      <tr><td style="padding:4px 0;font-size:13px;color:#6f737a;width:140px;">Reference</td><td style="padding:4px 0;font-size:13px;font-weight:700;color:#31343a;">${params.reference}</td></tr>
-      <tr><td style="padding:4px 0;font-size:13px;color:#6f737a;">Venue</td><td style="padding:4px 0;font-size:13px;color:#31343a;">${params.roomName}</td></tr>
-      <tr><td style="padding:4px 0;font-size:13px;color:#6f737a;">Event Type</td><td style="padding:4px 0;font-size:13px;color:#31343a;">${params.eventTypeName}</td></tr>
+      <tr><td style="padding:4px 0;font-size:13px;color:#6f737a;width:140px;">Reference</td><td style="padding:4px 0;font-size:13px;font-weight:700;color:#31343a;">${esc(params.reference)}</td></tr>
+      <tr><td style="padding:4px 0;font-size:13px;color:#6f737a;">Venue</td><td style="padding:4px 0;font-size:13px;color:#31343a;">${esc(params.roomName)}</td></tr>
+      <tr><td style="padding:4px 0;font-size:13px;color:#6f737a;">Event Type</td><td style="padding:4px 0;font-size:13px;color:#31343a;">${esc(params.eventTypeName)}</td></tr>
       <tr>
         <td style="padding:4px 0;font-size:13px;color:#6f737a;vertical-align:top;">Date(s) &amp; Time</td>
         <td style="padding:4px 0;font-size:13px;color:#31343a;"><ul style="margin:0;padding-left:16px;">${formatSlots(params.slots)}</ul></td>
@@ -219,12 +233,12 @@ export async function sendBookingStatusNotification(params: {
     : `<ul style="margin:0;padding-left:16px;">${formatSlots(params.slots)}</ul>`;
 
   const subject = isPartial
-    ? `Booking Update – ${params.reference}`
+    ? `Booking Update – ${esc(params.reference)}`
     : params.newStatus === "confirmed"
-    ? `Your Booking ${params.reference} is Confirmed`
+    ? `Your Booking ${esc(params.reference)} is Confirmed`
     : params.newStatus === "tentative"
-    ? `Your Booking ${params.reference} is On Hold`
-    : `Update on Your Booking ${params.reference}`;
+    ? `Your Booking ${esc(params.reference)} is On Hold`
+    : `Update on Your Booking ${esc(params.reference)}`;
 
   const deadline = paymentDeadline24h();
 
@@ -234,18 +248,18 @@ export async function sendBookingStatusNotification(params: {
 
   const rejectReasonBlock = params.rejectReason
     ? `<p style="margin:0 0 16px;font-size:13px;background:#fff3f3;border:1px solid #f5c6c6;border-radius:4px;padding:10px 14px;color:#c62828;">
-        <strong>Reason:</strong> ${params.rejectReason}
+        <strong>Reason:</strong> ${esc(params.rejectReason)}
        </p>`
     : "";
 
   const bodyMap: Record<string, string> = {
     confirmed: `
-      <p style="margin:0 0 16px;font-size:16px;font-weight:600;color:#31343a;">Hi ${params.customerName},</p>
+      <p style="margin:0 0 16px;font-size:16px;font-weight:600;color:#31343a;">Hi ${esc(params.customerName)},</p>
       <p style="margin:0 0 20px;line-height:1.6;">${confirmedIntro}</p>
       <table width="100%" cellpadding="0" cellspacing="0" style="background:#f7f8f9;border:1px solid #dfe3e8;border-radius:6px;padding:16px 20px;margin-bottom:20px;">
-        <tr><td style="padding:4px 0;font-size:13px;color:#6f737a;width:140px;">Reference</td><td style="padding:4px 0;font-size:13px;font-weight:700;color:#31343a;">${params.reference}</td></tr>
-        <tr><td style="padding:4px 0;font-size:13px;color:#6f737a;">Venue</td><td style="padding:4px 0;font-size:13px;color:#31343a;">${params.roomName}</td></tr>
-        <tr><td style="padding:4px 0;font-size:13px;color:#6f737a;">Event Type</td><td style="padding:4px 0;font-size:13px;color:#31343a;">${params.eventTypeName}</td></tr>
+        <tr><td style="padding:4px 0;font-size:13px;color:#6f737a;width:140px;">Reference</td><td style="padding:4px 0;font-size:13px;font-weight:700;color:#31343a;">${esc(params.reference)}</td></tr>
+        <tr><td style="padding:4px 0;font-size:13px;color:#6f737a;">Venue</td><td style="padding:4px 0;font-size:13px;color:#31343a;">${esc(params.roomName)}</td></tr>
+        <tr><td style="padding:4px 0;font-size:13px;color:#6f737a;">Event Type</td><td style="padding:4px 0;font-size:13px;color:#31343a;">${esc(params.eventTypeName)}</td></tr>
         <tr>
           <td style="padding:4px 0;font-size:13px;color:#6f737a;vertical-align:top;padding-right:12px;">Booking Slots</td>
           <td style="padding:4px 0;">${slotTable}</td>
@@ -256,19 +270,19 @@ export async function sendBookingStatusNotification(params: {
       <p style="margin:0 0 8px;font-size:13px;color:#31343a;font-weight:600;">Payment Instructions</p>
       <p style="margin:0;font-size:13px;color:#6f737a;line-height:1.6;">
         Please contact us at <a href="mailto:info@royalmasarena.lk" style="color:#b26c5e;">info@royalmasarena.lk</a>
-        to arrange payment within 24 hours. Please quote your booking reference <strong>${params.reference}</strong> in all correspondence.
+        to arrange payment within 24 hours. Please quote your booking reference <strong>${esc(params.reference)}</strong> in all correspondence.
       </p>
     `,
     tentative: `
-      <p style="margin:0 0 16px;font-size:16px;font-weight:600;color:#31343a;">Hi ${params.customerName},</p>
+      <p style="margin:0 0 16px;font-size:16px;font-weight:600;color:#31343a;">Hi ${esc(params.customerName)},</p>
       <p style="margin:0 0 20px;line-height:1.6;">
-        Your booking <strong>${params.reference}</strong> is currently <strong style="color:#e65100;">on hold (tentative)</strong>.
+        Your booking <strong>${esc(params.reference)}</strong> is currently <strong style="color:#e65100;">on hold (tentative)</strong>.
         We are reviewing the details and will confirm or update you shortly.
       </p>
       <table width="100%" cellpadding="0" cellspacing="0" style="background:#f7f8f9;border:1px solid #dfe3e8;border-radius:6px;padding:16px 20px;margin-bottom:20px;">
-        <tr><td style="padding:4px 0;font-size:13px;color:#6f737a;width:140px;">Reference</td><td style="padding:4px 0;font-size:13px;font-weight:700;color:#31343a;">${params.reference}</td></tr>
-        <tr><td style="padding:4px 0;font-size:13px;color:#6f737a;">Venue</td><td style="padding:4px 0;font-size:13px;color:#31343a;">${params.roomName}</td></tr>
-        <tr><td style="padding:4px 0;font-size:13px;color:#6f737a;">Event Type</td><td style="padding:4px 0;font-size:13px;color:#31343a;">${params.eventTypeName}</td></tr>
+        <tr><td style="padding:4px 0;font-size:13px;color:#6f737a;width:140px;">Reference</td><td style="padding:4px 0;font-size:13px;font-weight:700;color:#31343a;">${esc(params.reference)}</td></tr>
+        <tr><td style="padding:4px 0;font-size:13px;color:#6f737a;">Venue</td><td style="padding:4px 0;font-size:13px;color:#31343a;">${esc(params.roomName)}</td></tr>
+        <tr><td style="padding:4px 0;font-size:13px;color:#6f737a;">Event Type</td><td style="padding:4px 0;font-size:13px;color:#31343a;">${esc(params.eventTypeName)}</td></tr>
         <tr>
           <td style="padding:4px 0;font-size:13px;color:#6f737a;vertical-align:top;padding-right:12px;">Booking Slots</td>
           <td style="padding:4px 0;">${slotTable}</td>
@@ -280,10 +294,10 @@ export async function sendBookingStatusNotification(params: {
       </p>
     `,
     rejected: `
-      <p style="margin:0 0 16px;font-size:16px;font-weight:600;color:#31343a;">Hi ${params.customerName},</p>
+      <p style="margin:0 0 16px;font-size:16px;font-weight:600;color:#31343a;">Hi ${esc(params.customerName)},</p>
       <p style="margin:0 0 20px;line-height:1.6;">
         Thank you for your interest in Royal Masa Arena. Unfortunately, we are unable to accommodate
-        your booking request <strong>${params.reference}</strong> at this time.
+        your booking request <strong>${esc(params.reference)}</strong> at this time.
       </p>
       ${rejectReasonBlock}
       ${slotStatuses ? `<div style="margin-bottom:20px;">${slotTable}</div>` : ""}
@@ -294,15 +308,15 @@ export async function sendBookingStatusNotification(params: {
       </p>
     `,
     partial_update: `
-      <p style="margin:0 0 16px;font-size:16px;font-weight:600;color:#31343a;">Hi ${params.customerName},</p>
+      <p style="margin:0 0 16px;font-size:16px;font-weight:600;color:#31343a;">Hi ${esc(params.customerName)},</p>
       <p style="margin:0 0 20px;line-height:1.6;">
-        There has been an update to your booking <strong>${params.reference}</strong>.
+        There has been an update to your booking <strong>${esc(params.reference)}</strong>.
         Some of your requested slots have been reviewed. Please see the details below.
       </p>
       <table width="100%" cellpadding="0" cellspacing="0" style="background:#f7f8f9;border:1px solid #dfe3e8;border-radius:6px;padding:16px 20px;margin-bottom:20px;">
-        <tr><td style="padding:4px 0;font-size:13px;color:#6f737a;width:140px;">Reference</td><td style="padding:4px 0;font-size:13px;font-weight:700;color:#31343a;">${params.reference}</td></tr>
-        <tr><td style="padding:4px 0;font-size:13px;color:#6f737a;">Venue</td><td style="padding:4px 0;font-size:13px;color:#31343a;">${params.roomName}</td></tr>
-        <tr><td style="padding:4px 0;font-size:13px;color:#6f737a;">Event Type</td><td style="padding:4px 0;font-size:13px;color:#31343a;">${params.eventTypeName}</td></tr>
+        <tr><td style="padding:4px 0;font-size:13px;color:#6f737a;width:140px;">Reference</td><td style="padding:4px 0;font-size:13px;font-weight:700;color:#31343a;">${esc(params.reference)}</td></tr>
+        <tr><td style="padding:4px 0;font-size:13px;color:#6f737a;">Venue</td><td style="padding:4px 0;font-size:13px;color:#31343a;">${esc(params.roomName)}</td></tr>
+        <tr><td style="padding:4px 0;font-size:13px;color:#6f737a;">Event Type</td><td style="padding:4px 0;font-size:13px;color:#31343a;">${esc(params.eventTypeName)}</td></tr>
         <tr>
           <td style="padding:4px 0;font-size:13px;color:#6f737a;vertical-align:top;padding-right:12px;">Booking Slots</td>
           <td style="padding:4px 0;">${slotTable}</td>
@@ -331,7 +345,7 @@ export async function sendAdminNewBookingNotification(params: {
 }): Promise<void> {
   if (!ADMIN_EMAIL) return;
 
-  const subject = `New Booking Request – ${params.reference}`;
+  const subject = `New Booking Request – ${esc(params.reference)}`;
   const adminPortalUrl = process.env.NEXTAUTH_URL ? `${process.env.NEXTAUTH_URL}/admin/calendar` : "/admin/calendar";
   const html = card(`
     <p style="margin:0 0 16px;font-size:16px;font-weight:600;color:#31343a;">New Booking Request</p>
@@ -339,12 +353,12 @@ export async function sendAdminNewBookingNotification(params: {
       A new booking has been submitted and is awaiting your review.
     </p>
     <table width="100%" cellpadding="0" cellspacing="0" style="background:#f7f8f9;border:1px solid #dfe3e8;border-radius:6px;padding:16px 20px;margin-bottom:20px;">
-      <tr><td style="padding:4px 0;font-size:13px;color:#6f737a;width:140px;">Reference</td><td style="padding:4px 0;font-size:13px;font-weight:700;color:#31343a;">${params.reference}</td></tr>
-      <tr><td style="padding:4px 0;font-size:13px;color:#6f737a;">Customer</td><td style="padding:4px 0;font-size:13px;color:#31343a;">${params.customerName}</td></tr>
-      <tr><td style="padding:4px 0;font-size:13px;color:#6f737a;">Email</td><td style="padding:4px 0;font-size:13px;color:#31343a;"><a href="mailto:${params.customerEmail}" style="color:#b26c5e;">${params.customerEmail}</a></td></tr>
-      <tr><td style="padding:4px 0;font-size:13px;color:#6f737a;">Phone</td><td style="padding:4px 0;font-size:13px;color:#31343a;">${params.customerPhone}</td></tr>
-      <tr><td style="padding:4px 0;font-size:13px;color:#6f737a;">Venue</td><td style="padding:4px 0;font-size:13px;color:#31343a;">${params.roomName}</td></tr>
-      <tr><td style="padding:4px 0;font-size:13px;color:#6f737a;">Event Type</td><td style="padding:4px 0;font-size:13px;color:#31343a;">${params.eventTypeName}</td></tr>
+      <tr><td style="padding:4px 0;font-size:13px;color:#6f737a;width:140px;">Reference</td><td style="padding:4px 0;font-size:13px;font-weight:700;color:#31343a;">${esc(params.reference)}</td></tr>
+      <tr><td style="padding:4px 0;font-size:13px;color:#6f737a;">Customer</td><td style="padding:4px 0;font-size:13px;color:#31343a;">${esc(params.customerName)}</td></tr>
+      <tr><td style="padding:4px 0;font-size:13px;color:#6f737a;">Email</td><td style="padding:4px 0;font-size:13px;color:#31343a;"><a href="mailto:${esc(params.customerEmail)}" style="color:#b26c5e;">${esc(params.customerEmail)}</a></td></tr>
+      <tr><td style="padding:4px 0;font-size:13px;color:#6f737a;">Phone</td><td style="padding:4px 0;font-size:13px;color:#31343a;">${esc(params.customerPhone)}</td></tr>
+      <tr><td style="padding:4px 0;font-size:13px;color:#6f737a;">Venue</td><td style="padding:4px 0;font-size:13px;color:#31343a;">${esc(params.roomName)}</td></tr>
+      <tr><td style="padding:4px 0;font-size:13px;color:#6f737a;">Event Type</td><td style="padding:4px 0;font-size:13px;color:#31343a;">${esc(params.eventTypeName)}</td></tr>
       <tr>
         <td style="padding:4px 0;font-size:13px;color:#6f737a;vertical-align:top;">Date(s) &amp; Time</td>
         <td style="padding:4px 0;font-size:13px;color:#31343a;"><ul style="margin:0;padding-left:16px;">${formatSlots(params.slots)}</ul></td>
@@ -370,25 +384,25 @@ export async function sendAdminRejectionNotification(params: {
 }): Promise<void> {
   if (!ADMIN_EMAIL) return;
 
-  const subject = `Booking Rejected – ${params.reference}`;
+  const subject = `Booking Rejected – ${esc(params.reference)}`;
   const html = card(`
     <p style="margin:0 0 16px;font-size:16px;font-weight:600;color:#c62828;">Booking Rejected</p>
     <p style="margin:0 0 20px;line-height:1.6;">
       A booking has been rejected. Details below.
     </p>
     <table width="100%" cellpadding="0" cellspacing="0" style="background:#f7f8f9;border:1px solid #dfe3e8;border-radius:6px;padding:16px 20px;margin-bottom:20px;">
-      <tr><td style="padding:4px 0;font-size:13px;color:#6f737a;width:140px;">Reference</td><td style="padding:4px 0;font-size:13px;font-weight:700;color:#31343a;">${params.reference}</td></tr>
-      <tr><td style="padding:4px 0;font-size:13px;color:#6f737a;">Customer</td><td style="padding:4px 0;font-size:13px;color:#31343a;">${params.customerName}</td></tr>
-      <tr><td style="padding:4px 0;font-size:13px;color:#6f737a;">Email</td><td style="padding:4px 0;font-size:13px;color:#31343a;"><a href="mailto:${params.customerEmail}" style="color:#b26c5e;">${params.customerEmail}</a></td></tr>
-      <tr><td style="padding:4px 0;font-size:13px;color:#6f737a;">Venue</td><td style="padding:4px 0;font-size:13px;color:#31343a;">${params.roomName}</td></tr>
-      <tr><td style="padding:4px 0;font-size:13px;color:#6f737a;">Event Type</td><td style="padding:4px 0;font-size:13px;color:#31343a;">${params.eventTypeName}</td></tr>
+      <tr><td style="padding:4px 0;font-size:13px;color:#6f737a;width:140px;">Reference</td><td style="padding:4px 0;font-size:13px;font-weight:700;color:#31343a;">${esc(params.reference)}</td></tr>
+      <tr><td style="padding:4px 0;font-size:13px;color:#6f737a;">Customer</td><td style="padding:4px 0;font-size:13px;color:#31343a;">${esc(params.customerName)}</td></tr>
+      <tr><td style="padding:4px 0;font-size:13px;color:#6f737a;">Email</td><td style="padding:4px 0;font-size:13px;color:#31343a;"><a href="mailto:${esc(params.customerEmail)}" style="color:#b26c5e;">${esc(params.customerEmail)}</a></td></tr>
+      <tr><td style="padding:4px 0;font-size:13px;color:#6f737a;">Venue</td><td style="padding:4px 0;font-size:13px;color:#31343a;">${esc(params.roomName)}</td></tr>
+      <tr><td style="padding:4px 0;font-size:13px;color:#6f737a;">Event Type</td><td style="padding:4px 0;font-size:13px;color:#31343a;">${esc(params.eventTypeName)}</td></tr>
       <tr>
         <td style="padding:4px 0;font-size:13px;color:#6f737a;vertical-align:top;">Date(s) &amp; Time</td>
         <td style="padding:4px 0;font-size:13px;color:#31343a;"><ul style="margin:0;padding-left:16px;">${formatSlots(params.slots)}</ul></td>
       </tr>
       <tr>
         <td style="padding:4px 0;font-size:13px;color:#6f737a;vertical-align:top;">Reject Reason</td>
-        <td style="padding:4px 0;font-size:13px;color:#c62828;font-style:italic;">${params.rejectReason}</td>
+        <td style="padding:4px 0;font-size:13px;color:#c62828;font-style:italic;">${esc(params.rejectReason)}</td>
       </tr>
     </table>
   `);

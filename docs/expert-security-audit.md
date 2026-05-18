@@ -7,6 +7,14 @@
 > Scope: NextAuth + Cognito hybrid auth, admin RBAC, public booking endpoint,
 > per-slot/payment admin flows, transactional email (Resend), contact webhook, secrets
 > handling in Amplify SSR, and browser-side hardening.
+
+## Remediation log
+
+| Date | Finding | Status | Commit |
+|---|---|---|---|
+| 2026-05-18 | #1 — HTML email injection via unescaped customer/admin fields | **Fixed** — added `esc()` helper in `src/lib/email.ts` and wrapped all user/admin-supplied interpolations (`customerName`, `customerEmail`, `customerPhone`, `reference`, `roomName`, `eventTypeName`, `rejectReason`, per-slot `s.rejectReason`). | pending |
+| 2026-05-18 | #2 — JWT role/active staleness | **Fixed** — both `requireAdmin()` and `requireSuperAdmin()` now re-read role + active from Postgres on every call. Inactive or demoted admins are rejected on the next request instead of waiting up to 4 hours for the JWT to expire. | pending |
+| 2026-05-18 | #4 — Public booking endpoint spam | **Partially mitigated** — Cloudflare Turnstile bot protection is already in place on the booking form per `CLAUDE.md` § "Bot Protection: Cloudflare Turnstile". Remaining gaps: no length caps on customer fields, no per-IP rate limit at the edge. |  |
 >
 > The product has **no AI surface and no file uploads today**, so Parts 4 and 5 are
 > reframed as: (4) Public booking endpoint — spam, abuse, scraping; (5) Email rendering
@@ -620,8 +628,8 @@ add a "summarise this booking" feature.
 
 | # | Finding | OWASP | Severity | Effort | Expert(s) |
 |---|---|---|---|---|---|
-| 1 | Customer-supplied `customerName`, `customerEmail`, `customerPhone` and admin-supplied `rejectReason` interpolated into HTML emails without escaping ([email.ts](src/lib/email.ts)). Also stored verbatim in `EmailLog.htmlBody`. Admin social-engineering + latent XSS if `htmlBody` is ever rendered in an admin UI. | A03 | **High** | Low | Hunt, Willison |
-| 2 | JWT-stamped `role` and `active` are trusted for the full 4 h session ([auth.ts:84–100](src/lib/auth.ts#L84-L100), [auth-guards.ts:15–33](src/lib/auth-guards.ts#L15-L33)). Deactivation and role-demotion don't take effect until session expiry; no revocation channel. | A01 / A07 | **High** | Medium | Hunt, Schneier |
+| 1 | ~~Customer-supplied `customerName`, `customerEmail`, `customerPhone` and admin-supplied `rejectReason` interpolated into HTML emails without escaping ([email.ts](src/lib/email.ts)). Also stored verbatim in `EmailLog.htmlBody`. Admin social-engineering + latent XSS if `htmlBody` is ever rendered in an admin UI.~~ **Fixed 2026-05-18** — see Remediation log. | A03 | **High** | Low | Hunt, Willison |
+| 2 | ~~JWT-stamped `role` and `active` are trusted for the full 4 h session~~ ([auth.ts:84–100](src/lib/auth.ts#L84-L100), [auth-guards.ts:15–33](src/lib/auth-guards.ts#L15-L33)). ~~Deactivation and role-demotion don't take effect until session expiry; no revocation channel.~~ **Fixed 2026-05-18** — see Remediation log. | A01 / A07 | **High** | Medium | Hunt, Schneier |
 | 3 | `updateCalendarDb` read-modify-write at the application layer ([calendar-store.ts:116–264](src/lib/calendar-store.ts#L116-L264)): two concurrent admin actions on stale snapshots → last writer silently reverts the other's work. No optimistic concurrency. | A08 | **High** | High | Kettle |
 | 4 | Public booking POST `/api/calendar/bookings` has no rate limit, no CAPTCHA, no honeypot, no length caps. Email-bomb the admin via Resend, fill the calendar with pending requests, exhaust admin attention. | A04 | **High** | Low | Hunt, Schneier |
 | 5 | PaymentEntry net-collected calculation subtracts every non-`payment` type, including `waiver` ([payments/route.ts:75–80](src/app/api/admin/calendar/bookings/[id]/payments/route.ts#L75-L80)). Mismatch between the schema doc model (waiver reduces *outstanding*) and the code behaviour (waiver reduces *paidAmountLkr*). Touches money. | — | **Medium** | Low | Kettle |

@@ -145,6 +145,11 @@ The interactive transaction is configured with `{ timeout: 30_000, maxWait: 10_0
 - Admin roles: `admin | super_admin`
 - Use `requireAdmin()` from `src/lib/auth-guards.ts` in all admin API routes
 - Super-admin-only features guarded by `requireSuperAdmin()`
+- **Role + active are re-read from Postgres on every admin request** by both guards (one
+  PK lookup per call). The JWT-stamped values are not trusted, so deactivation and role
+  demotion take effect on the next request rather than waiting up to 4 hours for the JWT
+  to expire. Both guards return **401** ("Account is inactive. Please sign in again.")
+  when the row is missing or `active: false`.
 - **Hybrid identity**: AWS Cognito holds password + lockout; Postgres `User` holds role +
   `active`. The NextAuth `signIn` callback in `src/lib/auth.ts` rejects logins for emails not
   present in Postgres or where `active === false`.
@@ -262,6 +267,14 @@ Uses the **Resend** SDK. Three exported async functions — each catches its own
 | `sendAdminRejectionNotification` | Called when any booking is set to `rejected` (booking-level or per-slot via Save); skipped if `ADMIN_NOTIFICATION_EMAIL` unset; includes reject reason |
 
 Every send attempt writes a row to `EmailLog` (status `sent` or `failed`). Email failures never propagate to the API response.
+
+**HTML escaping is mandatory for every user- and admin-supplied interpolation.** The
+file's `esc()` helper HTML-encodes `& < > " '`. Wrap every `${params.customerName}`,
+`${params.customerEmail}`, `${params.customerPhone}`, `${params.rejectReason}`,
+`${params.roomName}`, `${params.eventTypeName}`, `${params.reference}`, and per-slot
+`${s.rejectReason}` in `esc()`. The full rendered HTML is stored in `EmailLog.htmlBody`
+so unescaped data would create both an email-channel social-engineering vector and a
+latent XSS sink if `htmlBody` is ever rendered in an admin UI.
 
 **Required env vars:**
 
