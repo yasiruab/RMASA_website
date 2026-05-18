@@ -249,7 +249,9 @@ main {
   background: transparent;
   color: var(--ac-text);
   border-radius: 4px;
-  padding: 10px 14px;
+  padding: 12px 18px;
+  min-height: 44px;
+  min-width: 44px;
   font-family: "Archivo", sans-serif;
   font-size: 12px;
   font-weight: 700;
@@ -302,7 +304,7 @@ main {
 
 .ac-hero {
   position: relative;
-  height: 720px;
+  height: clamp(420px, 56vw, 720px);
   overflow: hidden;
   background: var(--ac-ink);
   border-bottom: 4px solid var(--ac-gold);
@@ -333,7 +335,7 @@ main {
 .ac-hero-overlay {
   position: absolute;
   inset: 0;
-  padding: 120px 48px 64px;
+  padding: clamp(72px, 12vw, 120px) clamp(16px, 4vw, 48px) clamp(48px, 8vw, 64px);
   display: flex;
   flex-direction: column;
   justify-content: flex-end;
@@ -351,7 +353,7 @@ main {
 }
 .ac-hero-title .ac-display {
   color: var(--ac-text);
-  font-size: 132px;
+  font-size: clamp(56px, 12vw, 132px);
 }
 .ac-hero-title .ac-display .punct {
   color: var(--ac-gold);
@@ -361,7 +363,7 @@ main {
 }
 .ac-hero-italic .ac-italic {
   color: var(--ac-text-dim);
-  font-size: 84px;
+  font-size: clamp(36px, 7.5vw, 84px);
 }
 .ac-hero-sub {
   font-family: "Space Grotesk", sans-serif;
@@ -434,6 +436,7 @@ main {
   margin-right: 8px;
 }
 .ac-hero-dots button {
+  position: relative;
   height: 4px;
   width: 12px;
   padding: 0;
@@ -441,6 +444,12 @@ main {
   background: rgba(255, 255, 255, 0.25);
   cursor: pointer;
   transition: width 0.2s ease, background 0.2s ease;
+}
+.ac-hero-dots button::before {
+  /* Invisible enlarged hit area so dots are tappable on touch screens */
+  content: "";
+  position: absolute;
+  inset: -14px -8px;
 }
 .ac-hero-dots button.active {
   width: 32px;
@@ -860,7 +869,7 @@ main {
 }
 .ac-page-hero-title .ac-display {
   color: var(--ac-text);
-  font-size: 140px;
+  font-size: clamp(52px, 11vw, 140px);
 }
 .ac-page-hero-title .ac-display .punct {
   color: var(--ac-gold);
@@ -871,7 +880,7 @@ main {
 }
 .ac-page-hero-italic .ac-italic {
   color: var(--ac-text-dim);
-  font-size: 64px;
+  font-size: clamp(32px, 6vw, 64px);
 }
 .ac-page-hero-lede {
   font-family: "Space Grotesk", sans-serif;
@@ -1327,7 +1336,7 @@ a.ac-channel-card:focus-visible {
   margin: 8px 0 16px;
 }
 .ac-map-frame {
-  height: 420px;
+  height: clamp(240px, 60vw, 420px);
   background: var(--ac-card);
   border: 1px solid var(--ac-line);
   position: relative;
@@ -1976,6 +1985,155 @@ a.ac-channel-card:focus-visible {
 .ac-bookings-grid-wrap {
   overflow-x: auto;
 }
+
+/* Day-picker view: hidden by default; revealed below 700px */
+.ac-bookings-day-view {
+  display: none;
+}
+.ac-bookings-day-pills {
+  display: flex;
+  gap: 6px;
+  overflow-x: auto;
+  padding-bottom: 6px;
+  scrollbar-width: thin;
+  -webkit-overflow-scrolling: touch;
+}
+.ac-bookings-day-pill {
+  flex: 0 0 auto;
+  min-width: 64px;
+  padding: 10px 12px;
+  background: var(--ac-card);
+  border: 1px solid var(--ac-line);
+  color: var(--ac-text);
+  text-align: center;
+  cursor: pointer;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  font: inherit;
+  transition: background 0.15s ease, border-color 0.15s ease;
+}
+.ac-bookings-day-pill:hover {
+  border-color: var(--ac-gold);
+}
+.ac-bookings-day-pill.is-active {
+  background: var(--ac-gold);
+  border-color: var(--ac-gold);
+  color: var(--ac-ink);
+}
+.ac-bookings-day-pill.is-past-limit {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+.ac-bookings-day-pill .dow {
+  font-family: "Geist Mono", monospace;
+  font-size: 10px;
+  letter-spacing: 0.06em;
+}
+.ac-bookings-day-pill .dom {
+  font-family: "Archivo", sans-serif;
+  font-weight: 800;
+  font-size: 18px;
+}
+.ac-bookings-day-pill .today {
+  font-family: "Geist Mono", monospace;
+  font-size: 8px;
+  letter-spacing: 0.06em;
+  color: var(--ac-gold);
+}
+.ac-bookings-day-pill.is-active .today {
+  color: var(--ac-ink);
+}
+.ac-bookings-day-header {
+  margin: 16px 0 12px;
+  font-family: "Archivo", sans-serif;
+  font-weight: 800;
+  font-size: 18px;
+  color: var(--ac-text);
+  letter-spacing: 0.04em;
+}
+.ac-bookings-day-rows {
+  display: flex;
+  flex-direction: column;
+  background: var(--ac-card);
+  border: 1px solid var(--ac-line);
+}
+.ac-bookings-day-row {
+  display: grid;
+  grid-template-columns: 92px 1fr auto;
+  align-items: center;
+  gap: 10px;
+  padding: 12px 14px;
+  border-bottom: 1px solid var(--ac-line);
+  min-height: 56px;
+}
+.ac-bookings-day-row:last-child {
+  border-bottom: none;
+}
+.ac-bookings-day-row .time {
+  font-family: "Geist Mono", monospace;
+  font-size: 12px;
+  color: var(--ac-text-dim);
+}
+.ac-bookings-day-row .label {
+  font-family: "Archivo", sans-serif;
+  font-size: 13px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+}
+.ac-bookings-day-row .meta {
+  font-family: "Geist Mono", monospace;
+  font-size: 10px;
+  color: var(--ac-text-mute);
+  letter-spacing: 0.04em;
+  margin-top: 2px;
+}
+.ac-bookings-day-row .action {
+  padding: 8px 14px;
+  background: transparent;
+  border: 1px solid var(--ac-gold);
+  color: var(--ac-gold);
+  font-family: "Archivo", sans-serif;
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  cursor: pointer;
+  min-width: 76px;
+}
+.ac-bookings-day-row .action:disabled {
+  opacity: 0.35;
+  cursor: not-allowed;
+}
+.ac-bookings-day-row .action.is-remove {
+  background: var(--ac-gold);
+  color: var(--ac-ink);
+}
+.ac-bookings-day-row.is-off,
+.ac-bookings-day-row.is-past-limit {
+  background: rgba(255, 255, 255, 0.02);
+  color: var(--ac-text-mute);
+}
+.ac-bookings-day-row.is-pending .label,
+.ac-bookings-day-row.is-confirmed .label,
+.ac-bookings-day-row.is-tentative .label,
+.ac-bookings-day-row.is-blocked .label,
+.ac-bookings-day-row.is-cleanup .label,
+.ac-bookings-day-row.is-selection .label,
+.ac-bookings-day-row.is-recurrence .label {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.ac-bookings-day-row.is-pending .label { color: var(--ac-gold); }
+.ac-bookings-day-row.is-confirmed .label { color: #5EE69B; }
+.ac-bookings-day-row.is-tentative .label { color: #8FA8F0; }
+.ac-bookings-day-row.is-blocked .label { color: #FF95A0; }
+.ac-bookings-day-row.is-cleanup .label { color: #F4A261; }
+.ac-bookings-day-row.is-selection .label { color: var(--ac-gold); }
+.ac-bookings-day-row.is-recurrence .label { color: var(--ac-gold-deep); }
+.ac-bookings-day-row.is-recurrence-conflict .label { color: #FF95A0; }
 .ac-bookings-grid {
   --col-time: 64px;
   min-width: 880px;
@@ -2770,18 +2928,11 @@ a.ac-channel-card:focus-visible {
   .ac-header-cta {
     display: none;
   }
-  .ac-hero {
-    height: 560px;
-  }
+  /* .ac-hero height now uses clamp() at base */
   .ac-hero-overlay {
     padding: 90px 24px 56px;
   }
-  .ac-hero-title .ac-display {
-    font-size: 72px;
-  }
-  .ac-hero-italic .ac-italic {
-    font-size: 44px;
-  }
+  /* font-size handled by clamp() at .ac-hero-title .ac-display rule */
   .ac-hero-stamp,
   .ac-hero-dots {
     right: 20px;
@@ -2844,12 +2995,7 @@ a.ac-channel-card:focus-visible {
   .ac-fact-value .ac-display {
     font-size: 40px;
   }
-  .ac-page-hero-title .ac-display {
-    font-size: 72px;
-  }
-  .ac-page-hero-italic .ac-italic {
-    font-size: 40px;
-  }
+  /* page-hero font-sizes handled by clamp() at base rules */
   .ac-story-grid,
   .ac-facility-grid,
   .ac-facility-grid.is-reverse,
@@ -2970,7 +3116,50 @@ a.ac-channel-card:focus-visible {
   }
 }
 
-@media (max-width: 600px) {
+@media (max-width: 700px) {
+  /* Compress horizontal padding across every public section */
+  .ac-live-strip,
+  .ac-nav-strip,
+  .ac-intro,
+  .ac-section-cards,
+  .ac-room-compare,
+  .ac-closing,
+  .ac-page-hero,
+  .ac-story,
+  .ac-timeline-section,
+  .ac-facility-section,
+  .ac-support-section,
+  .ac-channels-section,
+  .ac-enquiry-section,
+  .ac-disciplines-section,
+  .ac-callout-section,
+  .ac-bookings-hero,
+  .ac-bookings-room-section,
+  .ac-bookings-week-section,
+  .ac-bookings-details-section {
+    padding-left: 16px;
+    padding-right: 16px;
+  }
+  .ac-mobile-menu {
+    padding-left: 16px;
+    padding-right: 16px;
+  }
+
+  /* Live strip slims down — drop the redundant address line (already in footer) */
+  .ac-live-strip-left .ac-live-strip-address {
+    display: none;
+  }
+  .ac-live-strip-left .ac-live-strip-bullet {
+    display: none;
+  }
+  .ac-live-strip {
+    gap: 10px;
+  }
+  .ac-live-strip-right {
+    gap: 14px;
+  }
+
+  /* Facts strip: 1fr at narrow widths */
   .ac-fact-strip {
     grid-template-columns: 1fr;
   }
@@ -2996,6 +3185,111 @@ a.ac-channel-card:focus-visible {
   }
   .ac-activity-name {
     font-size: 18px;
+  }
+
+  /* Form grids stack at phone widths */
+  .ac-bookings-field-grid {
+    grid-template-columns: 1fr !important;
+    gap: 14px;
+  }
+  .ac-bookings-recurrence-row {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 8px;
+    background: transparent;
+    border: none;
+    padding: 0;
+  }
+  .ac-bookings-recurrence-input input {
+    width: 100%;
+  }
+  .ac-bookings-receipt-actions {
+    flex-direction: column;
+    align-items: stretch;
+  }
+  .ac-bookings-receipt-actions .ac-btn-primary,
+  .ac-bookings-receipt-actions .ac-btn-ghost {
+    width: 100%;
+    justify-content: center;
+  }
+
+  /* Hide desktop calendar grid; reveal mobile day view */
+  .ac-bookings-grid-wrap {
+    display: none;
+  }
+  .ac-bookings-day-view {
+    display: block;
+  }
+
+  /* About timeline headline already flex-wraps; tighten heading gap */
+  .ac-timeline-headline {
+    gap: 10px;
+  }
+}
+
+@media (max-width: 420px) {
+  /* Pull section paddings in even further for narrow phones */
+  .ac-live-strip,
+  .ac-nav-strip,
+  .ac-intro,
+  .ac-section-cards,
+  .ac-room-compare,
+  .ac-closing,
+  .ac-page-hero,
+  .ac-story,
+  .ac-timeline-section,
+  .ac-facility-section,
+  .ac-support-section,
+  .ac-channels-section,
+  .ac-enquiry-section,
+  .ac-disciplines-section,
+  .ac-callout-section,
+  .ac-bookings-hero,
+  .ac-bookings-room-section,
+  .ac-bookings-week-section,
+  .ac-bookings-details-section {
+    padding-left: 12px;
+    padding-right: 12px;
+  }
+
+  /* Live strip: keep phone link, hide email at the tightest tier */
+  .ac-live-strip-right .ac-live-strip-email {
+    display: none;
+  }
+
+  /* Recurrence row collapses to a single column */
+  .ac-bookings-recurrence-row {
+    grid-template-columns: 1fr;
+  }
+
+  /* AC toggle stacks vertically */
+  .ac-bookings-ac-toggle {
+    flex-direction: column;
+    gap: 6px;
+  }
+  .ac-bookings-ac-btn {
+    width: 100%;
+  }
+
+  /* Activity tiles use auto-sizing so they don't crush */
+  .ac-discipline-grid {
+    grid-template-columns: repeat(auto-fill, minmax(72px, 1fr));
+  }
+
+  /* Tighter room card stat row */
+  .ac-bookings-room-stat .label {
+    font-size: 8px;
+  }
+  .ac-bookings-room-stat .value {
+    font-size: 16px;
+  }
+
+  /* Tighter receipt padding */
+  .ac-bookings-receipt-head,
+  .ac-bookings-receipt-entries,
+  .ac-bookings-receipt-total {
+    padding-left: 18px;
+    padding-right: 18px;
   }
 }
 

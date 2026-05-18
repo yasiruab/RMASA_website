@@ -323,6 +323,7 @@ export function BookingCalendarFlow() {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [customer, setCustomer] = useState({ name: "", email: "", phone: "", purpose: "" });
   const [availabilityRefreshKey, setAvailabilityRefreshKey] = useState(0);
+  const [selectedDayDate, setSelectedDayDate] = useState<string>("");
   const [isConfigLoading, setIsConfigLoading] = useState(true);
   const [configError, setConfigError] = useState<"timeout" | "failed" | null>(null);
   const [configAttempt, setConfigAttempt] = useState(0);
@@ -339,6 +340,14 @@ export function BookingCalendarFlow() {
     () => Array.from({ length: 7 }, (_, i) => visibleYear - 3 + i),
     [visibleYear],
   );
+
+  // Keep the day-view focus on a valid date when the visible week changes.
+  useEffect(() => {
+    if (weekDates.length === 0) return;
+    if (selectedDayDate && weekDates.includes(selectedDayDate)) return;
+    const today = formatDate(new Date());
+    setSelectedDayDate(weekDates.includes(today) ? today : weekDates[0]);
+  }, [weekDates, selectedDayDate]);
 
   /* ─── Config fetch ───────────────────────────────────────────── */
   useEffect(() => {
@@ -1276,6 +1285,138 @@ export function BookingCalendarFlow() {
               </div>
             </div>
           </div>
+        </div>
+
+        {/* Mobile day-picker view (CSS shows it below 700px) */}
+        <div className="ac-bookings-day-view" aria-label="Day view">
+          <div className="ac-bookings-day-pills" role="tablist" aria-label="Choose day">
+            {weekDates.map((date) => {
+              const d = ymdToDate(date);
+              const isActive = date === selectedDayDate;
+              const isToday = date === todayYmd;
+              const isPastLimit = maxDateStr !== null && date > maxDateStr;
+              return (
+                <button
+                  aria-selected={isActive}
+                  className={`ac-bookings-day-pill${isActive ? " is-active" : ""}${isPastLimit ? " is-past-limit" : ""}`}
+                  disabled={isPastLimit}
+                  key={`pill-${date}`}
+                  onClick={() => setSelectedDayDate(date)}
+                  role="tab"
+                  type="button"
+                >
+                  <span className="dow">
+                    {d.toLocaleDateString("en-US", { weekday: "short" }).toUpperCase()}
+                  </span>
+                  <span className="dom">{d.getDate()}</span>
+                  {isToday ? <span className="today">TODAY</span> : null}
+                </button>
+              );
+            })}
+          </div>
+
+          {selectedDayDate ? (
+            <>
+              <div className="ac-bookings-day-header">
+                {ymdToDate(selectedDayDate).toLocaleDateString("en-US", {
+                  weekday: "long",
+                  month: "short",
+                  day: "numeric",
+                })}
+              </div>
+              <div className="ac-bookings-day-rows">
+                {Array.from({ length: visibleHours }, (_, i) => {
+                  const hour = firstVisibleHour + i;
+                  const startTime = `${String(hour).padStart(2, "0")}:00`;
+                  const slot = slotMap[selectedDayDate]?.[startTime];
+                  const inWorkingHours =
+                    hour >= workingStartHour && hour + durationHours <= workingEndHour;
+                  const isPastLimit = maxDateStr !== null && selectedDayDate > maxDateStr;
+                  const endTime = slot?.endTime ?? `${String(hour + durationHours).padStart(2, "0")}:00`;
+
+                  const isSelected = selectedSlots.some(
+                    (s) => s.date === selectedDayDate && s.startTime === startTime,
+                  );
+                  const recurrenceSlot = recurrencePreviewSlots.find(
+                    (s) => s.date === selectedDayDate && s.startTime === startTime,
+                  );
+                  const isRecurrenceConflict =
+                    recurrenceSlot !== undefined &&
+                    recurrenceConflictKeys.has(slotKey(recurrenceSlot));
+
+                  let rowClass = "ac-bookings-day-row";
+                  let labelText = "AVAILABLE";
+                  let metaText = "";
+                  let actionText = "PICK";
+                  let actionDisabled = false;
+                  let actionIsRemove = false;
+
+                  if (!inWorkingHours) {
+                    rowClass += " is-off";
+                    labelText = "—";
+                    actionDisabled = true;
+                  } else if (isPastLimit) {
+                    rowClass += " is-past-limit";
+                    labelText = "Outside booking window";
+                    actionDisabled = true;
+                  } else if (isSelected) {
+                    rowClass += " is-selection";
+                    labelText = "★ YOURS";
+                    actionText = "REMOVE";
+                    actionIsRemove = true;
+                  } else if (recurrenceSlot && isRecurrenceConflict) {
+                    rowClass += " is-recurrence-conflict";
+                    labelText = "↻ CONFLICT";
+                    metaText = "Resolve before submit";
+                    actionDisabled = true;
+                  } else if (recurrenceSlot) {
+                    rowClass += " is-recurrence";
+                    labelText = "↻ RECURRENCE";
+                    metaText = "Recurrence preview";
+                    actionDisabled = true;
+                  } else if (slot) {
+                    if (slot.status === "available") {
+                      rowClass += " is-available";
+                    } else {
+                      rowClass += ` is-${slot.status}`;
+                      labelText = STATUS_LABELS[slot.status];
+                      if (slot.status === "blocked") metaText = slot.reason ?? "Blocked";
+                      else if (slot.status === "cleanup") metaText = "Site preparation";
+                      else if (slot.status === "pending") metaText = "Pending request";
+                      else if (slot.status === "tentative") metaText = "Held";
+                      else if (slot.status === "confirmed") metaText = "Confirmed booking";
+                      actionDisabled = true;
+                    }
+                  } else {
+                    rowClass += " is-off";
+                    labelText = "—";
+                    actionDisabled = true;
+                  }
+
+                  return (
+                    <div className={rowClass} key={`day-row-${hour}`}>
+                      <span className="time">
+                        {startTime} – {endTime}
+                      </span>
+                      <div>
+                        <span className="label">{labelText}</span>
+                        {metaText ? <div className="meta">{metaText}</div> : null}
+                      </div>
+                      <button
+                        aria-label={`${actionText} ${startTime}`}
+                        className={`action${actionIsRemove ? " is-remove" : ""}`}
+                        disabled={actionDisabled}
+                        onClick={() => toggleSelectionForCell(selectedDayDate, hour)}
+                        type="button"
+                      >
+                        {actionText}
+                      </button>
+                    </div>
+                  );
+                })}
+              </div>
+            </>
+          ) : null}
         </div>
       </section>
 

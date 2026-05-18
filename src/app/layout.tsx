@@ -1,4 +1,4 @@
-import type { Metadata } from "next";
+import type { Metadata, Viewport } from "next";
 import { Footer } from "@/components/footer";
 import { Nav } from "@/components/nav";
 import { Providers } from "@/components/providers";
@@ -7,6 +7,12 @@ import "./globals.css";
 export const metadata: Metadata = {
   title: "Royal MAS Arena",
   description: "Sports and event venue website for Royal MAS Arena.",
+};
+
+export const viewport: Viewport = {
+  width: "device-width",
+  initialScale: 1,
+  themeColor: "#06112E",
 };
 
 export default function RootLayout({
