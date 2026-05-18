@@ -193,18 +193,20 @@ function getRoomDayRate(
   return rule?.amountLkr ?? null;
 }
 
-function getAcPremiumFullDay(
+// A/C premium = price difference for the *currently selected* event type.
+// Returns null if either pricing rule is missing or the diff is non-positive,
+// in which case the caller should leave the sub-line blank.
+function getAcPremiumForEventType(
   rules: PricingRule[],
-  eventTypes: EventType[],
   roomId: string,
+  eventTypeId: string,
 ): number | null {
-  const fullDayId = getFullDayEventTypeId(rules, eventTypes, roomId);
-  if (!fullDayId) return null;
+  if (!roomId || !eventTypeId) return null;
   const findRule = (mode: "with_ac" | "without_ac") =>
     rules.find(
       (r) =>
         r.roomTypeId === roomId &&
-        r.eventTypeId === fullDayId &&
+        r.eventTypeId === eventTypeId &&
         r.acMode === mode &&
         (r.dayType === "weekday" || r.dayType === "any"),
     );
@@ -1013,12 +1015,10 @@ export function BookingCalendarFlow() {
                 const disabled = !availableAcModes.includes(mode);
                 const premium =
                   mode === "with_ac"
-                    ? getAcPremiumFullDay(pricingRules, eventTypes, roomTypeId)
+                    ? getAcPremiumForEventType(pricingRules, roomTypeId, eventTypeId)
                     : null;
                 const withAcSub =
-                  premium !== null
-                    ? `climate · +LKR ${currency(premium)} / day`
-                    : "climate · premium";
+                  premium !== null ? `climate · +LKR ${currency(premium)}` : "";
                 return (
                   <button
                     aria-checked={active}
