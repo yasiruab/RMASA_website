@@ -120,7 +120,6 @@ export function Footer() {
 
       <div className="ac-footer-bottom">
         <span>© 2026 · ROYAL MAS ARENA · ALL RIGHTS RESERVED</span>
-        <span>ARENA COURT EDITION · MMXXVI</span>
       </div>
     </footer>
   );

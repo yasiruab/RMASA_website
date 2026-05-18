@@ -7,6 +7,31 @@ import { useEffect, useRef, useState } from "react";
 
 type NavLink = { href: string; label: string };
 
+const DESK_OPEN_HOUR = 8;
+const DESK_CLOSE_HOUR = 18;
+
+function getColomboMinutes(date: Date): number {
+  const parts = new Intl.DateTimeFormat("en-GB", {
+    hour: "2-digit",
+    minute: "2-digit",
+    hourCycle: "h23",
+    timeZone: "Asia/Colombo",
+  }).formatToParts(date);
+  const hour = Number(parts.find((p) => p.type === "hour")?.value ?? "0");
+  const minute = Number(parts.find((p) => p.type === "minute")?.value ?? "0");
+  return hour * 60 + minute;
+}
+
+function getDeskStatus(now: Date): { open: boolean; label: string } {
+  const minutes = getColomboMinutes(now);
+  const openMins = DESK_OPEN_HOUR * 60;
+  const closeMins = DESK_CLOSE_HOUR * 60;
+  if (minutes >= openMins && minutes < closeMins) {
+    return { open: true, label: `BOOKINGS DESK · OPEN UNTIL ${String(DESK_CLOSE_HOUR).padStart(2, "0")}:00` };
+  }
+  return { open: false, label: `BOOKINGS DESK · OPENS ${String(DESK_OPEN_HOUR).padStart(2, "0")}:00` };
+}
+
 const NAV_LINKS: NavLink[] = [
   { href: "/", label: "Home" },
   { href: "/about", label: "About" },
@@ -26,12 +51,20 @@ function isLinkActive(pathname: string, href: string) {
 export function Nav() {
   const pathname = usePathname();
   const [menuOpen, setMenuOpen] = useState(false);
+  const [deskStatus, setDeskStatus] = useState<{ open: boolean; label: string } | null>(null);
   const menuRef = useRef<HTMLDivElement>(null);
   const toggleRef = useRef<HTMLButtonElement>(null);
 
   useEffect(() => {
     setMenuOpen(false);
   }, [pathname]);
+
+  useEffect(() => {
+    const update = () => setDeskStatus(getDeskStatus(new Date()));
+    update();
+    const id = setInterval(update, 60_000);
+    return () => clearInterval(id);
+  }, []);
 
   useEffect(() => {
     document.body.classList.toggle("menu-open", menuOpen);
@@ -77,10 +110,12 @@ export function Nav() {
     <header className="site-header" id="masthead">
       <div className="ac-live-strip">
         <div className="ac-live-strip-left">
-          <span className="ac-live-flag">
+          <span
+            className={`ac-live-flag${deskStatus && !deskStatus.open ? " is-closed" : ""}`}
+          >
             <span className="ac-live-dot" aria-hidden="true" />
-            <span className="live-label">LIVE</span>
-            <span>BOOKINGS DESK · OPEN 08:00–18:00</span>
+            <span className="live-label">{deskStatus?.open === false ? "CLOSED" : "LIVE"}</span>
+            <span>{deskStatus?.label ?? `BOOKINGS DESK · ${String(DESK_OPEN_HOUR).padStart(2, "0")}:00–${String(DESK_CLOSE_HOUR).padStart(2, "0")}:00`}</span>
           </span>
           <span aria-hidden="true">·</span>
           <span>RAJAKEEYA MAWATHA · COLOMBO 07</span>
@@ -88,7 +123,6 @@ export function Nav() {
         <div className="ac-live-strip-right">
           <a href="tel:+94704421590">+94 (0) 70 442 1590</a>
           <a href="mailto:info@royalmasarena.lk">INFO@ROYALMASARENA.LK</a>
-          <span className="ac-lang" aria-hidden="true">EN ▾</span>
         </div>
       </div>
 
