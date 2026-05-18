@@ -178,8 +178,12 @@ main {
 .ac-live-flag .live-label {
   color: var(--ac-live);
 }
-.ac-lang {
-  color: var(--ac-gold);
+.ac-live-flag.is-closed .ac-live-dot {
+  background: var(--ac-text-mute);
+  box-shadow: none;
+}
+.ac-live-flag.is-closed .live-label {
+  color: var(--ac-text-mute);
 }
 
 .ac-nav-strip {
