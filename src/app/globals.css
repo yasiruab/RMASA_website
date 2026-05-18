@@ -3170,6 +3170,24 @@ a.ac-channel-card:focus-visible {
     height: 24px;
   }
 
+  /* Activities: force single-column + let body shrink properly so labels don't spill */
+  .ac-discipline-grid {
+    grid-template-columns: 1fr;
+  }
+  .ac-activity-card {
+    min-width: 0;
+  }
+  .ac-activity-body {
+    min-width: 0;
+    padding: 16px 18px;
+  }
+  .ac-activity-name {
+    font-size: 16px;
+    overflow-wrap: break-word;
+    word-wrap: break-word;
+    line-height: 1.15;
+  }
+
   /* Facts strip: 1fr at narrow widths */
   .ac-fact-strip {
     grid-template-columns: 1fr;
@@ -3286,11 +3304,6 @@ a.ac-channel-card:focus-visible {
   }
   .ac-bookings-ac-btn {
     width: 100%;
-  }
-
-  /* Activity tiles use auto-sizing so they don't crush */
-  .ac-discipline-grid {
-    grid-template-columns: repeat(auto-fill, minmax(72px, 1fr));
   }
 
   /* Tighter room card stat row */
