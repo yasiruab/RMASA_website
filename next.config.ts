@@ -4,6 +4,7 @@ const nextConfig: NextConfig = {
   reactStrictMode: true,
   env: {
     _AMPLIFY_DATABASE_URL: process.env.DATABASE_URL ?? "",
+    _AMPLIFY_DIRECT_URL: process.env.DIRECT_URL ?? "",
     _AMPLIFY_NEXTAUTH_SECRET: process.env.NEXTAUTH_SECRET ?? "",
     _AMPLIFY_NEXTAUTH_URL: process.env.NEXTAUTH_URL ?? "",
     _AMPLIFY_COGNITO_CLIENT_ID: process.env.COGNITO_CLIENT_ID ?? "",
