@@ -71,6 +71,14 @@ The site-wide chrome lives in [`src/components/nav.tsx`](src/components/nav.tsx)
 
 The legacy `--brand` / `--ink` / `--muted` / `--bg` / `--panel` / `--line` / `--footer` tokens are still defined in `:root` and are used by all `.admin-*`, `.bk-*`, `.rpt-*`, `.gc-*` rules. Do **not** rename or remove these. Admin pages render inside `.content-page` (white card) and read fine on top of the new dark `body` background; the dark perimeter around the admin card is expected and matches the new public chrome that wraps every page in the App Router.
 
+### Live booking-desk status
+
+The top live-strip in [`src/components/nav.tsx`](src/components/nav.tsx) shows "LIVE · BOOKINGS DESK · OPEN UNTIL 18:00" or "CLOSED · BOOKINGS DESK · OPENS 08:00" depending on **Colombo time** (not the visitor's local time), via `Intl.DateTimeFormat({ timeZone: "Asia/Colombo", hourCycle: "h23" })` in `getDeskStatus()`. To avoid hydration mismatch, the server render emits a stable static label and the client effect (1-minute interval) replaces it after mount. Dot turns grey + label reads CLOSED outside `[08:00, 18:00)`. The whole strip is hidden below 700 px — phone + email already live in the footer and on `/contact`.
+
+### Microsoft Clarity (production-only)
+
+[`src/app/layout.tsx`](src/app/layout.tsx) injects the Clarity script (`project ID wrxgldd8t5`) via `next/script` with `strategy="afterInteractive"`, gated to `process.env.NODE_ENV === "production"` so local dev sessions don't pollute analytics. No env vars to set — project ID is hardcoded.
+
 ## Calendar Data Model
 
 ### RoomType
@@ -161,6 +169,16 @@ The interactive transaction is configured with `{ timeout: 30_000, maxWait: 10_0
 - Day type: `weekday | weekend | any`
 - Slot status (availability): `available | pending | confirmed | tentative | blocked | cleanup`
   - `cleanup` — slot falls within a booking's post-event cleanup window; conflicts are enforced the same as occupied slots; displayed as **"Site Preparation"** (warm orange) in the public booking calendar
+
+## EventType: Duration (minutes)
+
+`EventType.durationMinutes` (1–1440, whole number) is the **canonical event duration**. Replaces the old `durationHours` column as of migration `20260518203400_event_type_duration_minutes` (existing rows backfilled `durationMinutes = durationHours * 60` in the migration body). Configured per event type by super-admins in the Event Types section.
+
+- **Slot generation** in `generateSlotsForDuration()` ([calendar-core.ts](src/lib/calendar-core.ts)) walks the room's working hours in **30-minute steps** (`SLOT_STEP_MINUTES = 30`), emitting one candidate start at each :00 and :30. So a 60-min event type produces slots at 07:00, 07:30, 08:00…; a 90-min event type produces 07:00, 07:30… but slot end times respect the duration. This is why the public calendar grid renders half-hour rows (see "Bookings Page: Half-Hour Grid" below).
+- **Hourly rate display** in [booking-calendar-flow.tsx](src/components/calendar/booking-calendar-flow.tsx) is `amountLkr * 60 / durationMinutes`, since pricing rules are per event-type, not per hour.
+- **Admin editor**: "Duration (min)" column in Event Types table; `<input type="number" min={1} max={1440} step={1}>`. Default for new event types is **240** (4 h).
+- **Config validation**: `PUT /api/admin/calendar/config` requires `1 ≤ durationMinutes ≤ 1440` whole number; 400 otherwise.
+- **Display label** (legend, receipt): renders `"X HRS"` when `durationMinutes % 60 === 0`, otherwise `"Y MIN"` — the legend "SLOT" suffix uses this via `durationLabel`.
 
 ## EventType: Cleanup Duration
 
@@ -308,6 +326,26 @@ The public bookings page (`booking-calendar-flow.tsx`) drives all room-card data
 **Recurrence preview**: `expandRecurrencePreview()` returns `[]` until the admin has set either an End Date or Occurrences. Choosing Daily/Weekly/Monthly with no limit does **not** paint recurrence blocks on the calendar.
 
 **Booking terms**: a real `<input type="checkbox">` (default unchecked) gates the Submit button. The full General Guidelines list is embedded inline in a `<details>` expander — not linked to the privacy policy.
+
+### Selection / availability safety patterns
+
+A handful of small effects in [booking-calendar-flow.tsx](src/components/calendar/booking-calendar-flow.tsx) prevent stale state from leaking between event-type / room / AC changes:
+
+- **Clear staged selection on config change**: a `useEffect` keyed on `[roomTypeId, eventTypeId, acMode]` resets `selectedSlots`, `frequency`, `recurrenceEndDate`, `occurrences` whenever any of the three change. Stops a user's slot picks from being re-priced at a different rate after they switch event types.
+- **Drop `weekSlots` before each availability fetch**: the availability `useEffect` calls `setWeekSlots({})` synchronously before kicking off its async work, so a click in the in-flight gap can't pick up the previous event type's slot duration.
+- **AbortController + `cancelled` flag** on the availability fetch ([calendar-flow.tsx ~ ll. 428-470](src/components/calendar/booking-calendar-flow.tsx#L428-L470)): when the effect re-fires (config-load batch, React 18 Strict Mode in dev), the old in-flight fetch is aborted and any late response is ignored. Without this, a stale response can overwrite freshly populated `weekSlots` and the calendar appears to "flash and forget" booked slots.
+- **Unpriced-date detection**: `unpricedDates` memo flags any date whose day-type has no `PricingRule` for the selected event type + AC mode. Such dates render with a hatched `.is-unpriced` background and a `NO RATE` tag in the day head; `toggleSelectionForCell` rejects them with a user-visible error. Stops submit-time silent failures.
+- **Short-block content collapse**: busy/selection/recurrence blocks shorter than the height required for their chip + title hide the title at render time so they don't visually spill out of the cell.
+
+## Bookings Page: Half-Hour Grid
+
+The desktop calendar grid uses **`ROW_HEIGHT = 24px` per half-hour** (not per hour). `PX_PER_MINUTE = ROW_HEIGHT / 30 = 0.8` drives every absolute-positioned overlay (busy blocks, selection, recurrence preview). Row borders:
+
+- `.ac-bookings-grid-row.is-hour` — solid border at the bottom of each :30 row (visually a solid line between hours)
+- `.ac-bookings-grid-row.is-half` — dashed border at the bottom of each :00 row (the half-hour split inside an hour)
+- `.ac-bookings-grid-time-cell` only renders a label on hour rows (`isHourRow = minute === 0`)
+
+The `visibleSubRows` count = `(lastVisibleHour - firstVisibleHour + 1) * 2`. The grid body height is `visibleSubRows * ROW_HEIGHT`.
 
 ## Responsive Breakpoints (public site)
 
