@@ -2,6 +2,9 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Breadcrumbs } from "@/components/breadcrumbs";
+import { TurnstileWidget } from "@/components/calendar/turnstile-widget";
+
+const TURNSTILE_SITE_KEY = process.env.NEXT_PUBLIC_TURNSTILE_SITE_KEY ?? "";
 
 /* ─── Types ─────────────────────────────────────────────────────── */
 
@@ -150,43 +153,58 @@ function getRoomHourlyRate(
   return candidates.length ? Math.min(...candidates) : null;
 }
 
+// The "full day" event type for a room is whichever event type the admin has
+// configured with the longest durationHours and has pricing rules for the room.
+function getFullDayEventTypeId(
+  rules: PricingRule[],
+  eventTypes: EventType[],
+  roomId: string,
+): string | null {
+  const eligibleIds = new Set(
+    rules
+      .filter(
+        (r) =>
+          r.roomTypeId === roomId &&
+          (r.dayType === "weekday" || r.dayType === "any"),
+      )
+      .map((r) => r.eventTypeId),
+  );
+  const eligible = eventTypes.filter((e) => eligibleIds.has(e.id));
+  if (eligible.length === 0) return null;
+  return eligible.reduce((longest, et) =>
+    et.durationHours > longest.durationHours ? et : longest,
+  ).id;
+}
+
 function getRoomDayRate(
   rules: PricingRule[],
   eventTypes: EventType[],
   roomId: string,
 ): number | null {
-  const candidates = rules
-    .filter(
-      (r) =>
-        r.roomTypeId === roomId &&
-        r.acMode === "without_ac" &&
-        (r.dayType === "weekday" || r.dayType === "any"),
-    )
-    .map((r) => {
-      const et = eventTypes.find((e) => e.id === r.eventTypeId);
-      if (!et) return null;
-      return { amount: r.amountLkr, duration: et.durationHours };
-    })
-    .filter((v): v is { amount: number; duration: number } => v !== null);
-  if (candidates.length === 0) return null;
-  const fullDay = candidates.filter((c) => c.duration >= 8);
-  const pool = fullDay.length > 0 ? fullDay : candidates;
-  return pool.reduce((max, c) => (c.amount > max ? c.amount : max), 0);
+  const fullDayId = getFullDayEventTypeId(rules, eventTypes, roomId);
+  if (!fullDayId) return null;
+  const rule = rules.find(
+    (r) =>
+      r.roomTypeId === roomId &&
+      r.eventTypeId === fullDayId &&
+      r.acMode === "without_ac" &&
+      (r.dayType === "weekday" || r.dayType === "any"),
+  );
+  return rule?.amountLkr ?? null;
 }
 
-function getAcPremiumPerHour(
+function getAcPremiumFullDay(
   rules: PricingRule[],
   eventTypes: EventType[],
   roomId: string,
-  eventTypeId: string,
 ): number | null {
-  const et = eventTypes.find((e) => e.id === eventTypeId);
-  if (!et || et.durationHours <= 0) return null;
+  const fullDayId = getFullDayEventTypeId(rules, eventTypes, roomId);
+  if (!fullDayId) return null;
   const findRule = (mode: "with_ac" | "without_ac") =>
     rules.find(
       (r) =>
         r.roomTypeId === roomId &&
-        r.eventTypeId === eventTypeId &&
+        r.eventTypeId === fullDayId &&
         r.acMode === mode &&
         (r.dayType === "weekday" || r.dayType === "any"),
     );
@@ -194,8 +212,7 @@ function getAcPremiumPerHour(
   const withoutAc = findRule("without_ac");
   if (!withAc || !withoutAc) return null;
   const diff = withAc.amountLkr - withoutAc.amountLkr;
-  if (diff <= 0) return null;
-  return diff / et.durationHours;
+  return diff > 0 ? diff : null;
 }
 
 function dayType(date: string): "weekday" | "weekend" {
@@ -329,6 +346,9 @@ export function BookingCalendarFlow() {
   const [configAttempt, setConfigAttempt] = useState(0);
   const [showJump, setShowJump] = useState(false);
   const [termsAccepted, setTermsAccepted] = useState(false);
+  const [turnstileToken, setTurnstileToken] = useState<string | null>(null);
+  const [turnstileResetKey, setTurnstileResetKey] = useState(0);
+  const turnstileRequired = TURNSTILE_SITE_KEY.length > 0;
 
   const weekDates = useMemo(
     () => Array.from({ length: 7 }, (_, i) => formatDate(addDays(weekStartDate, i))),
@@ -684,6 +704,8 @@ export function BookingCalendarFlow() {
     setErrorMessage("");
     setStatusMessage("");
     setTermsAccepted(false);
+    setTurnstileToken(null);
+    setTurnstileResetKey((k) => k + 1);
   }
 
   async function submitBooking() {
@@ -697,6 +719,10 @@ export function BookingCalendarFlow() {
     }
     if (!termsAccepted) {
       setErrorMessage("Please accept the booking terms before submitting.");
+      return;
+    }
+    if (turnstileRequired && !turnstileToken) {
+      setErrorMessage("Please complete the bot verification check before submitting.");
       return;
     }
 
@@ -753,7 +779,15 @@ export function BookingCalendarFlow() {
     const res = await fetch("/api/calendar/bookings", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ roomTypeId, eventTypeId, acMode, selectedSlots, recurrence, customer }),
+      body: JSON.stringify({
+        roomTypeId,
+        eventTypeId,
+        acMode,
+        selectedSlots,
+        recurrence,
+        customer,
+        turnstileToken,
+      }),
     });
 
     let data: {
@@ -780,6 +814,8 @@ export function BookingCalendarFlow() {
       } else {
         setErrorMessage(data.message ?? "Failed to submit booking.");
       }
+      setTurnstileToken(null);
+      setTurnstileResetKey((k) => k + 1);
       setIsSubmitting(false);
       return;
     }
@@ -977,11 +1013,11 @@ export function BookingCalendarFlow() {
                 const disabled = !availableAcModes.includes(mode);
                 const premium =
                   mode === "with_ac"
-                    ? getAcPremiumPerHour(pricingRules, eventTypes, roomTypeId, eventTypeId)
+                    ? getAcPremiumFullDay(pricingRules, eventTypes, roomTypeId)
                     : null;
                 const withAcSub =
                   premium !== null
-                    ? `climate · +LKR ${currency(Math.round(premium))}/hr`
+                    ? `climate · +LKR ${currency(premium)} / day`
                     : "climate · premium";
                 return (
                   <button
@@ -1702,10 +1738,26 @@ export function BookingCalendarFlow() {
               <span className="ac-display ac-bookings-receipt-amount">{currency(total)}</span>
             </div>
 
+            {turnstileRequired ? (
+              <div className="ac-bookings-receipt-turnstile">
+                <TurnstileWidget
+                  siteKey={TURNSTILE_SITE_KEY}
+                  onToken={setTurnstileToken}
+                  resetKey={turnstileResetKey}
+                  theme="dark"
+                />
+              </div>
+            ) : null}
+
             <div className="ac-bookings-receipt-actions">
               <button
                 className="ac-btn-primary"
-                disabled={isSubmitting || selectedSlots.length === 0 || !termsAccepted}
+                disabled={
+                  isSubmitting ||
+                  selectedSlots.length === 0 ||
+                  !termsAccepted ||
+                  (turnstileRequired && !turnstileToken)
+                }
                 onClick={submitBooking}
                 type="button"
               >
