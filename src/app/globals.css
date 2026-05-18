@@ -1697,25 +1697,64 @@ a.ac-channel-card:focus-visible {
   text-transform: uppercase;
   color: var(--ac-text-mute);
 }
-.ac-bookings-room-name {
+.ac-bookings-room-headline {
   margin-top: 12px;
+  display: flex;
+  align-items: flex-end;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+.ac-bookings-room-name {
   display: flex;
   flex-direction: column;
 }
 .ac-bookings-room-name .ac-display {
   font-size: 56px;
   color: var(--ac-text-dim);
+  line-height: 0.92;
 }
 .ac-bookings-room-card.is-selected .ac-bookings-room-name .ac-display {
   color: var(--ac-text);
 }
-.ac-bookings-room-sub {
-  margin: 14px 0 0;
-  font-family: "Geist Mono", monospace;
-  font-size: 11px;
-  letter-spacing: 0.06em;
+.ac-bookings-room-desc {
+  margin: 0 0 10px;
+  font-family: "Space Grotesk", sans-serif;
+  font-size: 16px;
+  line-height: 1.4;
   color: var(--ac-text-mute);
+  flex: 1 1 200px;
+}
+.ac-bookings-room-card.is-selected .ac-bookings-room-desc {
+  color: var(--ac-text-dim);
+}
+.ac-bookings-room-stats {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 12px;
+  margin-top: 24px;
+  padding-top: 20px;
+  border-top: 1px solid var(--ac-line);
+}
+.ac-bookings-room-stat {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.ac-bookings-room-stat .label {
+  font-family: "Geist Mono", monospace;
+  font-size: 9px;
+  letter-spacing: 0.08em;
   text-transform: uppercase;
+  color: var(--ac-text-mute);
+}
+.ac-bookings-room-stat .value {
+  font-family: "Archivo", sans-serif;
+  font-weight: 800;
+  font-size: 18px;
+  color: var(--ac-text-dim);
+}
+.ac-bookings-room-card.is-selected .ac-bookings-room-stat .value {
+  color: var(--ac-text);
 }
 
 .ac-bookings-config-row {
@@ -2268,23 +2307,50 @@ a.ac-channel-card:focus-visible {
 
 .ac-bookings-terms {
   display: flex;
-  gap: 14px;
-  align-items: flex-start;
+  flex-direction: column;
+  gap: 12px;
   padding: 16px 20px;
   background: var(--ac-card);
   border: 1px solid var(--ac-line);
   border-left: 3px solid var(--ac-gold);
 }
-.ac-bookings-terms-icon {
+.ac-bookings-terms-label {
+  display: flex;
+  align-items: flex-start;
+  gap: 14px;
+  cursor: pointer;
+}
+.ac-bookings-terms-checkbox {
+  appearance: none;
   width: 22px;
   height: 22px;
-  background: var(--ac-gold);
-  color: var(--ac-ink);
-  display: flex;
-  align-items: center;
-  justify-content: center;
+  border: 1px solid var(--ac-line);
+  background: var(--ac-ink2);
   flex: 0 0 auto;
-  margin-top: 1px;
+  margin: 1px 0 0;
+  display: grid;
+  place-items: center;
+  cursor: pointer;
+  transition: background 0.15s ease, border-color 0.15s ease;
+}
+.ac-bookings-terms-checkbox:hover {
+  border-color: var(--ac-gold);
+}
+.ac-bookings-terms-checkbox:checked {
+  background: var(--ac-gold);
+  border-color: var(--ac-gold);
+}
+.ac-bookings-terms-checkbox:checked::after {
+  content: "";
+  width: 12px;
+  height: 6px;
+  border-left: 2px solid var(--ac-ink);
+  border-bottom: 2px solid var(--ac-ink);
+  transform: translateY(-2px) rotate(-45deg);
+}
+.ac-bookings-terms-checkbox:focus-visible {
+  outline: 2px solid var(--ac-gold);
+  outline-offset: 2px;
 }
 .ac-bookings-terms-text {
   font-family: "Space Grotesk", sans-serif;
@@ -2292,10 +2358,66 @@ a.ac-channel-card:focus-visible {
   color: var(--ac-text-dim);
   line-height: 1.6;
 }
-.ac-bookings-terms-text a {
+.ac-bookings-terms-details {
+  border-top: 1px solid var(--ac-line);
+  padding-top: 12px;
+  margin-top: 4px;
+}
+.ac-bookings-terms-details summary {
+  cursor: pointer;
+  font-family: "Geist Mono", monospace;
+  font-size: 11px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--ac-gold);
+  list-style: none;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.ac-bookings-terms-details summary::-webkit-details-marker {
+  display: none;
+}
+.ac-bookings-terms-details summary::before {
+  content: "▸";
+  font-size: 10px;
+  transition: transform 0.15s ease;
+  display: inline-block;
+}
+.ac-bookings-terms-details[open] summary::before {
+  transform: rotate(90deg);
+}
+.ac-bookings-terms-details summary:hover {
+  color: var(--ac-gold-bright);
+}
+.ac-bookings-terms-body {
+  margin-top: 12px;
+  font-family: "Space Grotesk", sans-serif;
+  font-size: 13px;
+  color: var(--ac-text-dim);
+  line-height: 1.6;
+}
+.ac-bookings-terms-body h4 {
+  font-family: "Archivo", sans-serif;
+  font-size: 12px;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
   color: var(--ac-text);
-  border-bottom: 1px solid var(--ac-gold);
-  font-weight: 500;
+  margin: 0 0 8px;
+}
+.ac-bookings-terms-body ul {
+  margin: 0;
+  padding-left: 18px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.ac-bookings-terms-body li {
+  padding-left: 4px;
+}
+.ac-bookings-terms-body li::marker {
+  color: var(--ac-gold);
 }
 
 /* ─── Receipt sidebar ─────────────────────────────────────────── */
@@ -4118,7 +4240,13 @@ a.ac-channel-card:focus-visible {
 }
 
 .admin-row-rooms {
-  grid-template-columns: 2fr 1fr 1fr 80px;
+  grid-template-columns: 1.6fr 0.9fr 0.9fr 0.8fr 2.2fr 80px;
+}
+
+.admin-help-text {
+  margin: -4px 0 12px;
+  font-size: 13px;
+  color: var(--muted);
 }
 
 .admin-event-type-card {

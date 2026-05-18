@@ -73,6 +73,15 @@ The legacy `--brand` / `--ink` / `--muted` / `--bg` / `--panel` / `--line` / `--
 
 ## Calendar Data Model
 
+### RoomType
+
+Key fields:
+- `id`, `name`, `startTime`, `endTime` (room working hours, HH:00)
+- `capacity` (Int?) — admin-editable; appears as the CAPACITY tile on the public bookings room card
+- `description` (String?) — short blurb (e.g. "The full floor. 1,200 sqm of polished maple."); admin-editable; shown on the public bookings room card; hidden when blank
+
+Both `capacity` and `description` are set by super-admins in the Room Types editor (admin/calendar/rooms). The public bookings page derives HOURLY / DAY RATE / +LKR X/hr from `PricingRule` — never hardcode them in the component.
+
 ### Booking
 
 Key fields:
@@ -120,6 +129,8 @@ bookingOverride → bookingAmountBreakdown → bookingSlot → paymentEntry → 
 ```
 
 `paymentEntry` must be deleted before `booking` (FK) and recreated after `booking`.
+
+The interactive transaction is configured with `{ timeout: 30_000, maxWait: 10_000 }` because the wipe-and-recreate body issues many sequential round-trips to Neon (Singapore). The default 5 s Prisma timeout is too tight once real bookings exist. The wipe-recreate pattern itself is wasteful — a future refactor should do targeted upserts on the changed table(s) instead of nuking everything.
 
 ## Auth
 
@@ -258,6 +269,20 @@ Every send attempt writes a row to `EmailLog` (status `sent` or `failed`). Email
 | `reason` | Human-readable reason string for `blocked` slots |
 
 `bookingStartTime`/`bookingEndTime` are critical for correct display. Because a single booking can block multiple candidate slots (staircase effect), the public calendar uses `busySlotCoversHour()` in `booking-calendar-flow.tsx` which reads these actual booking times. Without them, a Full Day booking at 07:00–17:00 would visually extend to 19:00+ when the user views the calendar with a shorter event type selected.
+
+## Public Bookings Page: Room Cards, Recurrence, Terms
+
+The public bookings page (`booking-calendar-flow.tsx`) drives all room-card data from the admin portal — **never hardcode** capacity, description, or pricing in the component:
+
+- **CAPACITY** and **description** come from `RoomType.capacity` / `RoomType.description` (admin-editable in Room Types editor)
+- **HOURLY** = min `amountLkr / durationHours` across all event types for the room (weekday or any, without_ac), derived via `getRoomHourlyRate()`
+- **DAY RATE** = max `amountLkr` among event types with `durationHours >= 8` for the room, falling back to max amount across all event types when no ≥8h type exists, via `getRoomDayRate()`
+- **WITH A/C sub** = `+LKR X/hr` where X = `(with_ac.amountLkr - without_ac.amountLkr) / durationHours` for the currently selected event type, via `getAcPremiumPerHour()`
+- **VENUE 01 / 02** tag is derived from sort order of the `rooms` array, not from any DB field
+
+**Recurrence preview**: `expandRecurrencePreview()` returns `[]` until the admin has set either an End Date or Occurrences. Choosing Daily/Weekly/Monthly with no limit does **not** paint recurrence blocks on the calendar.
+
+**Booking terms**: a real `<input type="checkbox">` (default unchecked) gates the Submit button. The full General Guidelines list is embedded inline in a `<details>` expander — not linked to the privacy policy.
 
 ## Admin Booking Queue: Tab Filtering
 

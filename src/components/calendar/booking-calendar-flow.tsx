@@ -1,6 +1,5 @@
 "use client";
 
-import Link from "next/link";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Breadcrumbs } from "@/components/breadcrumbs";
 
@@ -10,6 +9,8 @@ type RoomType = {
   id: string;
   name: string;
   workingHours: { startTime: string; endTime: string };
+  capacity?: number;
+  description?: string;
 };
 type EventType = {
   id: string;
@@ -110,6 +111,93 @@ function currency(value: number) {
   return new Intl.NumberFormat("en-LK").format(value);
 }
 
+function formatLkrK(value: number | null): string {
+  if (value === null || !Number.isFinite(value)) return "—";
+  if (value >= 1000) {
+    const k = value / 1000;
+    return `LKR ${k < 10 ? k.toFixed(1) : Math.round(k).toString()}K`;
+  }
+  return `LKR ${Math.round(value)}`;
+}
+
+function venueTagPrefix(index: number): string {
+  return `VENUE ${String(index + 1).padStart(2, "0")}`;
+}
+
+function formatCapacity(capacity: number | undefined): string {
+  if (capacity === undefined || capacity === null || !Number.isFinite(capacity)) return "—";
+  return new Intl.NumberFormat("en-LK").format(capacity);
+}
+
+function getRoomHourlyRate(
+  rules: PricingRule[],
+  eventTypes: EventType[],
+  roomId: string,
+): number | null {
+  const candidates = rules
+    .filter(
+      (r) =>
+        r.roomTypeId === roomId &&
+        r.acMode === "without_ac" &&
+        (r.dayType === "weekday" || r.dayType === "any"),
+    )
+    .map((r) => {
+      const et = eventTypes.find((e) => e.id === r.eventTypeId);
+      if (!et || et.durationHours <= 0) return null;
+      return r.amountLkr / et.durationHours;
+    })
+    .filter((v): v is number => v !== null);
+  return candidates.length ? Math.min(...candidates) : null;
+}
+
+function getRoomDayRate(
+  rules: PricingRule[],
+  eventTypes: EventType[],
+  roomId: string,
+): number | null {
+  const candidates = rules
+    .filter(
+      (r) =>
+        r.roomTypeId === roomId &&
+        r.acMode === "without_ac" &&
+        (r.dayType === "weekday" || r.dayType === "any"),
+    )
+    .map((r) => {
+      const et = eventTypes.find((e) => e.id === r.eventTypeId);
+      if (!et) return null;
+      return { amount: r.amountLkr, duration: et.durationHours };
+    })
+    .filter((v): v is { amount: number; duration: number } => v !== null);
+  if (candidates.length === 0) return null;
+  const fullDay = candidates.filter((c) => c.duration >= 8);
+  const pool = fullDay.length > 0 ? fullDay : candidates;
+  return pool.reduce((max, c) => (c.amount > max ? c.amount : max), 0);
+}
+
+function getAcPremiumPerHour(
+  rules: PricingRule[],
+  eventTypes: EventType[],
+  roomId: string,
+  eventTypeId: string,
+): number | null {
+  const et = eventTypes.find((e) => e.id === eventTypeId);
+  if (!et || et.durationHours <= 0) return null;
+  const findRule = (mode: "with_ac" | "without_ac") =>
+    rules.find(
+      (r) =>
+        r.roomTypeId === roomId &&
+        r.eventTypeId === eventTypeId &&
+        r.acMode === mode &&
+        (r.dayType === "weekday" || r.dayType === "any"),
+    );
+  const withAc = findRule("with_ac");
+  const withoutAc = findRule("without_ac");
+  if (!withAc || !withoutAc) return null;
+  const diff = withAc.amountLkr - withoutAc.amountLkr;
+  if (diff <= 0) return null;
+  return diff / et.durationHours;
+}
+
 function dayType(date: string): "weekday" | "weekend" {
   const d = ymdToDate(date).getDay();
   return d === 0 || d === 6 ? "weekend" : "weekday";
@@ -178,9 +266,10 @@ function expandRecurrencePreview(
   frequency: RecurrenceFrequency,
   endDate: string,
   occurrences: string,
-  previewUntilDate?: string,
 ) {
   if (frequency === "none" || selectedSlots.length === 0) return [];
+  // No preview until the admin has set an explicit limit.
+  if (!endDate && !occurrences) return [];
 
   const baseDates = [...new Set(selectedSlots.map((slot) => slot.date))].sort();
   const maxSteps = occurrences ? Math.max(0, Number(occurrences) - 1) : Number.POSITIVE_INFINITY;
@@ -196,7 +285,6 @@ function expandRecurrencePreview(
 
     const furthest = nextDates[nextDates.length - 1];
     if (endDate && furthest > endDate) break;
-    if (!endDate && !occurrences && previewUntilDate && furthest > previewUntilDate) break;
 
     results.push(
       ...selectedSlots.map((slot) => ({
@@ -239,6 +327,7 @@ export function BookingCalendarFlow() {
   const [configError, setConfigError] = useState<"timeout" | "failed" | null>(null);
   const [configAttempt, setConfigAttempt] = useState(0);
   const [showJump, setShowJump] = useState(false);
+  const [termsAccepted, setTermsAccepted] = useState(false);
 
   const weekDates = useMemo(
     () => Array.from({ length: 7 }, (_, i) => formatDate(addDays(weekStartDate, i))),
@@ -441,11 +530,10 @@ export function BookingCalendarFlow() {
       frequency,
       recurrenceEndDate,
       occurrences,
-      weekDates[weekDates.length - 1],
     );
     const selectedKeys = new Set(selectedSlots.map((slot) => slotKey(slot)));
     return expanded.filter((slot) => !selectedKeys.has(slotKey(slot)));
-  }, [selectedSlots, frequency, recurrenceEndDate, occurrences, weekDates]);
+  }, [selectedSlots, frequency, recurrenceEndDate, occurrences]);
 
   const recurrencePreviewSlots = useMemo(
     () => recurrenceExpandedSlots.filter((slot) => weekDates.includes(slot.date)),
@@ -586,6 +674,7 @@ export function BookingCalendarFlow() {
     setOccurrences("");
     setErrorMessage("");
     setStatusMessage("");
+    setTermsAccepted(false);
   }
 
   async function submitBooking() {
@@ -595,6 +684,10 @@ export function BookingCalendarFlow() {
     }
     if (!customer.name.trim() || !customer.email.trim() || !customer.phone.trim()) {
       setErrorMessage("Name, email, and contact number are required.");
+      return;
+    }
+    if (!termsAccepted) {
+      setErrorMessage("Please accept the booking terms before submitting.");
       return;
     }
 
@@ -796,8 +889,10 @@ export function BookingCalendarFlow() {
         </div>
 
         <div className="ac-bookings-room-grid">
-          {rooms.map((room) => {
+          {rooms.map((room, idx) => {
             const selected = room.id === roomTypeId;
+            const hourly = getRoomHourlyRate(pricingRules, eventTypes, room.id);
+            const dayRate = getRoomDayRate(pricingRules, eventTypes, room.id);
             return (
               <button
                 aria-pressed={selected}
@@ -807,18 +902,35 @@ export function BookingCalendarFlow() {
                 type="button"
               >
                 {selected ? <div className="ac-bookings-room-badge">● SELECTED</div> : null}
-                <span className="ac-bookings-room-tag">{room.name.toUpperCase()}</span>
-                <div className="ac-bookings-room-name">
-                  {room.name.split(" ").map((word) => (
-                    <span className="ac-display" key={word}>
-                      {word.toUpperCase()}
-                    </span>
-                  ))}
+                <span className="ac-bookings-room-tag">
+                  {venueTagPrefix(idx)} / {room.name.toUpperCase()}
+                </span>
+                <div className="ac-bookings-room-headline">
+                  <div className="ac-bookings-room-name">
+                    {room.name.split(" ").map((word) => (
+                      <span className="ac-display" key={word}>
+                        {word.toUpperCase()}
+                      </span>
+                    ))}
+                  </div>
+                  {room.description ? (
+                    <p className="ac-bookings-room-desc">{room.description}</p>
+                  ) : null}
                 </div>
-                <p className="ac-bookings-room-sub">
-                  Working hours{" "}
-                  {room.workingHours.startTime}–{room.workingHours.endTime}
-                </p>
+                <div className="ac-bookings-room-stats">
+                  <div className="ac-bookings-room-stat">
+                    <span className="label">CAPACITY</span>
+                    <span className="value">{formatCapacity(room.capacity)}</span>
+                  </div>
+                  <div className="ac-bookings-room-stat">
+                    <span className="label">HOURLY</span>
+                    <span className="value">{formatLkrK(hourly)}</span>
+                  </div>
+                  <div className="ac-bookings-room-stat">
+                    <span className="label">DAY RATE</span>
+                    <span className="value">{formatLkrK(dayRate)}</span>
+                  </div>
+                </div>
               </button>
             );
           })}
@@ -854,6 +966,14 @@ export function BookingCalendarFlow() {
               {(["without_ac", "with_ac"] as const).map((mode) => {
                 const active = acMode === mode;
                 const disabled = !availableAcModes.includes(mode);
+                const premium =
+                  mode === "with_ac"
+                    ? getAcPremiumPerHour(pricingRules, eventTypes, roomTypeId, eventTypeId)
+                    : null;
+                const withAcSub =
+                  premium !== null
+                    ? `climate · +LKR ${currency(Math.round(premium))}/hr`
+                    : "climate · premium";
                 return (
                   <button
                     aria-checked={active}
@@ -868,7 +988,7 @@ export function BookingCalendarFlow() {
                       {mode === "without_ac" ? "Without A/C" : "With A/C"}
                     </span>
                     <span className="ac-bookings-ac-sub">
-                      {mode === "without_ac" ? "open vents · included" : "climate · premium"}
+                      {mode === "without_ac" ? "open vents · included" : withAcSub}
                     </span>
                   </button>
                 );
@@ -1304,16 +1424,56 @@ export function BookingCalendarFlow() {
 
             {/* Terms */}
             <div className="ac-bookings-terms">
-              <div className="ac-bookings-terms-icon" aria-hidden="true">
-                <svg viewBox="0 0 12 12" width="12" height="12">
-                  <path d="M1.5 6 L5 9.5 L10.5 2.5" stroke="currentColor" strokeWidth="2" fill="none" />
-                </svg>
-              </div>
-              <div className="ac-bookings-terms-text">
-                By submitting you accept the{" "}
-                <Link href="/privacy">booking terms</Link> and confirm that the venue will not be
-                used for commercial purposes without prior approval.
-              </div>
+              <label className="ac-bookings-terms-label">
+                <input
+                  checked={termsAccepted}
+                  className="ac-bookings-terms-checkbox"
+                  onChange={(e) => setTermsAccepted(e.target.checked)}
+                  type="checkbox"
+                />
+                <span className="ac-bookings-terms-text">
+                  I have read and accept the booking terms below, and confirm that the venue will
+                  not be used for commercial purposes without prior approval.
+                </span>
+              </label>
+              <details className="ac-bookings-terms-details">
+                <summary>Read booking terms</summary>
+                <div className="ac-bookings-terms-body">
+                  <h4>General Guidelines</h4>
+                  <ul>
+                    <li>
+                      All reservations must be done through the website. Verbal confirmations to
+                      RMASA Manager are not valid.
+                    </li>
+                    <li>
+                      Any reservation done via the website will be considered TENTATIVE until the
+                      relevant advance payment is completed within 1 working day.
+                    </li>
+                    <li>
+                      The reservation will be considered CONFIRMED only if valid payment details
+                      with relevant transaction reference nos. are conveyed to RMASA Manager or the
+                      payment is directly paid via Credit Card at RMASA premises.
+                    </li>
+                    <li>
+                      If no payment details are conveyed to RMASA Manager, the TENTATIVE
+                      reservation will be considered as CANCELLED.
+                    </li>
+                    <li>
+                      Instructors / users who wish to reserve the Studio Room on a regular basis
+                      shall enter into a legal agreement with BoMRMASA.
+                    </li>
+                    <li>
+                      Verbal confirmations to RMASA Manager will not be considered as a
+                      CONFIRMATION, especially where another instructor / user CONFIRMS the said
+                      time slot with requisite payment.
+                    </li>
+                    <li>
+                      Rescheduling of CONFIRMED reservations will not be possible if it is within
+                      3 weeks of the confirmed date.
+                    </li>
+                  </ul>
+                </div>
+              </details>
             </div>
           </div>
 
@@ -1404,7 +1564,7 @@ export function BookingCalendarFlow() {
             <div className="ac-bookings-receipt-actions">
               <button
                 className="ac-btn-primary"
-                disabled={isSubmitting || selectedSlots.length === 0}
+                disabled={isSubmitting || selectedSlots.length === 0 || !termsAccepted}
                 onClick={submitBooking}
                 type="button"
               >

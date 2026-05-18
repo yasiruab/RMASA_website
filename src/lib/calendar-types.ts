@@ -31,6 +31,8 @@ export type RoomType = {
     startTime: string; // HH:mm
     endTime: string; // HH:mm
   };
+  capacity?: number;
+  description?: string;
 };
 
 export type EventType = {

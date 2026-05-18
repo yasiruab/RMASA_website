@@ -8,6 +8,8 @@ type RoomType = {
   id: string;
   name: string;
   workingHours: { startTime: string; endTime: string };
+  capacity?: number;
+  description?: string;
 };
 type EventType = { id: string; name: string; durationHours: number; cleanupDurationMinutes: number; maxAdvanceBookingDays: number; priority: number; roomTypeId?: string };
 type PricingRule = {
@@ -1353,11 +1355,16 @@ export function AdminCalendarConsole({ section }: AdminCalendarConsoleProps) {
         isSuperAdmin ? (
         <section className="admin-panel">
         <h2>Room Types and Working Hours</h2>
+        <p className="admin-help-text">
+          Capacity and description appear on the public bookings page room cards. Leave blank to hide.
+        </p>
         <div className="admin-list">
           <div className="admin-row admin-row-rooms admin-row-header">
             <span>Room Name</span>
             <span>Opening Time</span>
             <span>Closing Time</span>
+            <span>Capacity</span>
+            <span>Description</span>
             <span></span>
           </div>
           {rooms.map((room, index) => (
@@ -1412,6 +1419,34 @@ export function AdminCalendarConsole({ section }: AdminCalendarConsoleProps) {
                     ),
                   )
                 }
+              />
+              <input
+                type="number"
+                min={0}
+                step={1}
+                placeholder="e.g. 1200"
+                value={room.capacity ?? ""}
+                onChange={(event) => {
+                  const raw = event.target.value.trim();
+                  const next = raw === "" ? undefined : Number(raw);
+                  setRooms((current) =>
+                    current.map((item, i) =>
+                      i === index ? { ...item, capacity: next } : item,
+                    ),
+                  );
+                }}
+              />
+              <input
+                placeholder="e.g. The full floor. 1,200 sqm of polished maple."
+                value={room.description ?? ""}
+                onChange={(event) => {
+                  const next = event.target.value;
+                  setRooms((current) =>
+                    current.map((item, i) =>
+                      i === index ? { ...item, description: next || undefined } : item,
+                    ),
+                  );
+                }}
               />
               <button
                 className="btn btn-secondary"
