@@ -255,6 +255,31 @@ Every send attempt writes a row to `EmailLog` (status `sent` or `failed`). Email
 
 **`EmailLog` model** (Prisma): `id`, `bookingReference` (denormalized string — no FK), `type`, `toEmail`, `fromEmail`, `subject`, `htmlBody`, `status`, `errorMessage`, `createdAt`.
 
+## Bot Protection: Cloudflare Turnstile
+
+The public booking form is gated by **Cloudflare Turnstile** to prevent scripted abuse (the endpoint is anonymous and triggers two transactional emails per submit). Turnstile is a free, invisible CAPTCHA alternative — the user usually sees nothing.
+
+**Files:**
+- `src/lib/turnstile.ts` — server-side `verifyTurnstileToken()`. **Fail-open** if `TURNSTILE_SECRET_KEY` is unset (deploys keep working before keys are configured in Amplify).
+- `src/components/calendar/turnstile-widget.tsx` — client widget; loads the CF script on demand, exposes a `resetKey` prop to force token rotation between submits (CF tokens are single-use).
+- `src/components/calendar/booking-calendar-flow.tsx` — renders widget in the receipt aside, gates Submit button, sends `turnstileToken` in the POST body, resets after every submit attempt (success or failure).
+- `src/app/api/calendar/bookings/route.ts` — verifies the token **first**, before any DB read.
+
+**Required env vars:**
+
+| Variable | Notes |
+|---|---|
+| `NEXT_PUBLIC_TURNSTILE_SITE_KEY` | Client widget key; inlined at build time (no `_AMPLIFY_*` baking needed — Next.js handles `NEXT_PUBLIC_*` automatically). Set in Amplify console. |
+| `TURNSTILE_SECRET_KEY` | Server-only; uses the `_AMPLIFY_*` pattern in [`next.config.ts`](next.config.ts). Set in Amplify console. |
+
+**Test keys** for local dev (always pass, from [CF docs](https://developers.cloudflare.com/turnstile/troubleshooting/testing/)) are pre-populated in `.env.local`:
+- Site key: `1x00000000000000000000AA`
+- Secret: `1x0000000000000000000000000000000AA`
+
+Get real keys at https://dash.cloudflare.com → **Turnstile** → **Add Site**. Add `royalmasarena.lk` (and `localhost` for dev) to the hostnames list. Widget mode: **Managed** (recommended).
+
+`src/lib/turnstile.ts` is on the `_AMPLIFY_*` allowlist in [`scripts/check-amplify-secret-leak.mjs`](scripts/check-amplify-secret-leak.mjs).
+
 ## SlotAvailability
 
 `SlotAvailability` (in `calendar-types.ts`) is the shape returned by `GET /api/calendar/availability`. Key fields:

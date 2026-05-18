@@ -18,6 +18,7 @@ import {
 } from "@/lib/calendar-core";
 import { readCalendarDb, updateCalendarDb } from "@/lib/calendar-store";
 import { AcMode, Booking, BookingSlot, DayType, Recurrence } from "@/lib/calendar-types";
+import { verifyTurnstileToken } from "@/lib/turnstile";
 
 type BookingPayload = {
   roomTypeId?: string;
@@ -31,6 +32,7 @@ type BookingPayload = {
     phone?: string;
     purpose?: string;
   };
+  turnstileToken?: string;
 };
 
 function isEmail(value: string) {
@@ -43,6 +45,19 @@ function generateBookingReference(): string {
 
 export async function POST(req: Request) {
   const payload = (await req.json()) as BookingPayload;
+
+  const remoteIp =
+    req.headers.get("x-forwarded-for")?.split(",")[0]?.trim() ||
+    req.headers.get("x-real-ip") ||
+    null;
+  const turnstile = await verifyTurnstileToken(payload.turnstileToken, remoteIp);
+  if (!turnstile.success) {
+    return NextResponse.json(
+      { message: "Bot verification failed. Please refresh the page and try again." },
+      { status: 400 },
+    );
+  }
+
   const roomTypeId = String(payload.roomTypeId ?? "").trim();
   const eventTypeId = String(payload.eventTypeId ?? "").trim();
   const acMode = payload.acMode;

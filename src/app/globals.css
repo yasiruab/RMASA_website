@@ -2764,6 +2764,14 @@ a.ac-channel-card:focus-visible {
   color: var(--ac-gold);
   letter-spacing: -0.04em;
 }
+.ac-bookings-receipt-turnstile {
+  padding: 16px 22px 0;
+  display: flex;
+  justify-content: center;
+}
+.ac-bookings-receipt-turnstile .cf-turnstile-widget {
+  min-height: 65px;
+}
 .ac-bookings-receipt-actions {
   padding: 22px;
   display: flex;

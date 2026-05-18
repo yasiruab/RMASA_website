@@ -13,6 +13,7 @@ const allowed = new Set([
   "src/instrumentation.ts",
   "src/lib/prisma.ts",
   "src/lib/email.ts",
+  "src/lib/turnstile.ts",
   "scripts/check-amplify-secret-leak.mjs",
 ]);
 const skipDirs = new Set(["node_modules", ".next", "dist", "out", ".git"]);
