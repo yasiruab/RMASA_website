@@ -117,12 +117,12 @@ export function Nav() {
             <span className="live-label">{deskStatus?.open === false ? "CLOSED" : "LIVE"}</span>
             <span>{deskStatus?.label ?? `BOOKINGS DESK · ${String(DESK_OPEN_HOUR).padStart(2, "0")}:00–${String(DESK_CLOSE_HOUR).padStart(2, "0")}:00`}</span>
           </span>
-          <span aria-hidden="true">·</span>
-          <span>RAJAKEEYA MAWATHA · COLOMBO 07</span>
+          <span aria-hidden="true" className="ac-live-strip-bullet">·</span>
+          <span className="ac-live-strip-address">RAJAKEEYA MAWATHA · COLOMBO 07</span>
         </div>
         <div className="ac-live-strip-right">
           <a href="tel:+94704421590">+94 (0) 70 442 1590</a>
-          <a href="mailto:info@royalmasarena.lk">INFO@ROYALMASARENA.LK</a>
+          <a className="ac-live-strip-email" href="mailto:info@royalmasarena.lk">INFO@ROYALMASARENA.LK</a>
         </div>
       </div>
 

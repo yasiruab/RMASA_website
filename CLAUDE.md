@@ -284,6 +284,29 @@ The public bookings page (`booking-calendar-flow.tsx`) drives all room-card data
 
 **Booking terms**: a real `<input type="checkbox">` (default unchecked) gates the Submit button. The full General Guidelines list is embedded inline in a `<details>` expander — not linked to the privacy policy.
 
+## Responsive Breakpoints (public site)
+
+Standard breakpoints used across `src/app/globals.css`:
+
+| Breakpoint | Used for |
+|---|---|
+| `@media (max-width: 980px)` | tablet — desktop nav collapses to hamburger, two-column grids stack |
+| `@media (max-width: 700px)` | phones + small tablets portrait — section paddings compress to 16 px; bookings page swaps to the mobile **day-picker** view; form field grids stack; live-strip address line + bullet hidden |
+| `@media (max-width: 420px)` | narrow phones — paddings compress to 12 px; AC toggle stacks vertically; recurrence row goes single-column; live-strip email link hidden (phone link only); activity tiles use `auto-fill` |
+
+Display typography uses `clamp()` instead of breakpoint overrides — see `.ac-hero-title`, `.ac-hero-italic`, `.ac-page-hero-title`, `.ac-page-hero-italic`. Hero slider height is `clamp(420px, 56vw, 720px)`. Map iframe is `clamp(240px, 60vw, 420px)`.
+
+## Bookings Page: Dual-Render Calendar (desktop grid + mobile day picker)
+
+The bookings calendar in `booking-calendar-flow.tsx` mounts **two views simultaneously** but only one is visible at a time, controlled purely by CSS:
+
+- `.ac-bookings-grid-wrap` — desktop 8-column week grid (existing). Hidden below 700 px.
+- `.ac-bookings-day-view` — mobile day-picker (day pills + vertical hour rows). Hidden above 700 px (default `display: none`).
+
+Both share the same component state (`weekDates`, `slotMap`, `selectedSlots`, `recurrencePreviewSlots`, `recurrenceConflictKeys`). A separate `selectedDayDate` state tracks the currently-shown day in the mobile view; an effect keeps it valid when `weekDates` changes (defaults to today if visible, else the first day of the week).
+
+Each mobile hour row calls the same `toggleSelectionForCell(date, hour)` used by the desktop grid, so behaviour stays identical across both views — the only difference is rendering. Status badges and labels reuse `STATUS_LABELS`.
+
 ## Admin Booking Queue: Tab Filtering
 
 The Booking Queue section has a horizontal tab bar that filters the list client-side. Default tab is **Pending**. All filtering happens inside `admin-calendar-console.tsx` — no API changes.
