@@ -3150,6 +3150,14 @@ a.ac-channel-card:focus-visible {
     display: none;
   }
 
+  /* Editorial stamps + breadcrumbs hidden on phones — they collide with hero titles
+     and add no nav value on a 360 px screen (browser back is right there). */
+  .ac-hero-stamp,
+  .ac-bookings-hero-stamp,
+  .breadcrumbs {
+    display: none;
+  }
+
   /* Tighten nav strip so logo plaque + hamburger fit cleanly */
   .ac-nav-strip {
     padding: 14px 16px;
