@@ -429,23 +429,41 @@ export function BookingCalendarFlow() {
   useEffect(() => {
     if (!roomTypeId || !eventTypeId || weekDates.length === 0) return;
 
+    let cancelled = false;
+    const controller = new AbortController();
+
     void (async () => {
-      const responses = await Promise.all(
-        weekDates.map(async (date) => {
-          const query = new URLSearchParams({ roomTypeId, eventTypeId, date });
-          const res = await fetch(`/api/calendar/availability?${query.toString()}`);
-          const data = (await res.json()) as { slots?: Slot[]; message?: string };
-          return { date, ok: res.ok, data };
-        }),
-      );
+      try {
+        const responses = await Promise.all(
+          weekDates.map(async (date) => {
+            const query = new URLSearchParams({ roomTypeId, eventTypeId, date });
+            const res = await fetch(`/api/calendar/availability?${query.toString()}`, {
+              signal: controller.signal,
+            });
+            const data = (await res.json()) as { slots?: Slot[]; message?: string };
+            return { date, ok: res.ok, data };
+          }),
+        );
 
-      const next: Record<string, Slot[]> = {};
-      const failed = responses.find((item) => !item.ok);
-      for (const response of responses) next[response.date] = response.data.slots ?? [];
+        if (cancelled) return;
 
-      setWeekSlots(next);
-      setErrorMessage(failed ? failed.data.message ?? "Failed to load week availability." : "");
+        const next: Record<string, Slot[]> = {};
+        const failed = responses.find((item) => !item.ok);
+        for (const response of responses) next[response.date] = response.data.slots ?? [];
+
+        setWeekSlots(next);
+        setErrorMessage(failed ? failed.data.message ?? "Failed to load week availability." : "");
+      } catch (err) {
+        if (cancelled) return;
+        if (err instanceof DOMException && err.name === "AbortError") return;
+        setErrorMessage("Failed to load week availability.");
+      }
     })();
+
+    return () => {
+      cancelled = true;
+      controller.abort();
+    };
   }, [roomTypeId, eventTypeId, weekDates, availabilityRefreshKey]);
 
   /* ─── Derived state ──────────────────────────────────────────── */
