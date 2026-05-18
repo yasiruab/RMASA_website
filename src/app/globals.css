@@ -3145,18 +3145,21 @@ a.ac-channel-card:focus-visible {
     padding-right: 16px;
   }
 
-  /* Live strip slims down — drop the redundant address line (already in footer) */
-  .ac-live-strip-left .ac-live-strip-address {
-    display: none;
-  }
-  .ac-live-strip-left .ac-live-strip-bullet {
-    display: none;
-  }
+  /* Live strip hidden entirely on phones — phone + email already live in the footer + contact page */
   .ac-live-strip {
-    gap: 10px;
+    display: none;
   }
-  .ac-live-strip-right {
-    gap: 14px;
+
+  /* Tighten nav strip so logo plaque + hamburger fit cleanly */
+  .ac-nav-strip {
+    padding: 14px 16px;
+    gap: 12px;
+  }
+  .ac-logo-plaque {
+    padding: 6px 10px;
+  }
+  .ac-logo-plaque img {
+    height: 24px;
   }
 
   /* Facts strip: 1fr at narrow widths */
@@ -3252,9 +3255,15 @@ a.ac-channel-card:focus-visible {
     padding-right: 12px;
   }
 
-  /* Live strip: keep phone link, hide email at the tightest tier */
-  .ac-live-strip-right .ac-live-strip-email {
-    display: none;
+  /* Even tighter nav strip on narrow phones */
+  .ac-nav-strip {
+    padding: 12px 12px;
+  }
+  .ac-logo-plaque {
+    padding: 5px 8px;
+  }
+  .ac-logo-plaque img {
+    height: 20px;
   }
 
   /* Recurrence row collapses to a single column */
