@@ -22,13 +22,13 @@ export async function GET(req: Request) {
   if (!isEventTypeAllowedForRoom(eventType, roomTypeId)) {
     return NextResponse.json({ message: "Selected event type is not available for this room." }, { status: 400 });
   }
-  const slots = getSlotAvailabilities(db, room, date, eventType.durationHours, eventType.priority);
+  const slots = getSlotAvailabilities(db, room, date, eventType.durationMinutes, eventType.priority);
 
   return NextResponse.json({
     date,
     roomTypeId,
     eventTypeId,
-    durationHours: eventType.durationHours,
+    durationMinutes: eventType.durationMinutes,
     workingHours: room.workingHours,
     slots,
   });

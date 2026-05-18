@@ -2111,7 +2111,8 @@ a.ac-channel-card:focus-visible {
   color: var(--ac-ink);
 }
 .ac-bookings-day-row.is-off,
-.ac-bookings-day-row.is-past-limit {
+.ac-bookings-day-row.is-past-limit,
+.ac-bookings-day-row.is-unpriced {
   background: rgba(255, 255, 255, 0.02);
   color: var(--ac-text-mute);
 }
@@ -2219,14 +2220,23 @@ a.ac-channel-card:focus-visible {
 .ac-bookings-grid-row:last-child {
   border-bottom: none;
 }
+/* Within an hour: dashed line marks the :30 split. Between hours: solid line. */
+.ac-bookings-grid-row.is-hour {
+  border-bottom-style: dashed;
+  border-bottom-color: rgba(31, 51, 96, 0.55);
+}
 .ac-bookings-grid-time-cell {
   display: flex;
-  align-items: center;
-  padding: 0 8px;
+  align-items: flex-start;
+  padding: 2px 8px 0;
   font-family: "Geist Mono", monospace;
   font-size: 10px;
   color: var(--ac-text-mute);
   border-right: 1px solid var(--ac-line);
+  transform: translateY(-50%);
+}
+.ac-bookings-grid-row:first-of-type .ac-bookings-grid-time-cell {
+  transform: none;
 }
 .ac-bookings-grid-cell {
   background: transparent;
@@ -2251,6 +2261,22 @@ a.ac-channel-card:focus-visible {
 .ac-bookings-grid-cell.is-past-limit {
   background: rgba(31, 51, 96, 0.4);
   cursor: not-allowed;
+}
+.ac-bookings-grid-cell.is-unpriced {
+  background: repeating-linear-gradient(
+    135deg,
+    rgba(31, 51, 96, 0.22),
+    rgba(31, 51, 96, 0.22) 6px,
+    rgba(31, 51, 96, 0.05) 6px,
+    rgba(31, 51, 96, 0.05) 12px
+  );
+  cursor: not-allowed;
+}
+.ac-bookings-grid-day-head.is-unpriced {
+  opacity: 0.6;
+}
+.ac-bookings-grid-day-head.is-unpriced .note {
+  color: var(--ac-text-mute);
 }
 
 .ac-bookings-grid-blocks {
@@ -2278,6 +2304,15 @@ a.ac-channel-card:focus-visible {
   border-left-style: solid;
   border: 1px solid;
   pointer-events: none;
+}
+.ac-bookings-block.is-compact {
+  padding: 2px 8px;
+  display: flex;
+  align-items: center;
+}
+.ac-bookings-block.is-compact .ac-bookings-block-head {
+  width: 100%;
+  align-items: center;
 }
 .ac-bookings-block.is-pending {
   background: rgba(232, 183, 58, 0.18);

@@ -75,24 +75,25 @@ export function effectiveOverlaps(
   return aStart < bEnd && bStart < aEnd;
 }
 
+export const SLOT_STEP_MINUTES = 30;
+
 export function generateSlotsForDuration(
   date: string,
-  durationHours: number,
+  durationMinutes: number,
   workingStartTime: string,
   workingEndTime: string,
 ): BookingSlot[] {
   const slots: BookingSlot[] = [];
-  const minutes = durationHours * 60;
   let start = toMinutes(workingStartTime);
-  const lastStart = toMinutes(workingEndTime) - minutes;
+  const lastStart = toMinutes(workingEndTime) - durationMinutes;
 
   while (start <= lastStart) {
     slots.push({
       date,
       startTime: fromMinutes(start),
-      endTime: fromMinutes(start + minutes),
+      endTime: fromMinutes(start + durationMinutes),
     });
-    start += 60;
+    start += SLOT_STEP_MINUTES;
   }
 
   return slots;
@@ -236,12 +237,12 @@ export function getSlotAvailabilities(
   db: CalendarDb,
   room: RoomType,
   date: string,
-  durationHours: number,
+  durationMinutes: number,
   candidatePriority?: number,
 ): SlotAvailability[] {
   const slots = generateSlotsForDuration(
     date,
-    durationHours,
+    durationMinutes,
     room.workingHours.startTime,
     room.workingHours.endTime,
   );

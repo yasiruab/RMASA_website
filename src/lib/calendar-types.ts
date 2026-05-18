@@ -38,7 +38,7 @@ export type RoomType = {
 export type EventType = {
   id: string;
   name: string;
-  durationHours: number;
+  durationMinutes: number;
   cleanupDurationMinutes: number;
   maxAdvanceBookingDays: number;
   priority: number;

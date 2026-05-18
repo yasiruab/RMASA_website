@@ -18,7 +18,7 @@ type RoomType = {
 type EventType = {
   id: string;
   name: string;
-  durationHours: number;
+  durationMinutes: number;
   priority: number;
   roomTypeId?: string;
   maxAdvanceBookingDays: number;
@@ -146,15 +146,15 @@ function getRoomHourlyRate(
     )
     .map((r) => {
       const et = eventTypes.find((e) => e.id === r.eventTypeId);
-      if (!et || et.durationHours <= 0) return null;
-      return r.amountLkr / et.durationHours;
+      if (!et || et.durationMinutes <= 0) return null;
+      return (r.amountLkr * 60) / et.durationMinutes;
     })
     .filter((v): v is number => v !== null);
   return candidates.length ? Math.min(...candidates) : null;
 }
 
 // The "full day" event type for a room is whichever event type the admin has
-// configured with the longest durationHours and has pricing rules for the room.
+// configured with the longest durationMinutes and has pricing rules for the room.
 function getFullDayEventTypeId(
   rules: PricingRule[],
   eventTypes: EventType[],
@@ -172,7 +172,7 @@ function getFullDayEventTypeId(
   const eligible = eventTypes.filter((e) => eligibleIds.has(e.id));
   if (eligible.length === 0) return null;
   return eligible.reduce((longest, et) =>
-    et.durationHours > longest.durationHours ? et : longest,
+    et.durationMinutes > longest.durationMinutes ? et : longest,
   ).id;
 }
 
@@ -432,6 +432,10 @@ export function BookingCalendarFlow() {
     let cancelled = false;
     const controller = new AbortController();
 
+    // Bug 3: drop stale slots immediately so a click can't pick up the previous
+    // event type's duration while the new availability is in flight.
+    setWeekSlots({});
+
     void (async () => {
       try {
         const responses = await Promise.all(
@@ -507,15 +511,33 @@ export function BookingCalendarFlow() {
     if (!availableAcModes.includes(acMode)) setAcMode(availableAcModes[0]);
   }, [availableAcModes, acMode]);
 
+  // Bug 1: clear any in-progress selection when the room/event/AC choice changes,
+  // so leftover slots from a previous duration can't be re-priced at the new rate.
+  useEffect(() => {
+    setSelectedSlots([]);
+    setFrequency("none");
+    setRecurrenceEndDate("");
+    setOccurrences("");
+  }, [roomTypeId, eventTypeId, acMode]);
+
   const activeRoom = useMemo(() => rooms.find((r) => r.id === roomTypeId), [rooms, roomTypeId]);
 
   const workingStartHour = activeRoom ? toHour(activeRoom.workingHours.startTime) : 7;
   const workingEndHour = activeRoom ? toHour(activeRoom.workingHours.endTime) : 21;
-  const durationHours = eventType?.durationHours ?? 1;
+  const workingStartMinute = workingStartHour * 60;
+  const workingEndMinute = workingEndHour * 60;
+  const durationMinutes = eventType?.durationMinutes ?? 60;
   const firstVisibleHour = Math.max(0, workingStartHour - 2);
   const lastVisibleHour = Math.min(23, workingEndHour + 2);
-  const ROW_HEIGHT = 36;
-  const visibleHours = lastVisibleHour - firstVisibleHour + 1;
+  const firstVisibleMinute = firstVisibleHour * 60;
+  // Half-hour rows render the half-hour granularity. ROW_HEIGHT is per half-hour.
+  const ROW_HEIGHT = 24;
+  const PX_PER_MINUTE = ROW_HEIGHT / 30;
+  const visibleSubRows = (lastVisibleHour - firstVisibleHour + 1) * 2;
+  const durationLabel =
+    durationMinutes % 60 === 0
+      ? `${durationMinutes / 60} HR${durationMinutes / 60 > 1 ? "S" : ""}`
+      : `${durationMinutes} MIN`;
 
   const slotMap = useMemo(() => {
     const map: Record<string, Record<string, Slot>> = {};
@@ -526,6 +548,20 @@ export function BookingCalendarFlow() {
     return map;
   }, [weekDates, weekSlots]);
 
+  // Bug 2: a date is "unpriced" when no pricing rule covers its day type for the
+  // currently selected event type + AC mode. Selecting such dates would silently
+  // fail at submit, so we disable them in the UI instead.
+  const unpricedDates = useMemo(() => {
+    const set = new Set<string>();
+    if (!roomTypeId || !eventTypeId) return set;
+    for (const date of weekDates) {
+      if (!getPrice(pricingRules, roomTypeId, eventTypeId, acMode, date)) {
+        set.add(date);
+      }
+    }
+    return set;
+  }, [weekDates, pricingRules, roomTypeId, eventTypeId, acMode]);
+
   // Group busy slots by bookingId per date to render absolutely-positioned blocks.
   const busyBlocksByDate = useMemo(() => {
     const map: Record<
@@ -533,8 +569,8 @@ export function BookingCalendarFlow() {
       Array<{
         bookingId: string;
         status: Slot["status"];
-        startHour: number;
-        endHour: number;
+        startMin: number;
+        endMin: number;
         startTime: string;
         endTime: string;
         reason?: string;
@@ -545,8 +581,8 @@ export function BookingCalendarFlow() {
       const blocks: Array<{
         bookingId: string;
         status: Slot["status"];
-        startHour: number;
-        endHour: number;
+        startMin: number;
+        endMin: number;
         startTime: string;
         endTime: string;
         reason?: string;
@@ -561,8 +597,8 @@ export function BookingCalendarFlow() {
         blocks.push({
           bookingId: slot.bookingId,
           status: slot.status,
-          startHour: toHour(sTime),
-          endHour: toHour(eTime),
+          startMin: toMinutes(sTime),
+          endMin: toMinutes(eTime),
           startTime: sTime,
           endTime: eTime,
           reason: slot.reason,
@@ -657,13 +693,17 @@ export function BookingCalendarFlow() {
   }, [maxOccurrences, occurrences]);
 
   /* ─── Selection ──────────────────────────────────────────────── */
-  function toggleSelectionForCell(date: string, hour: number) {
+  function toggleSelectionForCell(date: string, startTime: string) {
     if (maxDateStr !== null && date > maxDateStr) {
       setErrorMessage("This date is outside the available booking window.");
       return;
     }
 
-    const startTime = `${String(hour).padStart(2, "0")}:00`;
+    if (unpricedDates.has(date)) {
+      setErrorMessage("No rate is configured for this day type. Pick another date.");
+      return;
+    }
+
     const slot = slotMap[date]?.[startTime];
 
     if (!slot) {
@@ -1168,7 +1208,7 @@ export function BookingCalendarFlow() {
             <span className="dot" /> ↻ RECURRENCE
           </span>
           <span className="ac-bookings-legend-suffix">
-            SLOT · {durationHours} HR{durationHours > 1 ? "S" : ""} · COLOMBO TIME
+            SLOT · {durationLabel} · COLOMBO TIME
           </span>
         </div>
 
@@ -1191,48 +1231,63 @@ export function BookingCalendarFlow() {
                 const d = ymdToDate(date);
                 const isToday = date === todayYmd;
                 const isPastLimit = maxDateStr !== null && date > maxDateStr;
+                const isUnpriced = unpricedDates.has(date);
                 return (
                   <div
                     className={`ac-bookings-grid-day-head${isToday ? " is-today" : ""}${
                       isPastLimit ? " is-past-limit" : ""
-                    }`}
+                    }${isUnpriced && !isPastLimit ? " is-unpriced" : ""}`}
                     key={`head-${date}`}
                   >
                     <span className="dow">
                       {d.toLocaleDateString("en-US", { weekday: "short" }).toUpperCase()}
                     </span>
                     <span className="dom">{d.getDate()}</span>
-                    <span className="note">{isToday ? "· TODAY ·" : ""}</span>
+                    <span className="note">
+                      {isToday ? "· TODAY ·" : isUnpriced && !isPastLimit ? "NO RATE" : ""}
+                    </span>
                   </div>
                 );
               })}
             </div>
 
-            {/* Body rows with hour labels and click cells */}
-            <div className="ac-bookings-grid-body" style={{ height: `${visibleHours * ROW_HEIGHT}px` }}>
-              {Array.from({ length: visibleHours }, (_, i) => {
-                const hour = firstVisibleHour + i;
+            {/* Body rows: one row per half-hour. Hour labels show on :00 rows only. */}
+            <div className="ac-bookings-grid-body" style={{ height: `${visibleSubRows * ROW_HEIGHT}px` }}>
+              {Array.from({ length: visibleSubRows }, (_, i) => {
+                const minuteAbs = firstVisibleMinute + i * 30;
+                const hour = Math.floor(minuteAbs / 60);
+                const minute = minuteAbs % 60;
+                const startTime = `${String(hour).padStart(2, "0")}:${String(minute).padStart(2, "0")}`;
+                const isHourRow = minute === 0;
                 return (
-                  <div className="ac-bookings-grid-row" key={`row-${hour}`}>
-                    <div className="ac-bookings-grid-time-cell">{toHourLabel(hour)}</div>
+                  <div
+                    className={`ac-bookings-grid-row${isHourRow ? " is-hour" : " is-half"}`}
+                    key={`row-${startTime}`}
+                  >
+                    <div className="ac-bookings-grid-time-cell">
+                      {isHourRow ? toHourLabel(hour) : ""}
+                    </div>
                     {weekDates.map((date) => {
                       const isPastLimit = maxDateStr !== null && date > maxDateStr;
+                      const isUnpriced = unpricedDates.has(date);
                       const inWorkingHours =
-                        hour >= workingStartHour && hour + durationHours <= workingEndHour;
+                        minuteAbs >= workingStartMinute &&
+                        minuteAbs + durationMinutes <= workingEndMinute;
                       const clickable =
                         inWorkingHours &&
                         !isPastLimit &&
-                        Boolean(slotMap[date]?.[`${String(hour).padStart(2, "0")}:00`]);
+                        !isUnpriced &&
+                        Boolean(slotMap[date]?.[startTime]);
                       const isToday = date === todayYmd;
                       return (
                         <button
-                          aria-label={`${date} ${toHourLabel(hour)}`}
+                          aria-label={`${date} ${startTime}`}
                           className={`ac-bookings-grid-cell${clickable ? "" : " is-off"}${
                             isPastLimit ? " is-past-limit" : ""
-                          }${isToday ? " is-today" : ""}`}
+                          }${isUnpriced && !isPastLimit ? " is-unpriced" : ""}${isToday ? " is-today" : ""}`}
                           disabled={!clickable}
-                          key={`${date}-${hour}`}
-                          onClick={() => toggleSelectionForCell(date, hour)}
+                          key={`${date}-${startTime}`}
+                          onClick={() => toggleSelectionForCell(date, startTime)}
                           type="button"
                         />
                       );
@@ -1250,72 +1305,88 @@ export function BookingCalendarFlow() {
                   return (
                     <div className="ac-bookings-day-blocks" data-day={dayIndex} key={`blocks-${date}`}>
                       {blocks.map((block) => {
-                        const top = (block.startHour - firstVisibleHour) * ROW_HEIGHT;
-                        const height = (block.endHour - block.startHour) * ROW_HEIGHT - 3;
+                        const top = (block.startMin - firstVisibleMinute) * PX_PER_MINUTE;
+                        const height = (block.endMin - block.startMin) * PX_PER_MINUTE - 3;
                         if (top < 0 || height <= 0) return null;
+                        // Bug 4: collapse content when the block is too short to fit it.
+                        const showTime = height >= 28;
+                        const showTitle = height >= 52;
                         return (
                           <div
-                            className={`ac-bookings-block is-${block.status}`}
+                            className={`ac-bookings-block is-${block.status}${showTitle ? "" : " is-compact"}`}
                             key={`b-${block.bookingId}-${block.startTime}`}
                             style={{ top, height }}
                           >
                             <div className="ac-bookings-block-head">
                               <span className="chip">{STATUS_LABELS[block.status]}</span>
-                              <span className="time">
-                                {block.startTime}–{block.endTime}
-                              </span>
+                              {showTime ? (
+                                <span className="time">
+                                  {block.startTime}–{block.endTime}
+                                </span>
+                              ) : null}
                             </div>
-                            <div className="ac-bookings-block-title">
-                              {block.status === "blocked"
-                                ? block.reason ?? "BLOCKED"
-                                : block.status === "cleanup"
-                                  ? "Site preparation"
-                                  : block.status === "pending"
-                                    ? "Pending request"
-                                    : block.status === "tentative"
-                                      ? "Held"
-                                      : "Confirmed booking"}
-                            </div>
+                            {showTitle ? (
+                              <div className="ac-bookings-block-title">
+                                {block.status === "blocked"
+                                  ? block.reason ?? "BLOCKED"
+                                  : block.status === "cleanup"
+                                    ? "Site preparation"
+                                    : block.status === "pending"
+                                      ? "Pending request"
+                                      : block.status === "tentative"
+                                        ? "Held"
+                                        : "Confirmed booking"}
+                              </div>
+                            ) : null}
                           </div>
                         );
                       })}
 
                       {selected.map((s) => {
-                        const startHour = toHour(s.startTime);
-                        const endHour = toHour(s.endTime);
-                        const top = (startHour - firstVisibleHour) * ROW_HEIGHT;
-                        const height = (endHour - startHour) * ROW_HEIGHT - 3;
+                        const startMin = toMinutes(s.startTime);
+                        const endMin = toMinutes(s.endTime);
+                        const top = (startMin - firstVisibleMinute) * PX_PER_MINUTE;
+                        const height = (endMin - startMin) * PX_PER_MINUTE - 3;
                         if (top < 0 || height <= 0) return null;
+                        const showTime = height >= 28;
+                        const showTitle = height >= 52;
+                        const showMeta = height >= 72;
                         return (
                           <div
-                            className="ac-bookings-block is-selection"
+                            className={`ac-bookings-block is-selection${showTitle ? "" : " is-compact"}`}
                             key={`s-${s.date}-${s.startTime}`}
                             style={{ top, height }}
                           >
                             <div className="ac-bookings-block-head">
                               <span className="chip">★ YOURS</span>
-                              <span className="time">
-                                {s.startTime}–{s.endTime}
-                              </span>
+                              {showTime ? (
+                                <span className="time">
+                                  {s.startTime}–{s.endTime}
+                                </span>
+                              ) : null}
                             </div>
-                            <div className="ac-bookings-block-title">Your booking</div>
-                            <div className="ac-bookings-block-meta">unsaved · pending submit</div>
+                            {showTitle ? <div className="ac-bookings-block-title">Your booking</div> : null}
+                            {showMeta ? (
+                              <div className="ac-bookings-block-meta">unsaved · pending submit</div>
+                            ) : null}
                           </div>
                         );
                       })}
 
                       {recurrence.map((s) => {
-                        const startHour = toHour(s.startTime);
-                        const endHour = toHour(s.endTime);
-                        const top = (startHour - firstVisibleHour) * ROW_HEIGHT;
-                        const height = (endHour - startHour) * ROW_HEIGHT - 3;
+                        const startMin = toMinutes(s.startTime);
+                        const endMin = toMinutes(s.endTime);
+                        const top = (startMin - firstVisibleMinute) * PX_PER_MINUTE;
+                        const height = (endMin - startMin) * PX_PER_MINUTE - 3;
                         if (top < 0 || height <= 0) return null;
                         const conflict = recurrenceConflictKeys.has(slotKey(s));
+                        const showTime = height >= 28;
+                        const showTitle = height >= 52;
                         return (
                           <div
                             className={`ac-bookings-block ${
                               conflict ? "is-recurrence-conflict" : "is-recurrence"
-                            }`}
+                            }${showTitle ? "" : " is-compact"}`}
                             key={`r-${s.date}-${s.startTime}`}
                             style={{ top, height }}
                           >
@@ -1323,13 +1394,17 @@ export function BookingCalendarFlow() {
                               <span className="chip">
                                 {conflict ? "↻ CONFLICT" : "↻ RECURRENCE"}
                               </span>
-                              <span className="time">
-                                {s.startTime}–{s.endTime}
-                              </span>
+                              {showTime ? (
+                                <span className="time">
+                                  {s.startTime}–{s.endTime}
+                                </span>
+                              ) : null}
                             </div>
-                            <div className="ac-bookings-block-title">
-                              {conflict ? "Resolve before submit" : "Recurrence preview"}
-                            </div>
+                            {showTitle ? (
+                              <div className="ac-bookings-block-title">
+                                {conflict ? "Resolve before submit" : "Recurrence preview"}
+                              </div>
+                            ) : null}
                           </div>
                         );
                       })}
@@ -1379,14 +1454,20 @@ export function BookingCalendarFlow() {
                 })}
               </div>
               <div className="ac-bookings-day-rows">
-                {Array.from({ length: visibleHours }, (_, i) => {
-                  const hour = firstVisibleHour + i;
-                  const startTime = `${String(hour).padStart(2, "0")}:00`;
+                {Array.from({ length: visibleSubRows }, (_, i) => {
+                  const minuteAbs = firstVisibleMinute + i * 30;
+                  const hour = Math.floor(minuteAbs / 60);
+                  const minute = minuteAbs % 60;
+                  const startTime = `${String(hour).padStart(2, "0")}:${String(minute).padStart(2, "0")}`;
                   const slot = slotMap[selectedDayDate]?.[startTime];
                   const inWorkingHours =
-                    hour >= workingStartHour && hour + durationHours <= workingEndHour;
+                    minuteAbs >= workingStartMinute && minuteAbs + durationMinutes <= workingEndMinute;
                   const isPastLimit = maxDateStr !== null && selectedDayDate > maxDateStr;
-                  const endTime = slot?.endTime ?? `${String(hour + durationHours).padStart(2, "0")}:00`;
+                  const isUnpriced = unpricedDates.has(selectedDayDate);
+                  const fallbackEndMin = minuteAbs + durationMinutes;
+                  const endTime =
+                    slot?.endTime ??
+                    `${String(Math.floor(fallbackEndMin / 60)).padStart(2, "0")}:${String(fallbackEndMin % 60).padStart(2, "0")}`;
 
                   const isSelected = selectedSlots.some(
                     (s) => s.date === selectedDayDate && s.startTime === startTime,
@@ -1412,6 +1493,10 @@ export function BookingCalendarFlow() {
                   } else if (isPastLimit) {
                     rowClass += " is-past-limit";
                     labelText = "Outside booking window";
+                    actionDisabled = true;
+                  } else if (isUnpriced) {
+                    rowClass += " is-unpriced";
+                    labelText = "No rate for this day";
                     actionDisabled = true;
                   } else if (isSelected) {
                     rowClass += " is-selection";
@@ -1448,7 +1533,7 @@ export function BookingCalendarFlow() {
                   }
 
                   return (
-                    <div className={rowClass} key={`day-row-${hour}`}>
+                    <div className={rowClass} key={`day-row-${startTime}`}>
                       <span className="time">
                         {startTime} – {endTime}
                       </span>
@@ -1460,7 +1545,7 @@ export function BookingCalendarFlow() {
                         aria-label={`${actionText} ${startTime}`}
                         className={`action${actionIsRemove ? " is-remove" : ""}`}
                         disabled={actionDisabled}
-                        onClick={() => toggleSelectionForCell(selectedDayDate, hour)}
+                        onClick={() => toggleSelectionForCell(selectedDayDate, startTime)}
                         type="button"
                       >
                         {actionText}
@@ -1732,7 +1817,7 @@ export function BookingCalendarFlow() {
                       {entry.isBase ? (
                         <button
                           className="remove"
-                          onClick={() => toggleSelectionForCell(entry.date, toHour(entry.startTime))}
+                          onClick={() => toggleSelectionForCell(entry.date, entry.startTime)}
                           type="button"
                         >
                           REMOVE

@@ -70,6 +70,20 @@ export async function PUT(req: Request) {
     );
   }
 
+  const invalidDuration = payload.eventTypes.find(
+    (et) =>
+      typeof et.durationMinutes !== "number" ||
+      !Number.isInteger(et.durationMinutes) ||
+      et.durationMinutes < 1 ||
+      et.durationMinutes > 24 * 60,
+  );
+  if (invalidDuration) {
+    return NextResponse.json(
+      { message: `Event type "${invalidDuration.name}": duration must be a whole number of minutes between 1 and 1440.` },
+      { status: 400 },
+    );
+  }
+
   const invalidCleanup = payload.eventTypes.find(
     (et) =>
       typeof et.cleanupDurationMinutes !== "number" ||

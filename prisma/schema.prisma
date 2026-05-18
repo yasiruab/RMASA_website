@@ -115,7 +115,7 @@ model RoomType {
 model EventType {
   id                     String        @id
   name                   String
-  durationHours          Int
+  durationMinutes        Int
   cleanupDurationMinutes Int           @default(0)
   maxAdvanceBookingDays  Int           @default(365)
   priority               Int

@@ -11,7 +11,7 @@ type RoomType = {
   capacity?: number;
   description?: string;
 };
-type EventType = { id: string; name: string; durationHours: number; cleanupDurationMinutes: number; maxAdvanceBookingDays: number; priority: number; roomTypeId?: string };
+type EventType = { id: string; name: string; durationMinutes: number; cleanupDurationMinutes: number; maxAdvanceBookingDays: number; priority: number; roomTypeId?: string };
 type PricingRule = {
   id: string;
   roomTypeId: string;
@@ -1493,7 +1493,7 @@ export function AdminCalendarConsole({ section }: AdminCalendarConsoleProps) {
           <div className="admin-row admin-row-event-types admin-row-header admin-event-type-header">
             <span>Name</span>
             <span>Applies To</span>
-            <span>Duration (hrs)</span>
+            <span>Duration (min)</span>
             <span>Cleanup (min)</span>
             <span>Advance (days)</span>
             <span>Priority</span>
@@ -1536,12 +1536,14 @@ export function AdminCalendarConsole({ section }: AdminCalendarConsoleProps) {
                 </select>
                 <input
                   min={1}
+                  max={1440}
+                  step={1}
                   type="number"
-                  value={eventType.durationHours}
+                  value={eventType.durationMinutes}
                   onChange={(event) =>
                     setEventTypes((current) =>
                       current.map((item, i) =>
-                        i === index ? { ...item, durationHours: Number(event.target.value) } : item,
+                        i === index ? { ...item, durationMinutes: Number(event.target.value) } : item,
                       ),
                     )
                   }
@@ -1609,7 +1611,7 @@ export function AdminCalendarConsole({ section }: AdminCalendarConsoleProps) {
             onClick={() =>
               setEventTypes((current) => [
                 ...current,
-                { id: uid("event"), name: "New Type", durationHours: 4, cleanupDurationMinutes: 0, maxAdvanceBookingDays: 365, priority: 1, roomTypeId: rooms[0]?.id },
+                { id: uid("event"), name: "New Type", durationMinutes: 240, cleanupDurationMinutes: 0, maxAdvanceBookingDays: 365, priority: 1, roomTypeId: rooms[0]?.id },
               ])
             }
             type="button"

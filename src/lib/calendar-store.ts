@@ -35,7 +35,7 @@ export async function readCalendarDb(): Promise<CalendarDb> {
     eventTypes: eventTypes.map((eventType) => ({
       id: eventType.id,
       name: eventType.name,
-      durationHours: eventType.durationHours,
+      durationMinutes: eventType.durationMinutes,
       cleanupDurationMinutes: eventType.cleanupDurationMinutes,
       maxAdvanceBookingDays: eventType.maxAdvanceBookingDays,
       priority: eventType.priority,
@@ -148,7 +148,7 @@ export async function updateCalendarDb(mutator: (current: CalendarDb) => Calenda
         data: {
           id: eventType.id,
           name: eventType.name,
-          durationHours: eventType.durationHours,
+          durationMinutes: eventType.durationMinutes,
           cleanupDurationMinutes: eventType.cleanupDurationMinutes ?? 0,
           maxAdvanceBookingDays: eventType.maxAdvanceBookingDays ?? 365,
           priority: eventType.priority,

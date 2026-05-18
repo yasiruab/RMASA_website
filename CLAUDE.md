@@ -300,9 +300,9 @@ Get real keys at https://dash.cloudflare.com → **Turnstile** → **Add Site**.
 The public bookings page (`booking-calendar-flow.tsx`) drives all room-card data from the admin portal — **never hardcode** capacity, description, or pricing in the component:
 
 - **CAPACITY** and **description** come from `RoomType.capacity` / `RoomType.description` (admin-editable in Room Types editor)
-- **HOURLY** = min `amountLkr / durationHours` across all event types for the room (weekday or any, without_ac), derived via `getRoomHourlyRate()`
-- **DAY RATE** = max `amountLkr` among event types with `durationHours >= 8` for the room, falling back to max amount across all event types when no ≥8h type exists, via `getRoomDayRate()`
-- **WITH A/C sub** = `+LKR X/hr` where X = `(with_ac.amountLkr - without_ac.amountLkr) / durationHours` for the currently selected event type, via `getAcPremiumPerHour()`
+- **HOURLY** = min `amountLkr * 60 / durationMinutes` across all event types for the room (weekday or any, without_ac), derived via `getRoomHourlyRate()`
+- **DAY RATE** = `amountLkr` of the event type with the longest `durationMinutes` for the room (weekday or any, without_ac), via `getRoomDayRate()` → `getFullDayEventTypeId()`
+- **WITH A/C sub** = `+LKR X` where X = `with_ac.amountLkr - without_ac.amountLkr` for the currently selected event type, via `getAcPremiumForEventType()`
 - **VENUE 01 / 02** tag is derived from sort order of the `rooms` array, not from any DB field
 
 **Recurrence preview**: `expandRecurrencePreview()` returns `[]` until the admin has set either an End Date or Occurrences. Choosing Daily/Weekly/Monthly with no limit does **not** paint recurrence blocks on the calendar.
