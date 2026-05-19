@@ -436,9 +436,13 @@ export async function sendBookingUnpaidReminder(params: {
   slots: SlotList;
   totalAmountLkr: number;
   paidAmountLkr: number;
+  /** Invoice total minus waivers + credit_notes. Caller must compute this via
+   *  computeAmountDue() so waivers are reflected in the balance shown to the
+   *  customer; without it, the email would dun customers for already-waived fees. */
+  amountDueLkr: number;
   daysOverdue: number;
 }): Promise<boolean> {
-  const balance = Math.max(0, params.totalAmountLkr - params.paidAmountLkr);
+  const balance = Math.max(0, params.amountDueLkr - params.paidAmountLkr);
   const label = overdueLabel(params.daysOverdue);
   const subject = `Payment Reminder – ${esc(params.reference)} (${label})`;
   const html = card(`

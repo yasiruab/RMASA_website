@@ -4,6 +4,7 @@ import {
   sendAdminUnpaidDigest,
   sendBookingUnpaidReminder,
 } from "@/lib/email";
+import { computeAmountDue, computePaymentTotals } from "@/lib/payments";
 
 const CRON_SECRET = process.env.CRON_SECRET ?? process.env._AMPLIFY_CRON_SECRET ?? "";
 const MS_PER_DAY = 86_400_000;
@@ -33,7 +34,9 @@ export async function POST(req: Request) {
   const now = new Date();
 
   // Scan only the bookings the cadence could fire on. The composite index on
-  // (reconciliationStatus, confirmedAt) covers the filter prefix.
+  // (reconciliationStatus, confirmedAt) covers the filter prefix. paymentEntries
+  // are needed to compute amountDue (total minus waivers + credit_notes) so the
+  // emailed balance reflects waivers, not just cash collected.
   const candidates = await prisma.booking.findMany({
     where: {
       reconciliationStatus: { in: ["unpaid", "part_paid"] },
@@ -47,6 +50,7 @@ export async function POST(req: Request) {
         select: { date: true, startTime: true, endTime: true, slotStatus: true },
         orderBy: [{ date: "asc" }, { startTime: "asc" }],
       },
+      paymentEntries: { select: { type: true, amountLkr: true } },
     },
   });
 
@@ -82,6 +86,14 @@ export async function POST(req: Request) {
       endTime: s.endTime,
     }));
 
+    const totals = computePaymentTotals(booking.paymentEntries);
+    const amountDue = computeAmountDue(booking.totalAmountLkr, totals);
+    const balance = Math.max(0, amountDue - booking.paidAmountLkr);
+    // Defense in depth: skip bookings whose balance is fully covered by waivers
+    // and/or payments even if reconciliationStatus is stale. Don't dun a customer
+    // for LKR 0.
+    if (balance <= 0) continue;
+
     const sent = await sendBookingUnpaidReminder({
       to: booking.customerEmail,
       customerName: booking.customerName,
@@ -91,6 +103,7 @@ export async function POST(req: Request) {
       slots: slotsForEmail,
       totalAmountLkr: booking.totalAmountLkr,
       paidAmountLkr: booking.paidAmountLkr,
+      amountDueLkr: amountDue,
       daysOverdue: milestone,
     });
 
@@ -111,7 +124,7 @@ export async function POST(req: Request) {
         roomName: booking.roomType.name,
         confirmedAt: formatYmd(booking.confirmedAt),
         daysOverdue: milestone,
-        balanceLkr: Math.max(0, booking.totalAmountLkr - booking.paidAmountLkr),
+        balanceLkr: balance,
       });
     }
   }

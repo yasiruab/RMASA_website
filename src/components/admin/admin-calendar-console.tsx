@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 import { useSession } from "next-auth/react";
+import { computeAmountDue, computePaymentTotals } from "@/lib/payments";
 
 type RoomType = {
   id: string;
@@ -291,7 +292,11 @@ function buildRevenueModel(sourceBookings: Booking[], startYmd: string, endYmd: 
     recognizedRevenueLkr += booking.totalAmountLkr;
     collectedRevenueLkr += paid;
 
-    const outstanding = booking.totalAmountLkr - paid;
+    // Outstanding must use amountDue (post-waiver/credit), not totalAmountLkr,
+    // otherwise a fully-waived booking still shows as receivable.
+    const totals = computePaymentTotals(booking.paymentEntries);
+    const amountDue = computeAmountDue(booking.totalAmountLkr, totals);
+    const outstanding = Math.max(0, amountDue - paid);
     if (outstanding > 0 && booking.reconciliationStatus !== "waived") {
       receivableRevenueLkr += outstanding;
       if (booking.reconciliationStatus === "unpaid" || booking.reconciliationStatus === "part_paid") {
@@ -2210,8 +2215,14 @@ export function AdminCalendarConsole({ section }: AdminCalendarConsoleProps) {
 
                   {/* ── Meta ── */}
                   {(() => {
+                    // Use amountDue (total minus waivers + credit_notes), not totalAmountLkr,
+                    // when computing what the customer still owes. Otherwise waivers and
+                    // credit_notes never reduce the displayed "Due" figure.
                     const effectivePaid = effectivePaidLkr(booking);
-                    const outstanding = booking.totalAmountLkr - effectivePaid;
+                    const totals = computePaymentTotals(booking.paymentEntries);
+                    const amountDue = computeAmountDue(booking.totalAmountLkr, totals);
+                    const outstanding = Math.max(0, amountDue - effectivePaid);
+                    const overpayment = effectivePaid - amountDue;
                     return (
                       <div className="bk-meta">
                         <span>{booking.customer.email}</span>
@@ -2222,9 +2233,9 @@ export function AdminCalendarConsole({ section }: AdminCalendarConsoleProps) {
                           LKR {currencyFormatter.format(booking.totalAmountLkr)}
                         </span>
                         <span className="bk-sep">&middot;</span>
-                        {effectivePaid > booking.totalAmountLkr ? (
+                        {overpayment > 0 ? (
                           <span className="bk-pay-tag bk-pay-overpaid">
-                            Overpaid &middot; Refund Due LKR {currencyFormatter.format(effectivePaid - booking.totalAmountLkr)}
+                            Overpaid &middot; Refund Due LKR {currencyFormatter.format(overpayment)}
                           </span>
                         ) : booking.reconciliationStatus === "paid" ? (
                           <span className="bk-pay-tag bk-pay-paid">Paid in Full</span>
