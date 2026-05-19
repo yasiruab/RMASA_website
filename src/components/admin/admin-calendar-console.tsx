@@ -229,6 +229,16 @@ function effectivePaidLkr(booking: Booking): number {
   return booking.paidAmountLkr;
 }
 
+// True when cash collected exceeds the post-waiver invoice. Must compare against
+// amountDue (total − waivers − credit_notes), not totalAmountLkr, otherwise a
+// booking that's been partly waived but overpaid in cash never shows up in the
+// Overpaid tab even though the booking-detail meta line correctly flags it.
+function isOverpaid(booking: Booking): boolean {
+  const totals = computePaymentTotals(booking.paymentEntries);
+  const amountDue = computeAmountDue(booking.totalAmountLkr, totals);
+  return effectivePaidLkr(booking) > amountDue;
+}
+
 // KPIs are computed from ALL confirmed bookings (no date filter) so they match the bookings tab totals.
 // The trend chart uses only slots within the selected date range for month-by-month breakdown.
 function buildRevenueModel(sourceBookings: Booking[], startYmd: string, endYmd: string) {
@@ -966,7 +976,7 @@ export function AdminCalendarConsole({ section }: AdminCalendarConsoleProps) {
     unpaid: dateFilteredBookings.filter((b) => b.reconciliationStatus === "unpaid" && isActiveBooking(b)).length,
     part_paid: dateFilteredBookings.filter((b) => b.reconciliationStatus === "part_paid" && isActiveBooking(b)).length,
     paid: dateFilteredBookings.filter((b) => b.reconciliationStatus === "paid").length,
-    overpaid: dateFilteredBookings.filter((b) => b.paidAmountLkr > b.totalAmountLkr && isActiveBooking(b)).length,
+    overpaid: dateFilteredBookings.filter((b) => isOverpaid(b) && isActiveBooking(b)).length,
     rejected: dateFilteredBookings.filter((b) => hasRejectedSlot(b)).length,
     conflicts: dateFilteredBookings.filter((b) => (conflictMap.get(b.id) ?? []).length > 0).length,
   }), [dateFilteredBookings, conflictMap]);
@@ -978,7 +988,7 @@ export function AdminCalendarConsole({ section }: AdminCalendarConsoleProps) {
       case "unpaid":    return dateFilteredBookings.filter((b) => b.reconciliationStatus === "unpaid" && isActiveBooking(b));
       case "part_paid": return dateFilteredBookings.filter((b) => b.reconciliationStatus === "part_paid" && isActiveBooking(b));
       case "paid":      return dateFilteredBookings.filter((b) => b.reconciliationStatus === "paid");
-      case "overpaid":  return dateFilteredBookings.filter((b) => b.paidAmountLkr > b.totalAmountLkr && isActiveBooking(b));
+      case "overpaid":  return dateFilteredBookings.filter((b) => isOverpaid(b) && isActiveBooking(b));
       case "rejected":  return dateFilteredBookings.filter((b) => hasRejectedSlot(b));
       case "conflicts": return dateFilteredBookings.filter((b) => (conflictMap.get(b.id) ?? []).length > 0);
       default:          return dateFilteredBookings;

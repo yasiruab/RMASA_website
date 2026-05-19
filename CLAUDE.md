@@ -141,13 +141,7 @@ to a fully-paid booking flipped status to `part_paid` and created phantom
 debt the customer didn't owe. The fixed model treats waivers as reductions
 to amount due, not as cash lost.
 
-**Caveat — admin queue Overpaid tag**: the queue derives Overpaid from
-`paidAmountLkr > totalAmountLkr` (cash > invoice gross). It does NOT detect
-"cash matches invoice but waiver applied later → refund due" because that
-requires per-row payment-entry knowledge. The accounting report at
-`/admin/calendar/reports` already shows the correct per-slot balance from
-the full ledger. A full fix would add a server-side `amountDueLkr` cached
-column; that's a follow-up.
+**Admin queue Overpaid tag**: derived from `effectivePaidLkr(b) > computeAmountDue(b.totalAmountLkr, computePaymentTotals(b.paymentEntries))` via the module-level `isOverpaid(b)` helper in [`admin-calendar-console.tsx`](src/components/admin/admin-calendar-console.tsx). Both the tab count, the tab filter, and the booking-detail Overpaid pay tag go through it. Comparing against `amountDue` (not `totalAmountLkr`) is what makes "cash matches invoice but waiver applied later → refund due" show up correctly.
 
 ### Adding a payment entry
 
@@ -508,7 +502,7 @@ The Booking Queue section has a horizontal tab bar that filters the list client-
 | Unpaid | `reconciliationStatus === "unpaid"` AND active effective status |
 | Part Paid | `reconciliationStatus === "part_paid"` AND active effective status |
 | Paid | `reconciliationStatus === "paid"` |
-| Overpaid | `paidAmountLkr > totalAmountLkr` AND active effective status |
+| Overpaid | `isOverpaid(b)` (effectivePaid > amountDue, post-waiver) AND active effective status |
 | Rejected | at least one slot has effective status `"rejected"` (covers both full-booking rejections and per-slot rejections) |
 | Conflicts | booking id present in `conflictMap` (existing memo) |
 
@@ -555,11 +549,13 @@ The payment status tag evaluates in this order — the overpaid check must come 
 
 | Condition | Tag | CSS class |
 |---|---|---|
-| `effectivePaid > totalAmountLkr` | Overpaid · Refund Due LKR X | `.bk-pay-overpaid` (warm orange) |
+| `effectivePaid > amountDue` (post-waiver overpayment) | Overpaid · Refund Due LKR X | `.bk-pay-overpaid` (warm orange) |
 | `reconciliationStatus === "paid"` | Paid in Full | `.bk-pay-paid` (green) |
 | `reconciliationStatus === "waived"` | Waived | `.bk-pay-waived` (grey) |
-| `reconciliationStatus === "part_paid"` | Paid LKR X · Due LKR Y | `.bk-pay-part` (amber) |
+| `reconciliationStatus === "part_paid"` | Paid LKR X · Due LKR Y (Y = `amountDue − effectivePaid`) | `.bk-pay-part` (amber) |
 | default | Unpaid | `.bk-pay-unpaid` (red) |
+
+`amountDue` = `computeAmountDue(totalAmountLkr, computePaymentTotals(paymentEntries))` — original invoice reduced by waivers and credit_notes. Comparing the pay tag against `totalAmountLkr` instead misses post-waiver overpayments.
 
 ## Admin Booking Queue: Staged Slot Changes & Save Button
 
