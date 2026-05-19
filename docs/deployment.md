@@ -339,12 +339,57 @@ database is reset.
 | `COGNITO_ISSUER` | Amplify console → Environment variables | `https://cognito-idp.<region>.amazonaws.com/<user-pool-id>` |
 | `NEXT_PUBLIC_TURNSTILE_SITE_KEY` | Amplify console → Environment variables | Cloudflare Turnstile widget key for the booking-form bot challenge. `NEXT_PUBLIC_*` is inlined automatically by Next.js — no `_AMPLIFY_*` baking needed. |
 | `TURNSTILE_SECRET_KEY` | Amplify console → Environment variables | Server-side Turnstile verification secret. Baked via `_AMPLIFY_TURNSTILE_SECRET_KEY` in `next.config.ts`; read in `src/lib/turnstile.ts`. Fail-open: if unset, the booking endpoint skips verification (does not break submissions). |
+| `CRON_SECRET` | Amplify console → Environment variables **and** GitHub repo secrets | Bearer-auth token for `POST /api/cron/unpaid-reminders`. Must be set in **both** places with the **same value** — Amplify side authorises the endpoint, GitHub side is sent by the workflow. Baked via `_AMPLIFY_CRON_SECRET` in `next.config.ts`; read in `src/app/api/cron/unpaid-reminders/route.ts`. The endpoint returns **401** if unset, so the cron is fail-closed (no accidental fires before keys are wired). |
+| `ADMIN_NOTIFICATION_EMAIL` | Amplify console → Environment variables | Admin inbox for new-booking alerts AND the daily unpaid-booking digest. Omit to disable. |
 
 All server-side variables listed above are mirrored into the JS bundle at build time via
 `next.config.ts` `env` config (prefixed `_AMPLIFY_*`) and re-exported at server start by
 `src/instrumentation.ts`. The bundle-leak guardrail (`scripts/check-amplify-secret-leak.mjs`)
 keeps these references confined to an allowlist of server-only files (Prisma, NextAuth,
 Resend, Turnstile).
+
+---
+
+## Unpaid-booking reminders cron (GitHub Actions)
+
+The daily reminder workflow lives at [`.github/workflows/unpaid-reminders.yml`](../.github/workflows/unpaid-reminders.yml). It POSTs to `/api/cron/unpaid-reminders` at **00:30 UTC daily** (06:00 SL time) and supports manual runs via `workflow_dispatch`. See `CLAUDE.md` § *Unpaid-Booking Reminders* for the application-side behaviour.
+
+### Required GitHub secrets (NOT variables)
+
+GitHub Actions has two settings tabs that look similar but behave differently. Use the right one:
+
+| Where in GitHub | What | Why this one |
+|---|---|---|
+| Settings → Secrets and variables → Actions → **Secrets** tab → *Repository secrets* | `CRON_SECRET`, `SITE_URL` | The workflow YAML reads them via `${{ secrets.X }}`. Secrets are encrypted at rest and masked in workflow logs. |
+| ~~Actions → Variables tab~~ | (do **not** use) | Variables are plain text and exposed via `${{ vars.X }}`, which is a different namespace. Putting `CRON_SECRET` here means the workflow can't see it and exits with "Missing SITE_URL or CRON_SECRET". |
+
+| Secret | Value |
+|---|---|
+| `CRON_SECRET` | Same random high-entropy string set in Amplify console as `CRON_SECRET`. Mismatched values produce **401 Unauthorized**. |
+| `SITE_URL` | Public origin to curl, e.g. `https://royalmasarena.lk` or the Amplify URL until the custom domain is live. No trailing slash. |
+
+### Verifying a manual run
+
+Trigger from **Actions → Unpaid booking reminders → Run workflow** (the button appears because of `workflow_dispatch:` in the YAML). Then click into the run → `trigger` step → expand the curl line to see the response body.
+
+The endpoint always returns JSON of shape:
+
+```json
+{ "scannedBookings": N, "remindersSent": M, "adminDigestSent": bool, "bookingsReminded": [...] }
+```
+
+- **Green check + `remindersSent: 0`** is the normal "no due bookings today" outcome. The cron is healthy; there's just nothing to remind about.
+- **Red X with `401 Unauthorized`** → secret mismatch between GitHub and Amplify (or one side unset).
+- **Red X with `curl: (28) timed out`** → `SITE_URL` wrong, or the Amplify Lambda took >120 s to wake.
+
+### Seeding a test booking for end-to-end verification
+
+Reminders only fire when a confirmed booking has `confirmedAt ≥ 24 hours ago` AND `reconciliationStatus IN (unpaid, part_paid)`. After a fresh deploy, no booking is yet old enough to receive the 24 h milestone. To verify the full email path:
+
+1. Pick an existing unpaid confirmed booking (or create one via the public flow + admin confirm).
+2. Backdate `confirmedAt` in Postgres: `UPDATE "Booking" SET "confirmedAt" = NOW() - INTERVAL '25 hours' WHERE id = '<booking-id>';`
+3. Re-run the workflow. The customer reminder + admin digest should both arrive within ~1 min.
+4. The booking's `lastReminderDays` is now `1`, so a second run the same day correctly sends nothing.
 
 ---
 
