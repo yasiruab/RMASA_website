@@ -1859,7 +1859,9 @@ export function BookingCalendarFlow() {
                   isSubmitting ||
                   selectedSlots.length === 0 ||
                   !termsAccepted ||
-                  (turnstileRequired && !turnstileToken)
+                  (turnstileRequired && !turnstileToken) ||
+                  (frequency !== "none" && recurrenceConflictSlots.length > 0) ||
+                  pricingPreview.some((item) => item.missingPrice)
                 }
                 onClick={submitBooking}
                 type="button"

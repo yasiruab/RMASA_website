@@ -433,6 +433,10 @@ export function AdminCalendarConsole({ section }: AdminCalendarConsoleProps) {
   const [adminUsers, setAdminUsers] = useState<AdminUser[]>([]);
   const [message, setMessage] = useState("");
   const [messageTone, setMessageTone] = useState<"success" | "error">("success");
+  // Per-booking error slot so booking-scoped failures render next to the booking
+  // card instead of at the top of the page (where they're easy to miss when the
+  // queue is scrolled). Cleared on the next successful action on that booking.
+  const [bookingErrors, setBookingErrors] = useState<Map<string, string>>(new Map());
   const [blockForm, setBlockForm] = useState({
     roomTypeId: "",
     date: "",
@@ -534,6 +538,15 @@ export function AdminCalendarConsole({ section }: AdminCalendarConsoleProps) {
     await refreshAll();
   }
 
+  function setBookingError(bookingId: string, msg: string | null) {
+    setBookingErrors((prev) => {
+      const next = new Map(prev);
+      if (msg) next.set(bookingId, msg);
+      else next.delete(bookingId);
+      return next;
+    });
+  }
+
   async function updateBookingStatus(id: string, status: Booking["status"], rejectReason?: string) {
     const res = await fetch("/api/admin/calendar/bookings", {
       method: "PATCH",
@@ -541,8 +554,13 @@ export function AdminCalendarConsole({ section }: AdminCalendarConsoleProps) {
       body: JSON.stringify({ id, status, ...(rejectReason ? { rejectReason } : {}) }),
     });
     const data = await safeJson<{ message?: string }>(res);
-    setMessageTone(res.ok ? "success" : "error");
-    setMessage(data.message ?? (res.ok ? "Booking updated." : "Failed to update booking."));
+    if (res.ok) {
+      setBookingError(id, null);
+      setMessageTone("success");
+      setMessage(data.message ?? "Booking updated.");
+    } else {
+      setBookingError(id, data.message ?? "Failed to update booking.");
+    }
     await refreshAll();
   }
 
@@ -587,8 +605,13 @@ export function AdminCalendarConsole({ section }: AdminCalendarConsoleProps) {
       body: JSON.stringify({ id: bookingId, batchSlotUpdates: staged }),
     });
     const data = await safeJson<{ message?: string }>(res);
-    setMessageTone(res.ok ? "success" : "error");
-    setMessage(data.message ?? (res.ok ? "Booking saved." : "Failed to save."));
+    if (res.ok) {
+      setBookingError(bookingId, null);
+      setMessageTone("success");
+      setMessage(data.message ?? "Booking saved.");
+    } else {
+      setBookingError(bookingId, data.message ?? "Failed to save.");
+    }
     setSavingBookingIds((prev) => {
       const next = new Set(prev);
       next.delete(bookingId);
@@ -2360,6 +2383,19 @@ export function AdminCalendarConsole({ section }: AdminCalendarConsoleProps) {
                         </>
                       ) : null}
                     </div>
+                    {bookingErrors.get(booking.id) ? (
+                      <div className="bk-booking-error" role="alert">
+                        <span>⚠ {bookingErrors.get(booking.id)}</span>
+                        <button
+                          aria-label="Dismiss error"
+                          className="bk-booking-error-dismiss"
+                          onClick={() => setBookingError(booking.id, null)}
+                          type="button"
+                        >
+                          ✕
+                        </button>
+                      </div>
+                    ) : null}
                     {/* ── Payment Ledger ── */}
                     <div className="bk-ledger">
                       <div className="bk-ledger-header">

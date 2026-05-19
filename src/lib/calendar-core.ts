@@ -310,7 +310,16 @@ export function evaluateBookingConflicts(db: CalendarDb, candidate: Booking, ign
         "tentative",
       ].includes(booking.status))
         continue;
-      if (!booking.slots.some((s) => effectiveOverlaps(s, booking.cleanupDurationMinutes, slot, candidateType.cleanupDurationMinutes))) continue;
+      // Per-slot rejected / cancelled_override slots must not occupy space here.
+      // Without this filter, admin-rejected slots still block "Confirm All" on the
+      // remaining booking and block customers from booking the freed window.
+      // Keeps this consistent with getSlotStatus, which already filters the same way.
+      const activeOverlap = booking.slots.some((s) => {
+        const es = s.slotStatus ?? booking.status;
+        if (es === "rejected" || es === "cancelled_override") return false;
+        return effectiveOverlaps(s, booking.cleanupDurationMinutes, slot, candidateType.cleanupDurationMinutes);
+      });
+      if (!activeOverlap) continue;
 
       const existingType = findEventType(db, booking.eventTypeId);
       if (candidateType.priority > existingType.priority) {
