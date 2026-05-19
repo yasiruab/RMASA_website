@@ -130,6 +130,15 @@ The pure helpers live in [`src/lib/payments.ts`](src/lib/payments.ts)
 are covered by [`src/lib/payments.test.ts`](src/lib/payments.test.ts) — run
 with `npm test`.
 
+**Hard rule**: Every "what does the customer owe?" / "are they overpaid?" /
+"what's the balance?" calculation in the app MUST go through these helpers.
+Never write `totalAmountLkr − paidAmountLkr` (subtraction) or
+`paidAmountLkr > totalAmountLkr` (comparison) directly anywhere — UI, API
+route, email body, cron job. Both forms silently ignore waivers and credit
+notes, producing phantom debt or hiding genuine overpayments. The bug has
+been re-introduced three separate times this way; if you're about to compute
+an outstanding figure, import `computeAmountDue` and `computePaymentTotals`.
+
 Derived `reconciliationStatus`:
 - amountDue ≤ 0 (fully waived/credited) → `paid`
 - netCash ≤ 0 → `unpaid`
