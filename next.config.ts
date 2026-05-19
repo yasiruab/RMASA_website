@@ -1,5 +1,35 @@
 import type { NextConfig } from "next";
 
+// Content-Security-Policy. Enforcing, not report-only.
+//
+// Host allowlist (kept tight on purpose — every entry corresponds to a script
+// or asset actually loaded by the app, verified by grep over src/):
+//   - https://www.clarity.ms          inline-bootstrap loads the Clarity tag
+//   - https://*.clarity.ms            Clarity beacon hosts (z.clarity.ms etc.)
+//   - https://challenges.cloudflare.com  Turnstile widget script + iframe
+//   - https://fonts.googleapis.com    Google Fonts stylesheet
+//   - https://fonts.gstatic.com       Google Fonts font files
+//
+// 'unsafe-inline' is required on script-src for the Microsoft Clarity bootstrap
+// (an inline <Script> tag in src/app/layout.tsx) and on style-src for the
+// inline style attributes that Next.js / React produce. 'unsafe-eval' is NOT
+// included — nothing in the build needs it.
+//
+// frame-ancestors 'none' duplicates X-Frame-Options: DENY but is the modern
+// browser-preferred header.
+const CSP_DIRECTIVES = [
+  "default-src 'self'",
+  "script-src 'self' 'unsafe-inline' https://www.clarity.ms https://*.clarity.ms https://challenges.cloudflare.com",
+  "connect-src 'self' https://*.clarity.ms https://challenges.cloudflare.com",
+  "img-src 'self' data: https://*.clarity.ms",
+  "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
+  "font-src 'self' https://fonts.gstatic.com",
+  "frame-src https://challenges.cloudflare.com",
+  "frame-ancestors 'none'",
+  "form-action 'self'",
+  "base-uri 'none'",
+].join("; ");
+
 const nextConfig: NextConfig = {
   reactStrictMode: true,
   env: {
@@ -32,6 +62,7 @@ const nextConfig: NextConfig = {
             key: "Permissions-Policy",
             value: "camera=(), microphone=(), geolocation=(), payment=()",
           },
+          { key: "Content-Security-Policy", value: CSP_DIRECTIVES },
         ],
       },
     ];
