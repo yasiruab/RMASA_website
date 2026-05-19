@@ -159,6 +159,8 @@ model Booking {
   reconciliationStatus ReconciliationStatus
   reconciliationNotes  String
   rejectReason         String?
+  confirmedAt          DateTime?
+  lastReminderDays     Int?
   createdAt            DateTime
   updatedAt            DateTime
 
@@ -171,6 +173,7 @@ model Booking {
 
   @@index([status])
   @@index([createdAt])
+  @@index([reconciliationStatus, confirmedAt])
 }
 
 model PaymentEntry {

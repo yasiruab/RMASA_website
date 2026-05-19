@@ -130,15 +130,29 @@ This endpoint writes directly to Prisma (not through `updateCalendarDb`) and ato
 
 ### Data access pattern (`calendar-store.ts`)
 
-`updateCalendarDb(mutator)` does a full delete-and-recreate of ALL tables in a transaction. Delete order matters for FK constraints:
+`updateCalendarDb` was removed. The old read-mutate-wipe-and-recreate helper
+silently produced last-writer-wins races when two admins acted on stale
+snapshots — both audit-log entries would show success while one admin's work
+quietly disappeared. The replacement is a set of small, focused helpers that
+each touch only the rows the route actually intends to change:
 
-```
-bookingOverride → bookingAmountBreakdown → bookingSlot → paymentEntry → booking → calendarBlock → pricingRule → eventType → roomType
-```
+| Helper | Used by | What it writes |
+|---|---|---|
+| `insertBookingWithCascade(booking, overriddenBookingIds)` | `POST /api/calendar/bookings` | Insert `Booking` + `BookingSlot[]` + `BookingAmountBreakdown[]` + `BookingOverride[]`; cascades override targets to `status=cancelled_override` in the same transaction. |
+| `updateBookingStatus(bookingId, status, rejectReason, overriddenBookingIds?)` | `PATCH /api/admin/calendar/bookings` (booking-level path) | Update one booking's `status` (+ `rejectReason` when rejected); wipes per-slot overrides on bulk status change; cascades `overriddenBookingIds` to `cancelled_override` when status=confirmed. Stamps `confirmedAt` set-once on first confirmation. |
+| `updateBookingSlotStatus(bookingId, slotDate, slotStartTime, slotStatus)` | `PATCH /api/admin/calendar/bookings` (legacy single-slot path) | Update one slot's status. |
+| `updateBookingSlotsBatch(bookingId, updates)` | `PATCH /api/admin/calendar/bookings` (batch path) | Apply many per-slot status updates to a single booking. |
+| `createCalendarBlock(block)` / `deleteCalendarBlock(id)` | `POST/DELETE /api/admin/calendar/blocks` | Single-row block insert/delete. |
+| `replaceCalendarConfig(rooms, eventTypes, pricingRules)` | `PUT /api/admin/calendar/config` | Wipe-and-recreate scoped to `RoomType` + `EventType` + `PricingRule` only — bookings, slots, payments, blocks are not touched, so this no longer races with the booking queue. |
 
-`paymentEntry` must be deleted before `booking` (FK) and recreated after `booking`.
+Conflict detection (`evaluateBookingConflicts`) still runs in the route handler
+before calling `insertBookingWithCascade` / `updateBookingStatus(confirmed, …)`.
+That check is not yet inside the transaction, so two simultaneous bookings on
+the same slot could still both pass and both insert. The cascade step is
+race-free; the conflict-check race is a separate (smaller) follow-up.
 
-The interactive transaction is configured with `{ timeout: 30_000, maxWait: 10_000 }` because the wipe-and-recreate body issues many sequential round-trips to Neon (Singapore). The default 5 s Prisma timeout is too tight once real bookings exist. The wipe-recreate pattern itself is wasteful — a future refactor should do targeted upserts on the changed table(s) instead of nuking everything.
+`paymentEntry` writes already lived outside `updateCalendarDb` — see
+`POST /api/admin/calendar/bookings/[id]/payments` above.
 
 ## Auth
 
@@ -257,7 +271,7 @@ And handle the `null` case inside the function body.
 
 ## Transactional Email (`src/lib/email.ts`)
 
-Uses the **Resend** SDK. Three exported async functions — each catches its own errors internally so they never throw. **Always `await` them** (or `Promise.allSettled` for parallel sends) before returning from a route handler — see the "Fire-and-forget (`void`) does not work in Lambda" gotcha above.
+Uses the **Resend** SDK. Each exported async function catches its own errors internally so they never throw, and returns a `boolean` (`true` on successful dispatch, `false` if the API errored or `RESEND_API_KEY` is missing). **Always `await` them** (or `Promise.allSettled` for parallel sends) before returning from a route handler — see the "Fire-and-forget (`void`) does not work in Lambda" gotcha above.
 
 | Function | Trigger |
 |---|---|
@@ -265,6 +279,8 @@ Uses the **Resend** SDK. Three exported async functions — each catches its own
 | `sendBookingStatusNotification` | Called in `PATCH /api/admin/calendar/bookings` on booking-level status change to `confirmed`, `tentative`, or `rejected` |
 | `sendAdminNewBookingNotification` | Called alongside acknowledgement on new booking; skipped if `ADMIN_NOTIFICATION_EMAIL` unset |
 | `sendAdminRejectionNotification` | Called when any booking is set to `rejected` (booking-level or per-slot via Save); skipped if `ADMIN_NOTIFICATION_EMAIL` unset; includes reject reason |
+| `sendBookingUnpaidReminder` | Called per due booking from `POST /api/cron/unpaid-reminders`. Caller relies on the boolean return: `lastReminderDays` is only stamped on success so failed sends retry on the next cron run |
+| `sendAdminUnpaidDigest` | Called once per cron run that produced any reminders; skipped if `ADMIN_NOTIFICATION_EMAIL` unset or `bookings` array empty |
 
 Every send attempt writes a row to `EmailLog` (status `sent` or `failed`). Email failures never propagate to the API response.
 
@@ -310,6 +326,46 @@ The public booking form is gated by **Cloudflare Turnstile** to prevent scripted
 Get real keys at https://dash.cloudflare.com → **Turnstile** → **Add Site**. Add `royalmasarena.lk` (and `localhost` for dev) to the hostnames list. Widget mode: **Managed** (recommended).
 
 `src/lib/turnstile.ts` is on the `_AMPLIFY_*` allowlist in [`scripts/check-amplify-secret-leak.mjs`](scripts/check-amplify-secret-leak.mjs).
+
+## Unpaid-Booking Reminders
+
+Confirmed bookings with `reconciliationStatus IN ("unpaid", "part_paid")` get periodic reminder emails on a fixed cadence anchored to `Booking.confirmedAt`: **24 h**, **7 d**, **30 d**, then every **+30 d** indefinitely. A daily GitHub Actions cron POSTs to [`/api/cron/unpaid-reminders`](src/app/api/cron/unpaid-reminders/route.ts) at 00:30 UTC (06:00 SL time).
+
+**Auth**: shared-secret `Authorization: Bearer ${CRON_SECRET}` header. No NextAuth session — cron has no user context. The route is on the `_AMPLIFY_*` allowlist so it can read the baked secret.
+
+**Anchor field**: `Booking.confirmedAt` is set the first time a booking transitions to `status: "confirmed"` (set-once: re-confirming after a reject keeps the original anchor, so the reminder clock doesn't reset on admin churn). The set-once invariant lives inside [`updateBookingStatus`](src/lib/calendar-store.ts) — it reads the row inside the transaction and only writes `confirmedAt` when the current value is `NULL`.
+
+**Milestone field**: `Booking.lastReminderDays` (nullable Int) records the largest milestone day-count already sent (1, 7, 30, 60, 90, …). The cron compares the applicable milestone against this and skips bookings where `lastReminderDays >= milestone`. Only the highest applicable milestone fires per run — a booking confirmed 8 days ago with no prior reminder jumps straight to milestone `7`, skipping `1`.
+
+**Send-success gate**: `sendBookingUnpaidReminder` returns a boolean. `lastReminderDays` is only stamped after a successful Resend dispatch (2xx). Failed sends retry on the next cron run via the same milestone calculation — out-of-scope per spec: no in-route retry loop.
+
+**Admin digest**: one `sendAdminUnpaidDigest` email per cron run, listing every booking that received a customer reminder. Skipped silently when `remindersSent === 0` or `ADMIN_NOTIFICATION_EMAIL` unset.
+
+**Stops automatically** when `reconciliationStatus` becomes `paid`/`waived` or the booking is `rejected`/`cancelled_override` — those are filtered out of the cron scan.
+
+**Required env vars** (Amplify console + GitHub repo secrets):
+
+| Variable | Where | Purpose |
+|---|---|---|
+| `CRON_SECRET` | Amplify console + GitHub repo secrets | Bearer auth token for the cron endpoint |
+| `SITE_URL` | GitHub repo secrets only | Base URL the workflow `curl`s (e.g. `https://royalmasarena.lk`) |
+
+The Amplify `CRON_SECRET` is wired with the `_AMPLIFY_*` pattern in [`next.config.ts`](next.config.ts). The route handler reads it via `process.env.CRON_SECRET ?? process.env._AMPLIFY_CRON_SECRET`. The route file is on the leak-guard allowlist in [`scripts/check-amplify-secret-leak.mjs`](scripts/check-amplify-secret-leak.mjs).
+
+**Composite index** `Booking(reconciliationStatus, confirmedAt)` (migration `20260519061500_booking_reminder_tracking`) covers the scan's filter prefix so the daily query stays cheap as the booking table grows.
+
+## Public Booking Endpoint: Input Caps
+
+`POST /api/calendar/bookings` enforces hard length/format limits on customer-supplied fields **before** any DB read, returning 400 on violation. Defined as module-level constants at the top of [`src/app/api/calendar/bookings/route.ts`](src/app/api/calendar/bookings/route.ts):
+
+| Field | Cap | Pattern |
+|---|---|---|
+| `customer.name` | 100 chars | — |
+| `customer.email` | 254 chars (RFC 5321 path max) | also passes `isEmail` |
+| `customer.phone` | 16 chars | `PHONE_PATTERN = /^[0-9+]{1,16}$/` (digits + `+` only) |
+| `customer.purpose` | 1000 chars | — |
+
+These caps are independent of Turnstile — both run on every request. A bot that somehow bypasses Turnstile still can't dump a 10 MB customer name.
 
 ## SlotAvailability
 

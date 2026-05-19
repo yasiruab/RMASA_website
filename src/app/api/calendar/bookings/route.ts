@@ -16,7 +16,7 @@ import {
   toMinutes,
   toDayType,
 } from "@/lib/calendar-core";
-import { readCalendarDb, updateCalendarDb } from "@/lib/calendar-store";
+import { insertBookingWithCascade, readCalendarDb } from "@/lib/calendar-store";
 import { AcMode, Booking, BookingSlot, DayType, Recurrence } from "@/lib/calendar-types";
 import { verifyTurnstileToken } from "@/lib/turnstile";
 
@@ -38,6 +38,15 @@ type BookingPayload = {
 function isEmail(value: string) {
   return /^\S+@\S+\.\S+$/.test(value);
 }
+
+// Length and format caps on customer-supplied fields. The endpoint is anonymous,
+// so without these a bot could submit a 10 MB customer name. Phone is limited to
+// digits and '+' so we don't accept obviously-unreachable values.
+const MAX_NAME_LEN = 100;
+const MAX_EMAIL_LEN = 254; // RFC 5321 path max
+const MAX_PHONE_LEN = 16;
+const MAX_PURPOSE_LEN = 1000;
+const PHONE_PATTERN = /^[0-9+]{1,16}$/;
 
 function generateBookingReference(): string {
   return "BK-" + randomBytes(3).toString("hex").toUpperCase();
@@ -71,6 +80,22 @@ export async function POST(req: Request) {
 
   if (!customer.name || !customer.email || !customer.phone || !customer.purpose) {
     return NextResponse.json({ message: "Customer details are required." }, { status: 400 });
+  }
+
+  if (customer.name.length > MAX_NAME_LEN) {
+    return NextResponse.json({ message: `Name must be ${MAX_NAME_LEN} characters or fewer.` }, { status: 400 });
+  }
+  if (customer.email.length > MAX_EMAIL_LEN) {
+    return NextResponse.json({ message: `Email must be ${MAX_EMAIL_LEN} characters or fewer.` }, { status: 400 });
+  }
+  if (!PHONE_PATTERN.test(customer.phone) || customer.phone.length > MAX_PHONE_LEN) {
+    return NextResponse.json(
+      { message: `Phone must be ${MAX_PHONE_LEN} characters or fewer and contain only digits and '+'.` },
+      { status: 400 },
+    );
+  }
+  if (customer.purpose.length > MAX_PURPOSE_LEN) {
+    return NextResponse.json({ message: `Purpose must be ${MAX_PURPOSE_LEN} characters or fewer.` }, { status: 400 });
   }
 
   if (!isEmail(customer.email)) {
@@ -209,10 +234,7 @@ export async function POST(req: Request) {
 
   booking.overriddenBookingIds = overrideTargets;
 
-  await updateCalendarDb((current) => ({
-    ...current,
-    bookings: [...current.bookings, booking],
-  }));
+  await insertBookingWithCascade(booking, overrideTargets);
 
   await Promise.allSettled([
     sendBookingAcknowledgement({

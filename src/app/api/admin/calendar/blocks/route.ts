@@ -3,7 +3,11 @@ import { NextResponse } from "next/server";
 import { logAuditEvent } from "@/lib/audit";
 import { requireAdmin } from "@/lib/auth-guards";
 import { isValidDate, isValidTime } from "@/lib/calendar-core";
-import { readCalendarDb, updateCalendarDb } from "@/lib/calendar-store";
+import {
+  createCalendarBlock,
+  deleteCalendarBlock,
+  readCalendarDb,
+} from "@/lib/calendar-store";
 
 type BlockPayload = {
   id?: string;
@@ -50,10 +54,7 @@ export async function POST(req: Request) {
     createdAt: new Date().toISOString(),
   };
 
-  await updateCalendarDb((current) => ({
-    ...current,
-    blocks: [...current.blocks, block],
-  }));
+  await createCalendarBlock(block);
 
   await logAuditEvent({
     actorUserId: auth.actor.userId,
@@ -80,10 +81,7 @@ export async function DELETE(req: Request) {
     return NextResponse.json({ message: "Block id is required." }, { status: 400 });
   }
 
-  await updateCalendarDb((current) => ({
-    ...current,
-    blocks: current.blocks.filter((item) => item.id !== id),
-  }));
+  await deleteCalendarBlock(id);
 
   await logAuditEvent({
     actorUserId: auth.actor.userId,

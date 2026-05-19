@@ -14,6 +14,7 @@ const nextConfig: NextConfig = {
     _AMPLIFY_RESEND_FROM: process.env.RESEND_FROM ?? "",
     _AMPLIFY_ADMIN_NOTIFICATION_EMAIL: process.env.ADMIN_NOTIFICATION_EMAIL ?? "",
     _AMPLIFY_TURNSTILE_SECRET_KEY: process.env.TURNSTILE_SECRET_KEY ?? "",
+    _AMPLIFY_CRON_SECRET: process.env.CRON_SECRET ?? "",
   },
   async headers() {
     return [
