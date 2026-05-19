@@ -248,6 +248,35 @@ Conflict detection uses `effectiveOverlaps()` in `src/lib/calendar-core.ts`, whi
 - **Admin UI**: "Advance (days)" column in Event Types table (between Cleanup and Priority); blank input coerces to 365.
 - **Config validation**: `PUT /api/admin/calendar/config` validates 0–3650 whole number; returns 400 otherwise.
 
+## Security Headers (Content-Security-Policy)
+
+CSP is **enforcing** (not report-only) and set in [`next.config.ts`](next.config.ts) via the
+`CSP_DIRECTIVES` constant. It is served on every response under `/:path*` alongside HSTS,
+X-Frame-Options, X-Content-Type-Options, Referrer-Policy, and Permissions-Policy.
+
+**Host allowlist** — every entry corresponds to a script or asset the app actually loads
+(verified by grep over `src/` before being added):
+
+| Directive | Hosts | Why |
+|---|---|---|
+| `script-src` | `'self' 'unsafe-inline'`, `www.clarity.ms`, `*.clarity.ms`, `challenges.cloudflare.com` | `'unsafe-inline'` is required for the Microsoft Clarity bootstrap (inline `<Script>` in `src/app/layout.tsx`); the Clarity tag script then loads from `www.clarity.ms`; Turnstile loads `challenges.cloudflare.com/turnstile/v0/api.js` |
+| `connect-src` | `'self'`, `*.clarity.ms`, `challenges.cloudflare.com` | Clarity beacons; Turnstile token verification |
+| `img-src` | `'self'`, `data:`, `*.clarity.ms` | Local imagery + data URIs (icons) + Clarity pixel beacons |
+| `style-src` | `'self' 'unsafe-inline'`, `fonts.googleapis.com` | Google Fonts CSS; `'unsafe-inline'` for inline `style="…"` attributes Next/React produces |
+| `font-src` | `'self'`, `fonts.gstatic.com` | Google Fonts files |
+| `frame-src` | `challenges.cloudflare.com` | Turnstile widget iframe |
+| `frame-ancestors` | `'none'` | Modern duplicate of `X-Frame-Options: DENY` |
+| `form-action` | `'self'` | Forms only submit to same origin |
+| `base-uri` | `'none'` | Block injected `<base>` |
+
+**`'unsafe-eval'` is NOT included.** Production builds don't need it. The dev server may
+emit CSP-violation warnings in the browser console because Next.js dev uses `eval`-based
+source maps; these are harmless for prod and we accept them in dev.
+
+**When adding a new script or external asset**: grep for the hostname, add it to the
+relevant directive in `CSP_DIRECTIVES`, then verify with `curl -I http://localhost:3000/`.
+Don't blanket-allow.
+
 ## Deployment & Infrastructure
 
 ### Database: Neon Serverless Postgres
