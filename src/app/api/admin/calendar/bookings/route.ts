@@ -3,7 +3,12 @@ import { logAuditEvent } from "@/lib/audit";
 import { requireAdmin } from "@/lib/auth-guards";
 import { sendBookingStatusNotification, sendAdminRejectionNotification } from "@/lib/email";
 import { evaluateBookingConflicts } from "@/lib/calendar-core";
-import { readCalendarDb, updateCalendarDb } from "@/lib/calendar-store";
+import {
+  readCalendarDb,
+  updateBookingSlotStatus,
+  updateBookingSlotsBatch,
+  updateBookingStatus,
+} from "@/lib/calendar-store";
 import { Booking, BookingSlot, BookingStatus } from "@/lib/calendar-types";
 
 export async function GET() {
@@ -74,29 +79,9 @@ export async function PATCH(req: Request) {
     const preBatchSlots = existing.slots.map((s) => ({ ...s }));
 
     try {
-      await updateCalendarDb((db) => ({
-        ...db,
-        bookings: db.bookings.map((item) => {
-          if (item.id !== bookingId) return item;
-          return {
-            ...item,
-            slots: item.slots.map((slot) => {
-              const upd = payload.batchSlotUpdates!.find(
-                (u) => u.slotDate === slot.date && u.slotStartTime === slot.startTime,
-              );
-              if (!upd) return slot;
-              return {
-                ...slot,
-                slotStatus: upd.slotStatus ?? undefined,
-                rejectReason: upd.slotStatus === "rejected" ? (upd.rejectReason ?? undefined) : undefined,
-              };
-            }),
-            updatedAt: new Date().toISOString(),
-          };
-        }),
-      }));
+      await updateBookingSlotsBatch(bookingId, payload.batchSlotUpdates);
     } catch (err) {
-      console.error("[batch-save] updateCalendarDb failed:", err);
+      console.error("[batch-save] updateBookingSlotsBatch failed:", err);
       const msg = err instanceof Error ? err.message : "Database error.";
       return NextResponse.json({ message: `Save failed: ${msg}` }, { status: 500 });
     }
@@ -198,21 +183,12 @@ export async function PATCH(req: Request) {
 
   // ─── Legacy single-slot path ───────────────────────────────────────────────
   if (payload.slotDate && payload.slotStartTime && "slotStatus" in payload) {
-    await updateCalendarDb((db) => ({
-      ...db,
-      bookings: db.bookings.map((item) => {
-        if (item.id !== bookingId) return item;
-        return {
-          ...item,
-          slots: item.slots.map((slot) =>
-            slot.date === payload.slotDate && slot.startTime === payload.slotStartTime
-              ? { ...slot, slotStatus: payload.slotStatus ?? undefined }
-              : slot,
-          ),
-          updatedAt: new Date().toISOString(),
-        };
-      }),
-    }));
+    await updateBookingSlotStatus(
+      bookingId,
+      payload.slotDate,
+      payload.slotStartTime,
+      payload.slotStatus ?? null,
+    );
 
     await logAuditEvent({
       actorUserId: auth.actor.userId,
@@ -254,35 +230,14 @@ export async function PATCH(req: Request) {
     overrideTargets = evaluation.overrideTargets;
   }
 
-  await updateCalendarDb((db) => ({
-    ...db,
-    bookings: db.bookings.map((item) => {
-      if (item.id === bookingId) {
-        return {
-          ...item,
-          status: nextStatus,
-          rejectReason: nextStatus === "rejected" ? (payload.rejectReason ?? undefined) : item.rejectReason,
-          // Wipe per-slot overrides on explicit bulk status change
-          slots: payload.status !== undefined
-            ? item.slots.map((slot) => ({ ...slot, slotStatus: undefined }))
-            : item.slots,
-          overriddenBookingIds:
-            nextStatus === "confirmed" ? overrideTargets : item.overriddenBookingIds,
-          updatedAt: new Date().toISOString(),
-        };
-      }
-
-      if (nextStatus === "confirmed" && overrideTargets.includes(item.id)) {
-        return {
-          ...item,
-          status: "cancelled_override" as const,
-          updatedAt: new Date().toISOString(),
-        };
-      }
-
-      return { ...item };
-    }),
-  }));
+  // updateBookingStatus handles set-once confirmedAt internally and cascades
+  // overrideTargets to status=cancelled_override inside the same transaction.
+  await updateBookingStatus(
+    bookingId,
+    nextStatus,
+    nextStatus === "rejected" ? (payload.rejectReason ?? null) : null,
+    nextStatus === "confirmed" ? overrideTargets : [],
+  );
 
   await logAuditEvent({
     actorUserId: auth.actor.userId,

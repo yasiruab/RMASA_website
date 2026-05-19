@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { logAuditEvent } from "@/lib/audit";
 import { requireAdmin, requireSuperAdmin } from "@/lib/auth-guards";
-import { readCalendarDb, updateCalendarDb } from "@/lib/calendar-store";
+import { readCalendarDb, replaceCalendarConfig } from "@/lib/calendar-store";
 import { EventType, PricingRule, RoomType } from "@/lib/calendar-types";
 
 export const dynamic = "force-dynamic";
@@ -126,14 +126,12 @@ export async function PUT(req: Request) {
   }
 
   try {
-    await updateCalendarDb((current) => ({
-      ...current,
-      rooms: payload.rooms ?? current.rooms,
-      eventTypes: payload.eventTypes ?? current.eventTypes,
-      pricingRules: payload.pricingRules ?? current.pricingRules,
-    }));
+    // Wipe-and-recreate scoped to the three config tables only — bookings,
+    // slots, payment entries, and calendar blocks are not touched, so this
+    // can no longer race with admin booking-queue actions.
+    await replaceCalendarConfig(payload.rooms, payload.eventTypes, payload.pricingRules);
   } catch (error) {
-    console.error("[config PUT] updateCalendarDb failed:", error);
+    console.error("[config PUT] replaceCalendarConfig failed:", error);
     return NextResponse.json(
       { message: "Failed to save configuration. Please try again or restart the server." },
       { status: 500 },

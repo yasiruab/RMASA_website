@@ -121,7 +121,12 @@ function card(body: string): string {
 
 // ─── Internal send + log ───────────────────────────────────────────────────────
 
-type EmailLogType = "booking_acknowledgement" | "booking_status" | "admin_notification";
+type EmailLogType =
+  | "booking_acknowledgement"
+  | "booking_status"
+  | "admin_notification"
+  | "unpaid_reminder_customer"
+  | "unpaid_reminder_admin_digest";
 
 async function sendEmail(params: {
   bookingReference: string;
@@ -129,7 +134,7 @@ async function sendEmail(params: {
   to: string;
   subject: string;
   html: string;
-}): Promise<void> {
+}): Promise<boolean> {
   let status: "sent" | "failed" = "failed";
   let errorMessage: string | undefined;
 
@@ -167,6 +172,8 @@ async function sendEmail(params: {
   } catch (logErr) {
     console.error("[email] Failed to write EmailLog:", logErr);
   }
+
+  return status === "sent";
 }
 
 // ─── Public send functions ─────────────────────────────────────────────────────
@@ -408,4 +415,131 @@ export async function sendAdminRejectionNotification(params: {
   `);
 
   await sendEmail({ bookingReference: params.reference, type: "admin_notification", to: ADMIN_EMAIL, subject, html });
+}
+
+// ─── Unpaid-booking reminders ──────────────────────────────────────────────────
+
+function overdueLabel(daysOverdue: number): string {
+  if (daysOverdue <= 1) return "24 hours overdue";
+  if (daysOverdue < 30) return "1 week overdue";
+  if (daysOverdue < 60) return "1 month overdue";
+  const months = Math.floor(daysOverdue / 30);
+  return `${months} months overdue`;
+}
+
+export async function sendBookingUnpaidReminder(params: {
+  to: string;
+  customerName: string;
+  reference: string;
+  roomName: string;
+  eventTypeName: string;
+  slots: SlotList;
+  totalAmountLkr: number;
+  paidAmountLkr: number;
+  daysOverdue: number;
+}): Promise<boolean> {
+  const balance = Math.max(0, params.totalAmountLkr - params.paidAmountLkr);
+  const label = overdueLabel(params.daysOverdue);
+  const subject = `Payment Reminder – ${esc(params.reference)} (${label})`;
+  const html = card(`
+    <p style="margin:0 0 16px;font-size:16px;font-weight:600;color:#31343a;">Hi ${esc(params.customerName)},</p>
+    <p style="margin:0 0 20px;line-height:1.6;">
+      Your booking <strong>${esc(params.reference)}</strong> has an outstanding balance of
+      <strong style="color:#b26c5e;">${formatLkr(balance)}</strong>
+      (paid ${formatLkr(params.paidAmountLkr)} of ${formatLkr(params.totalAmountLkr)}).
+      This booking is currently <strong>${label}</strong>.
+    </p>
+    <p style="margin:0 0 20px;line-height:1.6;">
+      Please settle the balance at your earliest convenience by replying to this email or
+      contacting us at <a href="mailto:info@royalmasarena.lk" style="color:#b26c5e;">info@royalmasarena.lk</a>.
+      Quote your booking reference <strong>${esc(params.reference)}</strong> in all correspondence.
+    </p>
+    <table width="100%" cellpadding="0" cellspacing="0" style="background:#f7f8f9;border:1px solid #dfe3e8;border-radius:6px;padding:16px 20px;margin-bottom:20px;">
+      <tr><td style="padding:4px 0;font-size:13px;color:#6f737a;width:140px;">Reference</td><td style="padding:4px 0;font-size:13px;font-weight:700;color:#31343a;">${esc(params.reference)}</td></tr>
+      <tr><td style="padding:4px 0;font-size:13px;color:#6f737a;">Venue</td><td style="padding:4px 0;font-size:13px;color:#31343a;">${esc(params.roomName)}</td></tr>
+      <tr><td style="padding:4px 0;font-size:13px;color:#6f737a;">Event Type</td><td style="padding:4px 0;font-size:13px;color:#31343a;">${esc(params.eventTypeName)}</td></tr>
+      <tr>
+        <td style="padding:4px 0;font-size:13px;color:#6f737a;vertical-align:top;">Date(s) &amp; Time</td>
+        <td style="padding:4px 0;font-size:13px;color:#31343a;"><ul style="margin:0;padding-left:16px;">${formatSlots(params.slots)}</ul></td>
+      </tr>
+      <tr><td style="padding:4px 0;font-size:13px;color:#6f737a;">Total Amount</td><td style="padding:4px 0;font-size:13px;color:#31343a;">${formatLkr(params.totalAmountLkr)}</td></tr>
+      <tr><td style="padding:4px 0;font-size:13px;color:#6f737a;">Paid To Date</td><td style="padding:4px 0;font-size:13px;color:#31343a;">${formatLkr(params.paidAmountLkr)}</td></tr>
+      <tr><td style="padding:4px 0;font-size:13px;color:#6f737a;">Balance Due</td><td style="padding:4px 0;font-size:13px;font-weight:700;color:#b26c5e;">${formatLkr(balance)}</td></tr>
+    </table>
+    <p style="margin:0;font-size:13px;color:#6f737a;line-height:1.6;">
+      If you have already paid, please disregard this reminder.
+    </p>
+  `);
+
+  return sendEmail({
+    bookingReference: params.reference,
+    type: "unpaid_reminder_customer",
+    to: params.to,
+    subject,
+    html,
+  });
+}
+
+export async function sendAdminUnpaidDigest(params: {
+  runDate: string;
+  bookings: Array<{
+    reference: string;
+    customerName: string;
+    customerEmail: string;
+    roomName: string;
+    confirmedAt: string;
+    daysOverdue: number;
+    balanceLkr: number;
+  }>;
+}): Promise<boolean> {
+  if (!ADMIN_EMAIL) return false;
+  if (params.bookings.length === 0) return false;
+
+  const adminPortalUrl = process.env.NEXTAUTH_URL
+    ? `${process.env.NEXTAUTH_URL}/admin/calendar/dashboard`
+    : "/admin/calendar/dashboard";
+
+  const rows = params.bookings
+    .map(
+      (b) => `
+    <tr style="border-top:1px solid #dfe3e8;">
+      <td style="padding:6px 8px;font-size:13px;font-weight:700;color:#31343a;">${esc(b.reference)}</td>
+      <td style="padding:6px 8px;font-size:13px;color:#31343a;">${esc(b.customerName)}<br/><span style="color:#6f737a;font-size:12px;">${esc(b.customerEmail)}</span></td>
+      <td style="padding:6px 8px;font-size:13px;color:#31343a;">${esc(b.roomName)}</td>
+      <td style="padding:6px 8px;font-size:13px;color:#31343a;">${esc(b.confirmedAt)}</td>
+      <td style="padding:6px 8px;font-size:13px;color:#31343a;">${b.daysOverdue}</td>
+      <td style="padding:6px 8px;font-size:13px;font-weight:600;color:#b26c5e;">${formatLkr(b.balanceLkr)}</td>
+    </tr>`,
+    )
+    .join("\n");
+
+  const subject = `Unpaid Booking Reminders – ${params.bookings.length} bookings – ${esc(params.runDate)}`;
+  const html = card(`
+    <p style="margin:0 0 16px;font-size:16px;font-weight:600;color:#31343a;">Unpaid Booking Reminders</p>
+    <p style="margin:0 0 20px;line-height:1.6;">
+      The following ${params.bookings.length} booking(s) hit a reminder milestone today and had a customer reminder dispatched.
+    </p>
+    <table width="100%" cellpadding="0" cellspacing="0" style="border-collapse:collapse;margin-bottom:20px;">
+      <tr style="background:#f0f2f4;">
+        <th style="padding:6px 8px;font-size:12px;text-align:left;color:#6f737a;font-weight:600;">Reference</th>
+        <th style="padding:6px 8px;font-size:12px;text-align:left;color:#6f737a;font-weight:600;">Customer</th>
+        <th style="padding:6px 8px;font-size:12px;text-align:left;color:#6f737a;font-weight:600;">Venue</th>
+        <th style="padding:6px 8px;font-size:12px;text-align:left;color:#6f737a;font-weight:600;">Confirmed</th>
+        <th style="padding:6px 8px;font-size:12px;text-align:left;color:#6f737a;font-weight:600;">Days Overdue</th>
+        <th style="padding:6px 8px;font-size:12px;text-align:left;color:#6f737a;font-weight:600;">Balance</th>
+      </tr>
+      ${rows}
+    </table>
+    <a href="${adminPortalUrl}" style="display:inline-block;background:#b26c5e;color:#ffffff;text-decoration:none;padding:10px 20px;border-radius:5px;font-size:14px;font-weight:600;">
+      Open Admin Portal
+    </a>
+  `);
+
+  return sendEmail({
+    bookingReference: "DIGEST",
+    type: "unpaid_reminder_admin_digest",
+    to: ADMIN_EMAIL,
+    subject,
+    html,
+  });
 }

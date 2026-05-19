@@ -12,6 +12,14 @@ function isEmail(value: string) {
   return /^\S+@\S+\.\S+$/.test(value);
 }
 
+// Length and format caps — same shape as the booking endpoint. Phone allows only
+// digits and '+', capped at 16 characters.
+const MAX_NAME_LEN = 100;
+const MAX_EMAIL_LEN = 254;
+const MAX_PHONE_LEN = 16;
+const MAX_MESSAGE_LEN = 1000;
+const PHONE_PATTERN = /^[0-9+]{1,16}$/;
+
 export async function POST(req: Request) {
   let payload: ContactPayload;
 
@@ -32,6 +40,22 @@ export async function POST(req: Request) {
       { message: "Please complete all fields and provide privacy consent." },
       { status: 400 },
     );
+  }
+
+  if (name.length > MAX_NAME_LEN) {
+    return NextResponse.json({ message: `Name must be ${MAX_NAME_LEN} characters or fewer.` }, { status: 400 });
+  }
+  if (email.length > MAX_EMAIL_LEN) {
+    return NextResponse.json({ message: `Email must be ${MAX_EMAIL_LEN} characters or fewer.` }, { status: 400 });
+  }
+  if (!PHONE_PATTERN.test(phone) || phone.length > MAX_PHONE_LEN) {
+    return NextResponse.json(
+      { message: `Phone must be ${MAX_PHONE_LEN} characters or fewer and contain only digits and '+'.` },
+      { status: 400 },
+    );
+  }
+  if (message.length > MAX_MESSAGE_LEN) {
+    return NextResponse.json({ message: `Message must be ${MAX_MESSAGE_LEN} characters or fewer.` }, { status: 400 });
   }
 
   if (!isEmail(email)) {

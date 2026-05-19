@@ -157,22 +157,22 @@ Add two values to the `EmailLogType` union in `email.ts`: `"unpaid_reminder_cust
 
 ## Acceptance Criteria
 
-- [ ] AC-1: `Booking.confirmedAt` and `Booking.lastReminderDays` exist in Prisma schema. Migration is reversible and includes the `confirmedAt = updatedAt` backfill for existing confirmed bookings.
-- [ ] AC-2: When an admin confirms a booking (`status` → `confirmed`) for the first time, `confirmedAt` is set to `now()`. Re-confirmation after an unconfirm/reconfirm cycle keeps the original value.
-- [ ] AC-3: `POST /api/cron/unpaid-reminders` returns 401 without a valid `Authorization: Bearer ${CRON_SECRET}` header.
-- [ ] AC-4: Cron endpoint with a valid header returns `200` with the JSON summary even when no reminders are due (`remindersSent: 0`).
-- [ ] AC-5: For a booking confirmed 25 hours ago with reconciliation status `unpaid`, calling the cron endpoint sends one customer reminder (milestone `1`) and includes the booking in the admin digest.
-- [ ] AC-6: Calling the cron endpoint a second time on the same booking the same day sends **no** additional reminders (`lastReminderDays = 1` blocks re-sending). The endpoint still returns 200.
-- [ ] AC-7: A booking confirmed 8 days ago that has not yet received a reminder gets one customer email at milestone `7` on the next cron run, skipping the `1` milestone (only the highest applicable milestone is fired per run).
-- [ ] AC-8: A booking confirmed 65 days ago gets the milestone `60` reminder; `lastReminderDays` becomes `60`. At day 95 the next milestone `90` fires.
-- [ ] AC-9: When `reconciliationStatus` becomes `paid` or `waived`, subsequent cron runs do **not** send further reminders for that booking (regardless of `lastReminderDays`).
-- [ ] AC-10: Bookings with effective status `rejected` or `cancelled_override` are excluded from the cron scan and never receive reminders.
-- [ ] AC-11: Customer email subject line includes the milestone label ("24 hours overdue", "1 week overdue", "1 month overdue", "X months overdue" for milestones ≥ 60).
-- [ ] AC-12: Customer email body shows balance = `totalAmountLkr − paidAmountLkr` and references the booking ID + slots.
-- [ ] AC-13: Admin digest is sent **once** per cron run that produces any reminders. If `remindersSent === 0`, no digest is sent.
-- [ ] AC-14: Every send writes a row to `EmailLog` with `type` set to `"unpaid_reminder_customer"` or `"unpaid_reminder_admin_digest"`, plus `status` (`"sent"` or `"failed"`).
-- [ ] AC-15: `.github/workflows/unpaid-reminders.yml` exists, runs on schedule + `workflow_dispatch`, and `curl`s the endpoint with the Bearer header.
-- [ ] AC-16: `npx tsc --noEmit` and `npm run lint` clean.
+- [x] AC-1: `Booking.confirmedAt` and `Booking.lastReminderDays` exist in Prisma schema. Migration is reversible and includes the `confirmedAt = updatedAt` backfill for existing confirmed bookings.
+- [x] AC-2: When an admin confirms a booking (`status` → `confirmed`) for the first time, `confirmedAt` is set to `now()`. Re-confirmation after an unconfirm/reconfirm cycle keeps the original value.
+- [x] AC-3: `POST /api/cron/unpaid-reminders` returns 401 without a valid `Authorization: Bearer ${CRON_SECRET}` header.
+- [x] AC-4: Cron endpoint with a valid header returns `200` with the JSON summary even when no reminders are due (`remindersSent: 0`).
+- [x] AC-5: For a booking confirmed 25 hours ago with reconciliation status `unpaid`, calling the cron endpoint sends one customer reminder (milestone `1`) and includes the booking in the admin digest.
+- [x] AC-6: Calling the cron endpoint a second time on the same booking the same day sends **no** additional reminders (`lastReminderDays = 1` blocks re-sending). The endpoint still returns 200.
+- [x] AC-7: A booking confirmed 8 days ago that has not yet received a reminder gets one customer email at milestone `7` on the next cron run, skipping the `1` milestone (only the highest applicable milestone is fired per run).
+- [x] AC-8: A booking confirmed 65 days ago gets the milestone `60` reminder; `lastReminderDays` becomes `60`. At day 95 the next milestone `90` fires.
+- [x] AC-9: When `reconciliationStatus` becomes `paid` or `waived`, subsequent cron runs do **not** send further reminders for that booking (regardless of `lastReminderDays`).
+- [x] AC-10: Bookings with effective status `rejected` or `cancelled_override` are excluded from the cron scan and never receive reminders.
+- [x] AC-11: Customer email subject line includes the milestone label ("24 hours overdue", "1 week overdue", "1 month overdue", "X months overdue" for milestones ≥ 60).
+- [x] AC-12: Customer email body shows balance = `totalAmountLkr − paidAmountLkr` and references the booking ID + slots.
+- [x] AC-13: Admin digest is sent **once** per cron run that produces any reminders. If `remindersSent === 0`, no digest is sent.
+- [x] AC-14: Every send writes a row to `EmailLog` with `type` set to `"unpaid_reminder_customer"` or `"unpaid_reminder_admin_digest"`, plus `status` (`"sent"` or `"failed"`).
+- [x] AC-15: `.github/workflows/unpaid-reminders.yml` exists, runs on schedule + `workflow_dispatch`, and `curl`s the endpoint with the Bearer header.
+- [x] AC-16: `npx tsc --noEmit` and `npm run lint` clean.
 
 ## Out of Scope
 

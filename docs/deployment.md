@@ -337,11 +337,14 @@ database is reset.
 | `COGNITO_CLIENT_ID` | Amplify console → Environment variables | App Client ID from the Cognito User Pool |
 | `COGNITO_CLIENT_SECRET` | Amplify console → Environment variables | App Client secret (confidential client) |
 | `COGNITO_ISSUER` | Amplify console → Environment variables | `https://cognito-idp.<region>.amazonaws.com/<user-pool-id>` |
+| `NEXT_PUBLIC_TURNSTILE_SITE_KEY` | Amplify console → Environment variables | Cloudflare Turnstile widget key for the booking-form bot challenge. `NEXT_PUBLIC_*` is inlined automatically by Next.js — no `_AMPLIFY_*` baking needed. |
+| `TURNSTILE_SECRET_KEY` | Amplify console → Environment variables | Server-side Turnstile verification secret. Baked via `_AMPLIFY_TURNSTILE_SECRET_KEY` in `next.config.ts`; read in `src/lib/turnstile.ts`. Fail-open: if unset, the booking endpoint skips verification (does not break submissions). |
 
-All six are mirrored into the JS bundle at build time via `next.config.ts` `env` config (prefixed
-`_AMPLIFY_*`) and re-exported at server start by `src/instrumentation.ts`. The bundle-leak
-guardrail (`scripts/check-amplify-secret-leak.mjs`) keeps these references confined to three
-server-only files.
+All server-side variables listed above are mirrored into the JS bundle at build time via
+`next.config.ts` `env` config (prefixed `_AMPLIFY_*`) and re-exported at server start by
+`src/instrumentation.ts`. The bundle-leak guardrail (`scripts/check-amplify-secret-leak.mjs`)
+keeps these references confined to an allowlist of server-only files (Prisma, NextAuth,
+Resend, Turnstile).
 
 ---
 

@@ -98,6 +98,8 @@ export type Booking = {
   reconciliationNotes: string;
   rejectReason?: string;
   paymentEntries: PaymentEntry[];
+  confirmedAt?: string;
+  lastReminderDays?: number;
   createdAt: string;
   updatedAt: string;
   overriddenBookingIds: string[];
