@@ -2,6 +2,11 @@ import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { logAuditEvent } from "@/lib/audit";
 import { requireAdmin } from "@/lib/auth-guards";
+import {
+  computeAmountDue,
+  computePaymentTotals,
+  deriveReconciliationStatus,
+} from "@/lib/payments";
 
 const VALID_TYPES = ["payment", "refund", "credit_note", "waiver"] as const;
 type EntryType = (typeof VALID_TYPES)[number];
@@ -10,12 +15,6 @@ function isValidYmd(value: string): boolean {
   if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) return false;
   const d = new Date(value + "T00:00:00");
   return !isNaN(d.getTime());
-}
-
-function deriveReconciliationStatus(net: number, total: number) {
-  if (net <= 0) return "unpaid" as const;
-  if (net >= total) return "paid" as const;
-  return "part_paid" as const;
 }
 
 export async function POST(req: Request, { params }: { params: Promise<{ id: string }> }) {
@@ -72,16 +71,18 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
       },
     });
 
-    const net = [...booking.paymentEntries, entry].reduce(
-      (sum, e) => (e.type === "payment" ? sum + e.amountLkr : sum - e.amountLkr),
-      0,
-    );
-    const clamped = Math.max(0, net);
-    const reconciliationStatus = deriveReconciliationStatus(clamped, booking.totalAmountLkr);
+    // Two streams, not one: cash collected (payment − refund) and amount due
+    // (total − waiver − credit_note). Waivers reduce what's owed, not what's
+    // been paid, so a fully-paid booking that later receives a fee waiver
+    // stays "paid" rather than flipping to "part_paid".
+    const totals = computePaymentTotals([...booking.paymentEntries, entry]);
+    const amountDue = computeAmountDue(booking.totalAmountLkr, totals);
+    const paidAmountLkr = Math.max(0, totals.netCash);
+    const reconciliationStatus = deriveReconciliationStatus(paidAmountLkr, amountDue);
 
     const updated = await tx.booking.update({
       where: { id: bookingId },
-      data: { paidAmountLkr: clamped, reconciliationStatus, updatedAt: new Date() },
+      data: { paidAmountLkr, reconciliationStatus, updatedAt: new Date() },
     });
 
     return {

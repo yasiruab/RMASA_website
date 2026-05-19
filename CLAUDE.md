@@ -116,12 +116,38 @@ Each booking has an append-only `PaymentEntry[]`. Entries are never deleted or e
 | `notes` | Required |
 | `createdBy` | Admin email (server-set) |
 
-**Net collected** = Σ(payment.amountLkr) − Σ(refund.amountLkr) − Σ(credit_note.amountLkr) − Σ(waiver.amountLkr)
+The accounting model has **two independent counters** — conflating them
+produces phantom debt:
+
+- **Net cash** (`Booking.paidAmountLkr`) = Σ(`payment`) − Σ(`refund`).
+  This is real money movement.
+- **Total deducted** = Σ(`waiver`) + Σ(`credit_note`).
+  These forgive parts of the invoice; no cash moves.
+- **Amount due** = `totalAmountLkr` − total deducted (floored at 0).
+
+The pure helpers live in [`src/lib/payments.ts`](src/lib/payments.ts)
+(`computePaymentTotals`, `computeAmountDue`, `deriveReconciliationStatus`) and
+are covered by [`src/lib/payments.test.ts`](src/lib/payments.test.ts) — run
+with `npm test`.
 
 Derived `reconciliationStatus`:
-- net = 0 → `unpaid`
-- 0 < net < total → `part_paid`
-- net ≥ total → `paid`
+- amountDue ≤ 0 (fully waived/credited) → `paid`
+- netCash ≤ 0 → `unpaid`
+- netCash ≥ amountDue → `paid`
+- otherwise → `part_paid`
+
+**Why this matters**: under the old single-counter logic, applying a waiver
+to a fully-paid booking flipped status to `part_paid` and created phantom
+debt the customer didn't owe. The fixed model treats waivers as reductions
+to amount due, not as cash lost.
+
+**Caveat — admin queue Overpaid tag**: the queue derives Overpaid from
+`paidAmountLkr > totalAmountLkr` (cash > invoice gross). It does NOT detect
+"cash matches invoice but waiver applied later → refund due" because that
+requires per-row payment-entry knowledge. The accounting report at
+`/admin/calendar/reports` already shows the correct per-slot balance from
+the full ledger. A full fix would add a server-side `amountDueLkr` cached
+column; that's a follow-up.
 
 ### Adding a payment entry
 
