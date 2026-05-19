@@ -79,6 +79,8 @@ The top live-strip in [`src/components/nav.tsx`](src/components/nav.tsx) shows "
 
 [`src/app/layout.tsx`](src/app/layout.tsx) injects the Clarity script (`project ID wrxgldd8t5`) via `next/script` with `strategy="afterInteractive"`, gated to `process.env.NODE_ENV === "production"` so local dev sessions don't pollute analytics. No env vars to set — project ID is hardcoded.
 
+**Verifying it works:** the dashboard's "Almost there — install the tracking code" panel is **sticky** and can keep showing even while data is flowing. To confirm the snippet is alive, open the deployed site → DevTools → Console: `window.clarity` should return a function (not undefined). Then in Network filter `clarity` and reload: you should see `wrxgldd8t5` script (200), `clarity.js` script (200), and a stream of `collect` XHRs returning **`204 No Content`** — that 204 is Clarity's "data accepted" response. If all four are present, the integration is healthy and the dashboard will catch up on its own; don't bother changing code.
+
 ## Calendar Data Model
 
 ### RoomType
