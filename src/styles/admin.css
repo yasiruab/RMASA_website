@@ -1,0 +1,77 @@
+/*
+ * Admin portal — Arena Court redesign.
+ *
+ * New CSS for the dark-theme admin redesign lives here, imported once from
+ * src/app/globals.css. Keeping it separate from globals.css makes the redesign
+ * easy to revert or cherry-pick and prevents the 6 000-line globals.css from
+ * growing further.
+ *
+ * All values reference the existing public-site `--ac-*` tokens defined in
+ * :root of globals.css; no admin-specific tokens are introduced.
+ */
+
+/* ── Layout section wrapper (replaces .admin-content-page white card) ────── */
+.admin-section {
+  background: var(--ac-bg);
+  color: var(--ac-text);
+  min-height: 100vh;
+}
+
+/* ── Breadcrumb strip ─────────────────────────────────────────────────────── */
+.admin-breadcrumbs {
+  background: var(--ac-bg);
+  border-bottom: 1px solid var(--ac-line);
+  padding: 20px 48px;
+}
+
+.admin-breadcrumbs ol {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  font-family: "Geist Mono", monospace;
+  font-size: 11px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--ac-text-mute);
+}
+
+.admin-breadcrumbs ol li {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.admin-breadcrumbs-link {
+  color: var(--ac-gold);
+  border-bottom: 1px solid color-mix(in srgb, var(--ac-gold-deep) 25%, transparent);
+  padding-bottom: 2px;
+  text-decoration: none;
+}
+
+.admin-breadcrumbs-link:hover {
+  color: var(--ac-gold-bright);
+}
+
+.admin-breadcrumbs-current {
+  color: var(--ac-text);
+}
+
+.admin-breadcrumbs-sep {
+  color: var(--ac-line);
+}
+
+@media (max-width: 700px) {
+  .admin-breadcrumbs {
+    padding: 16px 24px;
+  }
+}
+
+@media (max-width: 420px) {
+  .admin-breadcrumbs {
+    padding: 14px 16px;
+  }
+}
