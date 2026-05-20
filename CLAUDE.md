@@ -59,7 +59,13 @@ process in this repo.
 | Public pages | `src/app/<route>/page.tsx` |
 | Admin pages | `src/app/admin/<route>/page.tsx` |
 | API routes | `src/app/api/<route>/route.ts` |
-| Admin component | `src/components/admin/admin-calendar-console.tsx` |
+| Admin hub page | `src/components/admin/hub/admin-hub.tsx` |
+| Admin bookings page | `src/components/admin/sections/admin-bookings.tsx` |
+| Admin breadcrumbs | `src/components/admin/admin-breadcrumbs.tsx` |
+| Admin session context | `src/components/admin/admin-session-context.tsx` |
+| Admin mega-component (legacy sections) | `src/components/admin/admin-calendar-console.tsx` |
+| Admin shared utilities | `src/lib/admin/{booking-utils,revenue-model,date-utils,api}.ts` |
+| Admin-specific CSS | `src/styles/admin.css` |
 | Calendar business logic | `src/lib/calendar-core.ts` |
 | Calendar data access | `src/lib/calendar-store.ts` |
 | Calendar TypeScript types | `src/lib/calendar-types.ts` |
@@ -139,8 +145,61 @@ fresh audit-log query; the revenue model is the shared `buildRevenueModel()`
 applied to a 90-day window. The `[section]/page.tsx` dynamic route no longer
 accepts `"dashboard"` (the hub occupies that slot).
 
-**Legacy sections** (`/admin/calendar/{bookings,blockouts,rooms,event-types,
-pricing,accounts,revenue,reports}`) still render the mega-component
+**Bookings split-pane** at `/admin/calendar/bookings` —
+[`src/components/admin/sections/admin-bookings.tsx`](src/components/admin/sections/admin-bookings.tsx)
+(client component, mounted inside a `<Suspense>` boundary in
+[`src/app/admin/calendar/bookings/page.tsx`](src/app/admin/calendar/bookings/page.tsx)).
+The explicit route shadows the `[section]` dynamic segment ("bookings" was
+removed from `allowedSections`). Composition:
+
+- Hero strip ("`// BOOKINGS DESK · OPERATIONS`" eyebrow → `QUEUE.` display
+  title → identity pill with Sign Out)
+- KPI strip: In queue / Approved today / Rejected today / Confirm rate /
+  Outstanding (gold-highlighted on non-zero)
+- Two-column split (`minmax(360px, 400px) 1fr`):
+  - **Queue rail** (left): search box, NEWEST/OLDEST sort, three filter
+    selects (approval / payment / conflict), scrollable booking row list
+  - **Detail pane** (right): status pill + title + conflict tag + submitted
+    stamp, sport/hours/fee summary strip, slot table with `✓ ? ✕` per-slot
+    buttons + staged-change indicator, requester card, italic Newsreader
+    purpose blockquote, bulk-action row, Save Changes / Discard staged bar,
+    payment ledger (6-tile totals strip + inline + Add entry form + ledger
+    table), derived history timeline
+- URL sync: `?id=<bookingId>` keeps deep links shareable
+- Reject modals (per-slot + bulk) require a reason before confirm
+
+**Sticky scroll behaviour** (desktop ≥ 981px) — the `.admin-bookings-split`
+container becomes `position: sticky; top: 0; height: 100vh` once it scrolls
+into view. The breadcrumb + hero + KPI strip scroll past normally; then the
+split locks to viewport top and both panes scroll independently (`.admin-
+bookings-queue` height-locked with its inner list scrolling, `.admin-
+bookings-detail` overflow-y: auto). Below 981 px the panes stack and the
+page scrolls normally.
+
+All booking actions call the same `/api/admin/calendar/*` endpoints as the
+legacy mega-component (updateBookingStatus, batchSlotUpdates, payments POST)
+— no behaviour regressions on data writes.
+
+**History timeline** is *derived* from the booking row on the client
+(submitted = `booking.createdAt` + customer email/purpose; per-slot rejection
+= slot.rejectReason; payment events = `booking.paymentEntries`). The audit
+log table is not queried for this view — keeping the page off a separate
+API round trip. If admins need granular "who clicked what" history later, an
+admin-side audit-log query endpoint would be the right addition.
+
+**Status pills and payment tags** follow the mockup STATUS_META and
+PAYMENT_META palettes — solid-fill chips with the colour as background and
+`--ac-ink` (dark) text (or white text on red `rejected` / `unpaid`). The
+leading dot is `currentColor` at 55 % opacity for soft contrast. Slight
+4 px corner radius, Archivo 900 weight, `letter-spacing: 0.1em`, uppercase.
+Tones in `src/styles/admin.css`: `tone-pending` (gold), `tone-tentative`
+(`#c77bff`), `tone-confirmed` (live green), `tone-rejected` (danger red),
+`tone-cancelled_override` (line grey); payment tones add `tone-part`
+(orange), `tone-overpaid` (`#7fb7ff`), `tone-waived` (ink3).
+
+**Remaining legacy sections** (`/admin/calendar/{blockouts,rooms,event-types,
+pricing,accounts,revenue}` and `/admin/calendar/reports`) still render the
+mega-component
 [`src/components/admin/admin-calendar-console.tsx`](src/components/admin/admin-calendar-console.tsx)
 or the standalone reports page. They share their markup with the previous
 light-theme admin but pick up the dark Arena Court look automatically via a
