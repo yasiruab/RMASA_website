@@ -132,9 +132,9 @@ export function Nav() {
             alt="Royal MAS Arena"
             height={60}
             priority
-            sizes="120px"
-            src="/rmasa/logo.png"
-            width={200}
+            sizes="160px"
+            src="/rmasa/royal-mas-arena-logo.png"
+            width={158}
           />
         </Link>
 
