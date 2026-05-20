@@ -4,6 +4,7 @@ import { Footer } from "@/components/footer";
 import { Nav } from "@/components/nav";
 import { Providers } from "@/components/providers";
 import "./globals.css";
+import "../styles/admin.css";
 
 const CLARITY_PROJECT_ID = "wrxgldd8t5";
 
