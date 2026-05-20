@@ -991,3 +991,1209 @@ main > .admin-section {
     border-top: none;
   }
 }
+
+/* ─────────────────────────────────────────────────────────────────────────
+ * Legacy admin sections — Arena Court dark overrides.
+ *
+ * The mega-component <AdminCalendarConsole> and the reports route still ship
+ * with the old `.admin-*` / `.bk-*` / `.rpt-*` markup. Rather than rewrite
+ * every selector body in globals.css (which would risk regressions across
+ * many interdependent rules), we scope a token + treatment override under
+ * `.admin-section` so every legacy class adopts the dark Arena Court look
+ * automatically.
+ *
+ * Strategy:
+ *   1. Redefine the legacy palette vars (--brand/--ink/--muted/--bg/--panel/
+ *      --line/--footer) inside .admin-section to the equivalent --ac-* tokens.
+ *      This re-colours every legacy rule that consults a palette var.
+ *   2. Override the surface-defining rules that hard-code hex (white card
+ *      backgrounds, drop shadows, pastel status pills, etc.) so the dark
+ *      theme replaces the light surfaces and pastel badges land on a dark
+ *      background that still reads.
+ * ───────────────────────────────────────────────────────────────────────── */
+
+.admin-section {
+  /* Legacy tokens remapped to AC palette. */
+  --brand: var(--ac-gold);
+  --ink: var(--ac-text);
+  --muted: var(--ac-text-mute);
+  --bg: var(--ac-bg);
+  --panel: var(--ac-card);
+  --line: var(--ac-line);
+  --footer: var(--ac-ink);
+  background: var(--ac-bg);
+  color: var(--ac-text);
+  font-family: "Space Grotesk", "Helvetica Neue", Arial, sans-serif;
+  padding-bottom: 64px;
+}
+
+/* Wrapper around the legacy console — provides padding around section bodies. */
+.admin-section .admin-console {
+  padding: 24px 48px 0;
+  background: var(--ac-bg);
+  color: var(--ac-text);
+}
+
+/* Yellow legacy access notice — restyle as a slim gold accent bar. */
+.admin-section .admin-note {
+  margin: 0 0 18px;
+  padding: 12px 16px;
+  background: var(--ac-ink2);
+  border: 1px solid var(--ac-line);
+  border-left: 3px solid var(--ac-gold);
+  color: var(--ac-text-dim);
+  font-family: "Space Grotesk", sans-serif;
+  font-size: 12px;
+  border-radius: 0;
+}
+
+.admin-section .admin-content-page {
+  background: var(--ac-card);
+  border: 1px solid var(--ac-line);
+  border-radius: 0;
+  box-shadow: none;
+  color: var(--ac-text);
+  padding: 28px;
+}
+
+.admin-section .admin-content-page h1,
+.admin-section .admin-content-page h2,
+.admin-section .admin-content-page p,
+.admin-section .admin-content-page li {
+  color: var(--ac-text);
+}
+
+.admin-section .admin-content-page p,
+.admin-section .admin-content-page li {
+  color: var(--ac-text-dim);
+}
+
+.admin-section .admin-content-page a {
+  color: var(--ac-gold);
+}
+
+/* Panels — each section renders in its own card. */
+.admin-section .admin-panel {
+  background: var(--ac-card);
+  border: 1px solid var(--ac-line);
+  border-radius: 0;
+  padding: 24px 26px;
+  margin-bottom: 24px;
+  box-shadow: none;
+}
+
+.admin-section .admin-panel h1,
+.admin-section .admin-panel h2,
+.admin-section .admin-panel h3,
+.admin-section .admin-panel h4 {
+  color: var(--ac-text);
+  font-family: "Archivo", sans-serif;
+}
+
+.admin-section .admin-panel h2 {
+  font-weight: 900;
+  font-size: 28px;
+  letter-spacing: -0.02em;
+  margin: 0 0 16px;
+  padding-bottom: 12px;
+  border-bottom: 1px solid var(--ac-line);
+}
+
+.admin-section .admin-panel h3 {
+  font-weight: 800;
+  font-size: 16px;
+  letter-spacing: 0;
+}
+
+/* Legacy headers / row meta now redundant — hide the now-removed structural
+   bits in case any straggler markup survives. */
+.admin-section .admin-shell,
+.admin-section .admin-sidebar,
+.admin-section .admin-sidebar-nav,
+.admin-section .admin-head-row,
+.admin-section .admin-user-meta {
+  display: contents;
+}
+
+/* ── Form / input restyle ─────────────────────────────────────────────── */
+.admin-section input[type="text"],
+.admin-section input[type="email"],
+.admin-section input[type="password"],
+.admin-section input[type="number"],
+.admin-section input[type="date"],
+.admin-section input[type="time"],
+.admin-section input[type="search"],
+.admin-section input[type="url"],
+.admin-section select,
+.admin-section textarea {
+  background: var(--ac-bg);
+  color: var(--ac-text);
+  border: 1px solid var(--ac-line);
+  border-radius: 0;
+  padding: 9px 12px;
+  font-family: "Space Grotesk", sans-serif;
+  font-size: 13px;
+  transition: border-color 0.15s;
+}
+
+.admin-section input:focus,
+.admin-section select:focus,
+.admin-section textarea:focus {
+  outline: none;
+  border-color: var(--ac-gold);
+  box-shadow: 0 0 0 1px var(--ac-gold);
+}
+
+.admin-section input::placeholder,
+.admin-section textarea::placeholder {
+  color: var(--ac-text-mute);
+}
+
+.admin-section label {
+  color: var(--ac-text-dim);
+  font-family: "Geist Mono", monospace;
+  font-size: 11px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+/* color-scheme dark hints the native widgets (calendar popover, dropdown). */
+.admin-section input[type="date"],
+.admin-section input[type="time"],
+.admin-section select {
+  color-scheme: dark;
+}
+
+/* ── Buttons ──────────────────────────────────────────────────────────── */
+.admin-section .btn,
+.admin-section button.btn,
+.admin-section a.btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 10px 18px;
+  border-radius: 0;
+  font-family: "Archivo", sans-serif;
+  font-weight: 800;
+  font-size: 11px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  cursor: pointer;
+  border: 1px solid transparent;
+  transition: background 0.15s, color 0.15s, border-color 0.15s;
+  text-decoration: none;
+}
+
+.admin-section .btn-primary {
+  background: var(--ac-gold);
+  color: var(--ac-ink);
+  border-color: var(--ac-gold);
+}
+
+.admin-section .btn-primary:hover {
+  background: var(--ac-gold-bright);
+  border-color: var(--ac-gold-bright);
+}
+
+.admin-section .btn-secondary {
+  background: transparent;
+  color: var(--ac-gold);
+  border-color: var(--ac-gold);
+}
+
+.admin-section .btn-secondary:hover {
+  background: var(--ac-gold);
+  color: var(--ac-ink);
+}
+
+.admin-section .btn-danger,
+.admin-section .btn-destructive {
+  background: transparent;
+  color: var(--ac-danger);
+  border-color: var(--ac-danger);
+}
+
+.admin-section .btn-danger:hover,
+.admin-section .btn-destructive:hover {
+  background: var(--ac-danger);
+  color: var(--ac-text);
+}
+
+.admin-section button:disabled,
+.admin-section .btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/* Form messages */
+.admin-section .form-message {
+  margin: 0 0 16px;
+  padding: 10px 14px;
+  border-radius: 0;
+  font-family: "Space Grotesk", sans-serif;
+  font-size: 13px;
+  border: 1px solid var(--ac-line);
+}
+
+.admin-section .form-message.success {
+  background: color-mix(in srgb, var(--ac-live) 12%, transparent);
+  border-color: color-mix(in srgb, var(--ac-live) 45%, transparent);
+  color: var(--ac-live);
+}
+
+.admin-section .form-message.error {
+  background: color-mix(in srgb, var(--ac-danger) 12%, transparent);
+  border-color: color-mix(in srgb, var(--ac-danger) 45%, transparent);
+  color: var(--ac-danger);
+}
+
+/* ── Dashboard KPIs (legacy stat / kpi cards) ────────────────────────── */
+.admin-section .admin-dashboard-grid,
+.admin-section .admin-revenue-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 14px;
+  margin-bottom: 20px;
+}
+
+.admin-section .admin-stat-card,
+.admin-section .admin-kpi-card {
+  background: var(--ac-bg);
+  border: 1px solid var(--ac-line);
+  border-radius: 0;
+  padding: 18px 20px;
+  box-shadow: none;
+}
+
+.admin-section .admin-stat-card h3,
+.admin-section .admin-kpi-card h3,
+.admin-section .admin-kpi-card h4 {
+  margin: 0 0 8px;
+  font-family: "Geist Mono", monospace;
+  font-size: 10px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--ac-text-mute);
+  border: none;
+  padding: 0;
+}
+
+.admin-section .admin-stat-card p,
+.admin-section .admin-kpi-card p {
+  margin: 0;
+  font-family: "Archivo", sans-serif;
+  font-weight: 900;
+  font-size: 32px;
+  line-height: 1;
+  letter-spacing: -0.02em;
+  color: var(--ac-text);
+}
+
+.admin-section .admin-kpi-card-alert {
+  border-color: color-mix(in srgb, var(--ac-danger) 60%, transparent);
+}
+
+.admin-section .admin-kpi-card-alert h4,
+.admin-section .admin-kpi-card-alert p {
+  color: var(--ac-danger);
+}
+
+.admin-section .admin-quick-links {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+  margin-top: 14px;
+}
+
+/* Revenue snapshot card */
+.admin-section .admin-revenue-snapshot {
+  background: var(--ac-bg);
+  border: 1px solid var(--ac-line);
+  border-radius: 0;
+  padding: 20px;
+  margin-top: 18px;
+}
+
+.admin-section .admin-revenue-snapshot-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 14px;
+  margin-bottom: 18px;
+  flex-wrap: wrap;
+}
+
+.admin-section .admin-revenue-snapshot-head h3 {
+  margin: 0;
+  color: var(--ac-text);
+  font-family: "Newsreader", serif;
+  font-weight: 500;
+  font-style: italic;
+  font-size: 22px;
+  letter-spacing: -0.005em;
+}
+
+.admin-section .admin-revenue-filters {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+  margin-bottom: 18px;
+}
+
+.admin-section .admin-revenue-filters select {
+  min-width: 160px;
+}
+
+/* Bar chart */
+.admin-section .admin-chart-panel {
+  background: var(--ac-bg);
+  border: 1px solid var(--ac-line);
+  padding: 20px;
+  margin-top: 18px;
+}
+
+.admin-section .admin-chart-panel h3,
+.admin-section .admin-chart-panel h4 {
+  color: var(--ac-text);
+  font-family: "Geist Mono", monospace;
+  font-size: 11px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  margin: 0 0 12px;
+  border: none;
+  padding: 0;
+}
+
+.admin-section .admin-chart-legend {
+  display: flex;
+  gap: 14px;
+  flex-wrap: wrap;
+  margin-bottom: 14px;
+  font-family: "Geist Mono", monospace;
+  font-size: 10px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--ac-text-dim);
+}
+
+.admin-section .admin-chart-legend span::before {
+  background: var(--ac-text);
+}
+
+.admin-section .admin-chart-legend .legend-recognized::before {
+  background: var(--ac-text);
+}
+
+.admin-section .admin-chart-legend .legend-collected::before {
+  background: var(--ac-live);
+}
+
+.admin-section .admin-chart-legend .legend-receivable::before {
+  background: #f5a524;
+}
+
+.admin-section .admin-bar-chart {
+  background: transparent;
+  border: 1px dashed var(--ac-line);
+  padding: 18px 16px 4px;
+}
+
+.admin-section .admin-bar.recognized {
+  background: var(--ac-text);
+}
+
+.admin-section .admin-bar.collected {
+  background: var(--ac-live);
+}
+
+.admin-section .admin-bar.receivable {
+  background: #f5a524;
+}
+
+.admin-section .admin-bar-label {
+  color: var(--ac-text-dim);
+  font-family: "Geist Mono", monospace;
+  font-size: 11px;
+  letter-spacing: 0.06em;
+}
+
+/* ── Booking queue tabs ──────────────────────────────────────────────── */
+.admin-section .admin-booking-tabs {
+  display: flex;
+  gap: 4px;
+  flex-wrap: wrap;
+  margin: 18px 0 18px;
+  padding: 4px;
+  background: var(--ac-bg);
+  border: 1px solid var(--ac-line);
+}
+
+.admin-section .admin-booking-tab {
+  background: transparent;
+  border: 1px solid transparent;
+  color: var(--ac-text-dim);
+  padding: 8px 14px;
+  font-family: "Archivo", sans-serif;
+  font-weight: 700;
+  font-size: 11px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  cursor: pointer;
+  border-radius: 0;
+  transition: background 0.12s, color 0.12s;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.admin-section .admin-booking-tab:hover {
+  color: var(--ac-text);
+}
+
+.admin-section .admin-booking-tab.active {
+  background: var(--ac-gold);
+  color: var(--ac-ink);
+}
+
+.admin-section .admin-booking-tab.active .admin-booking-tab-count {
+  background: var(--ac-ink);
+  color: var(--ac-gold);
+}
+
+.admin-section .admin-booking-tab.has-conflicts:not(.active) {
+  border-color: #f5a524;
+  color: #f5a524;
+}
+
+.admin-section .admin-booking-tab-count {
+  display: inline-flex;
+  min-width: 18px;
+  height: 18px;
+  align-items: center;
+  justify-content: center;
+  padding: 0 6px;
+  background: var(--ac-line);
+  color: var(--ac-text);
+  font-family: "Geist Mono", monospace;
+  font-size: 10px;
+  border-radius: 999px;
+}
+
+.admin-section .admin-booking-date-filter {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  padding: 14px 16px;
+  background: var(--ac-bg);
+  border: 1px solid var(--ac-line);
+}
+
+.admin-section .admin-booking-date-filter label {
+  margin: 0;
+}
+
+.admin-section .admin-booking-date-summary {
+  color: var(--ac-text-mute);
+  font-family: "Geist Mono", monospace;
+  font-size: 11px;
+  letter-spacing: 0.06em;
+}
+
+/* ── Booking cards (queue) ───────────────────────────────────────────── */
+.admin-section .bk-list {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.admin-section .bk-conflicts-banner {
+  display: flex;
+  gap: 14px;
+  padding: 16px;
+  background: color-mix(in srgb, #f5a524 12%, transparent);
+  border: 1px solid color-mix(in srgb, #f5a524 50%, transparent);
+  color: #f5a524;
+  border-radius: 0;
+  margin-bottom: 14px;
+}
+
+.admin-section .bk-conflicts-icon {
+  font-size: 20px;
+}
+
+.admin-section .bk-conflicts-body strong {
+  color: #f5a524;
+}
+
+.admin-section .bk-conflicts-body ul {
+  margin: 8px 0 0;
+  padding-left: 20px;
+  color: var(--ac-text-dim);
+  font-size: 13px;
+}
+
+.admin-section .bk-conflict-slots {
+  color: var(--ac-text-mute);
+}
+
+.admin-section .bk-card {
+  background: var(--ac-card);
+  border: 1px solid var(--ac-line);
+  border-radius: 0;
+  padding: 22px 24px;
+  color: var(--ac-text);
+  box-shadow: none;
+}
+
+.admin-section .bk-card-conflicted {
+  border-color: color-mix(in srgb, #f5a524 60%, transparent);
+}
+
+.admin-section .bk-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 16px;
+  flex-wrap: wrap;
+  margin-bottom: 12px;
+}
+
+.admin-section .bk-customer-name {
+  margin: 0;
+  font-family: "Archivo", sans-serif;
+  font-weight: 900;
+  font-size: 22px;
+  letter-spacing: -0.02em;
+  color: var(--ac-text);
+}
+
+.admin-section .bk-reference {
+  margin: 4px 0 0;
+  font-family: "Geist Mono", monospace;
+  font-size: 11px;
+  letter-spacing: 0.06em;
+  color: var(--ac-text-mute);
+}
+
+.admin-section .bk-subtitle {
+  margin: 8px 0 0;
+  color: var(--ac-text-dim);
+  font-family: "Space Grotesk", sans-serif;
+  font-size: 13px;
+}
+
+.admin-section .bk-header-right {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+
+.admin-section .bk-status-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 10px;
+  border-radius: 999px;
+  border: 1px solid var(--ac-line);
+  font-family: "Archivo", sans-serif;
+  font-weight: 800;
+  font-size: 10px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  background: var(--ac-ink2);
+}
+
+.admin-section .bk-status-pending {
+  background: color-mix(in srgb, #f5a524 14%, transparent);
+  color: #f5a524;
+  border-color: color-mix(in srgb, #f5a524 50%, transparent);
+}
+
+.admin-section .bk-status-tentative {
+  background: color-mix(in srgb, #c77bff 14%, transparent);
+  color: #c77bff;
+  border-color: color-mix(in srgb, #c77bff 50%, transparent);
+}
+
+.admin-section .bk-status-confirmed {
+  background: color-mix(in srgb, var(--ac-live) 14%, transparent);
+  color: var(--ac-live);
+  border-color: color-mix(in srgb, var(--ac-live) 50%, transparent);
+}
+
+.admin-section .bk-status-rejected {
+  background: color-mix(in srgb, var(--ac-danger) 14%, transparent);
+  color: var(--ac-danger);
+  border-color: color-mix(in srgb, var(--ac-danger) 50%, transparent);
+}
+
+.admin-section .bk-status-cancelled_override {
+  background: var(--ac-ink2);
+  color: var(--ac-text-mute);
+  border-color: var(--ac-line);
+}
+
+.admin-section .bk-conflict-tag {
+  background: color-mix(in srgb, #f5a524 14%, transparent);
+  color: #f5a524;
+  border: 1px solid color-mix(in srgb, #f5a524 50%, transparent);
+  padding: 3px 8px;
+  border-radius: 999px;
+  font-family: "Archivo", sans-serif;
+  font-weight: 800;
+  font-size: 10px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+
+.admin-section .bk-conflict-detail {
+  margin: 10px 0;
+  padding: 12px 14px;
+  background: color-mix(in srgb, #f5a524 8%, transparent);
+  border: 1px dashed color-mix(in srgb, #f5a524 50%, transparent);
+  border-radius: 0;
+}
+
+.admin-section .bk-conflict-detail-label {
+  color: #f5a524;
+  font-family: "Geist Mono", monospace;
+  font-size: 11px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.admin-section .bk-conflict-detail-list {
+  margin: 8px 0 0;
+  padding-left: 20px;
+  color: var(--ac-text-dim);
+  font-size: 13px;
+}
+
+.admin-section .bk-refund-alert {
+  margin: 10px 0;
+  padding: 10px 14px;
+  background: color-mix(in srgb, var(--ac-danger) 12%, transparent);
+  border: 1px solid color-mix(in srgb, var(--ac-danger) 50%, transparent);
+  color: var(--ac-danger);
+  font-family: "Space Grotesk", sans-serif;
+  font-size: 13px;
+}
+
+.admin-section .bk-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  align-items: center;
+  margin: 12px 0;
+  color: var(--ac-text-dim);
+  font-family: "Geist Mono", monospace;
+  font-size: 12px;
+  letter-spacing: 0.04em;
+}
+
+.admin-section .bk-sep {
+  color: var(--ac-line);
+}
+
+.admin-section .bk-total {
+  color: var(--ac-text);
+  font-weight: 700;
+}
+
+.admin-section .bk-pay-tag {
+  padding: 3px 10px;
+  border-radius: 999px;
+  border: 1px solid var(--ac-line);
+  font-family: "Archivo", sans-serif;
+  font-weight: 800;
+  font-size: 10px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+
+.admin-section .bk-pay-paid {
+  background: color-mix(in srgb, var(--ac-live) 14%, transparent);
+  color: var(--ac-live);
+  border-color: color-mix(in srgb, var(--ac-live) 50%, transparent);
+}
+
+.admin-section .bk-pay-part {
+  background: color-mix(in srgb, #f5a524 14%, transparent);
+  color: #f5a524;
+  border-color: color-mix(in srgb, #f5a524 50%, transparent);
+}
+
+.admin-section .bk-pay-unpaid {
+  background: color-mix(in srgb, var(--ac-danger) 14%, transparent);
+  color: var(--ac-danger);
+  border-color: color-mix(in srgb, var(--ac-danger) 50%, transparent);
+}
+
+.admin-section .bk-pay-overpaid {
+  background: color-mix(in srgb, var(--ac-gold) 14%, transparent);
+  color: var(--ac-gold);
+  border-color: color-mix(in srgb, var(--ac-gold) 50%, transparent);
+}
+
+.admin-section .bk-pay-waived {
+  background: var(--ac-ink2);
+  color: var(--ac-text-mute);
+  border-color: var(--ac-line);
+}
+
+.admin-section .bk-purpose {
+  margin: 12px 0;
+  padding: 10px 14px;
+  background: var(--ac-ink2);
+  border-left: 3px solid var(--ac-gold);
+  color: var(--ac-text-dim);
+  font-family: "Newsreader", serif;
+  font-style: italic;
+  font-size: 14px;
+}
+
+/* Booking error slot in detail */
+.admin-section .bk-booking-error {
+  margin: 10px 0;
+  padding: 10px 14px;
+  background: color-mix(in srgb, var(--ac-danger) 12%, transparent);
+  border: 1px solid color-mix(in srgb, var(--ac-danger) 50%, transparent);
+  color: var(--ac-danger);
+  font-size: 13px;
+}
+
+/* Slot list inside booking card */
+.admin-section .bk-slots {
+  display: flex;
+  flex-direction: column;
+  margin: 14px 0;
+  border: 1px solid var(--ac-line);
+  background: var(--ac-bg);
+}
+
+.admin-section .bk-slot-row {
+  display: flex;
+  flex-direction: column;
+  padding: 12px 14px;
+  border-bottom: 1px solid var(--ac-line);
+}
+
+.admin-section .bk-slot-row:last-child {
+  border-bottom: none;
+}
+
+.admin-section .bk-slot-row.bk-slot-conflicted {
+  background: color-mix(in srgb, #f5a524 10%, transparent);
+}
+
+.admin-section .bk-slot-row.bk-slot-staged {
+  border-left: 3px solid var(--ac-gold);
+}
+
+.admin-section .bk-slot-main {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.admin-section .bk-slot-info {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+
+.admin-section .bk-slot-date {
+  color: var(--ac-text);
+  font-family: "Archivo", sans-serif;
+  font-weight: 700;
+  font-size: 13px;
+}
+
+.admin-section .bk-slot-time {
+  color: var(--ac-text-dim);
+  font-family: "Geist Mono", monospace;
+  font-size: 12px;
+  letter-spacing: 0.04em;
+}
+
+.admin-section .bk-slot-badge {
+  padding: 2px 8px;
+  border-radius: 999px;
+  border: 1px solid var(--ac-line);
+  font-family: "Archivo", sans-serif;
+  font-weight: 800;
+  font-size: 9px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+
+.admin-section .bk-slot-pending {
+  background: color-mix(in srgb, #f5a524 14%, transparent);
+  color: #f5a524;
+  border-color: color-mix(in srgb, #f5a524 50%, transparent);
+}
+
+.admin-section .bk-slot-tentative {
+  background: color-mix(in srgb, #c77bff 14%, transparent);
+  color: #c77bff;
+  border-color: color-mix(in srgb, #c77bff 50%, transparent);
+}
+
+.admin-section .bk-slot-confirmed {
+  background: color-mix(in srgb, var(--ac-live) 14%, transparent);
+  color: var(--ac-live);
+  border-color: color-mix(in srgb, var(--ac-live) 50%, transparent);
+}
+
+.admin-section .bk-slot-rejected {
+  background: color-mix(in srgb, var(--ac-danger) 14%, transparent);
+  color: var(--ac-danger);
+  border-color: color-mix(in srgb, var(--ac-danger) 50%, transparent);
+  opacity: 0.85;
+}
+
+.admin-section .bk-slot-cancelled_override {
+  background: var(--ac-ink2);
+  color: var(--ac-text-mute);
+  border-color: var(--ac-line);
+}
+
+.admin-section .bk-slot-pay {
+  padding: 2px 8px;
+  border-radius: 999px;
+  border: 1px solid var(--ac-line);
+  font-family: "Geist Mono", monospace;
+  font-size: 10px;
+  letter-spacing: 0.06em;
+}
+
+.admin-section .bk-slot-pay-paid {
+  color: var(--ac-live);
+  border-color: color-mix(in srgb, var(--ac-live) 40%, transparent);
+}
+
+.admin-section .bk-slot-pay-part_paid {
+  color: #f5a524;
+  border-color: color-mix(in srgb, #f5a524 40%, transparent);
+}
+
+.admin-section .bk-slot-pay-unpaid {
+  color: var(--ac-danger);
+  border-color: color-mix(in srgb, var(--ac-danger) 40%, transparent);
+}
+
+.admin-section .bk-slot-actions {
+  display: flex;
+  gap: 8px;
+}
+
+.admin-section .bk-btn-approve,
+.admin-section .bk-btn-reject {
+  background: transparent;
+  border: 1px solid var(--ac-line);
+  border-radius: 0;
+  padding: 6px 10px;
+  font-family: "Archivo", sans-serif;
+  font-weight: 800;
+  font-size: 10px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  cursor: pointer;
+  transition: background 0.12s, color 0.12s, border-color 0.12s;
+}
+
+.admin-section .bk-btn-approve {
+  color: var(--ac-live);
+  border-color: color-mix(in srgb, var(--ac-live) 60%, transparent);
+}
+
+.admin-section .bk-btn-approve:hover:not(.is-active):not(.is-blocked) {
+  background: color-mix(in srgb, var(--ac-live) 14%, transparent);
+}
+
+.admin-section .bk-btn-approve.is-active {
+  background: var(--ac-live);
+  color: var(--ac-ink);
+  border-color: var(--ac-live);
+}
+
+.admin-section .bk-btn-approve.is-active:hover {
+  background: color-mix(in srgb, var(--ac-live) 80%, transparent);
+}
+
+.admin-section .bk-btn-approve.is-blocked {
+  background: color-mix(in srgb, #f5a524 16%, transparent);
+  color: #f5a524;
+  border-color: color-mix(in srgb, #f5a524 50%, transparent);
+}
+
+.admin-section .bk-btn-reject {
+  color: var(--ac-danger);
+  border-color: color-mix(in srgb, var(--ac-danger) 60%, transparent);
+}
+
+.admin-section .bk-btn-reject:hover:not(.is-active) {
+  background: color-mix(in srgb, var(--ac-danger) 14%, transparent);
+}
+
+.admin-section .bk-btn-reject.is-active {
+  background: var(--ac-danger);
+  color: var(--ac-text);
+  border-color: var(--ac-danger);
+}
+
+.admin-section .bk-btn-reject.is-active:hover {
+  background: color-mix(in srgb, var(--ac-danger) 85%, transparent);
+}
+
+.admin-section .bk-slot-reject-reason {
+  margin-top: 8px;
+  font-family: "Space Grotesk", sans-serif;
+  font-size: 12px;
+  color: var(--ac-text-dim);
+}
+
+.admin-section .bk-bulk-actions {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+  margin-top: 14px;
+  padding-top: 14px;
+  border-top: 1px solid var(--ac-line);
+}
+
+.admin-section .bk-bulk-reason {
+  width: 100%;
+  margin-bottom: 10px;
+}
+
+.admin-section .bk-payment-ledger {
+  margin-top: 14px;
+  padding: 14px;
+  background: var(--ac-bg);
+  border: 1px solid var(--ac-line);
+}
+
+.admin-section .bk-payment-ledger h4 {
+  margin: 0 0 10px;
+  color: var(--ac-text);
+  font-family: "Geist Mono", monospace;
+  font-size: 11px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+
+.admin-section .bk-payment-form {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+  gap: 10px;
+  margin-bottom: 10px;
+  padding: 12px;
+  background: var(--ac-card);
+  border: 1px solid var(--ac-line);
+}
+
+.admin-section .bk-payment-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-family: "Geist Mono", monospace;
+  font-size: 12px;
+  color: var(--ac-text-dim);
+}
+
+.admin-section .bk-payment-table th {
+  background: var(--ac-ink2);
+  color: var(--ac-text-mute);
+  padding: 8px 10px;
+  text-align: left;
+  font-weight: 500;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  border-bottom: 1px solid var(--ac-line);
+}
+
+.admin-section .bk-payment-table td {
+  padding: 8px 10px;
+  border-bottom: 1px solid var(--ac-line);
+  color: var(--ac-text);
+}
+
+/* ── Generic tables (rooms, event-types, pricing, accounts) ───────────── */
+.admin-section table {
+  width: 100%;
+  border-collapse: collapse;
+  background: var(--ac-bg);
+  border: 1px solid var(--ac-line);
+}
+
+.admin-section thead th {
+  background: var(--ac-ink2);
+  color: var(--ac-text-mute);
+  font-family: "Geist Mono", monospace;
+  font-size: 10px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  text-align: left;
+  padding: 12px 14px;
+  border-bottom: 1px solid var(--ac-line);
+}
+
+.admin-section tbody td {
+  padding: 12px 14px;
+  border-bottom: 1px solid var(--ac-line);
+  color: var(--ac-text);
+  font-size: 13px;
+}
+
+.admin-section tbody tr:last-child td {
+  border-bottom: none;
+}
+
+.admin-section tbody tr:hover td {
+  background: color-mix(in srgb, var(--ac-gold) 4%, transparent);
+}
+
+/* ── Reports page (.rpt-*) ────────────────────────────────────────────── */
+.admin-section .rpt-filter-bar {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+  align-items: end;
+  padding: 14px;
+  background: var(--ac-bg);
+  border: 1px solid var(--ac-line);
+  margin-bottom: 18px;
+}
+
+.admin-section .rpt-summary {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+  gap: 12px;
+  margin: 14px 0;
+  padding: 14px;
+  background: var(--ac-bg);
+  border: 1px solid var(--ac-line);
+}
+
+.admin-section .rpt-summary-item {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.admin-section .rpt-summary-label {
+  font-family: "Geist Mono", monospace;
+  font-size: 10px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--ac-text-mute);
+}
+
+.admin-section .rpt-summary-value {
+  font-family: "Archivo", sans-serif;
+  font-weight: 800;
+  font-size: 18px;
+  color: var(--ac-text);
+}
+
+.admin-section .rpt-table-wrap {
+  overflow-x: auto;
+  border: 1px solid var(--ac-line);
+}
+
+.admin-section .rpt-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12px;
+  background: var(--ac-bg);
+}
+
+.admin-section .rpt-table th {
+  background: var(--ac-ink2);
+  color: var(--ac-text-mute);
+  font-family: "Geist Mono", monospace;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  text-align: left;
+  padding: 10px;
+  border-bottom: 1px solid var(--ac-line);
+}
+
+.admin-section .rpt-table td {
+  padding: 9px 10px;
+  border-bottom: 1px solid var(--ac-line);
+  color: var(--ac-text);
+}
+
+/* ── Modals (slot reject, bulk reject) ───────────────────────────────── */
+.admin-section .modal-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(6, 17, 46, 0.7);
+  backdrop-filter: blur(2px);
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  z-index: 100;
+}
+
+.admin-section .modal,
+.admin-section .modal-card {
+  background: var(--ac-card);
+  border: 1px solid var(--ac-line);
+  border-radius: 0;
+  padding: 28px;
+  width: min(520px, 92vw);
+  color: var(--ac-text);
+}
+
+.admin-section .modal h2,
+.admin-section .modal h3 {
+  margin: 0 0 16px;
+  color: var(--ac-text);
+}
+
+.admin-section .admin-revenue-note {
+  margin: 14px 0;
+  color: var(--ac-text-dim);
+  font-family: "Space Grotesk", sans-serif;
+  font-size: 13px;
+  font-style: italic;
+}
+
+/* ── Responsive paddings for legacy console ──────────────────────────── */
+@media (max-width: 980px) {
+  .admin-section .admin-console {
+    padding: 16px 24px 0;
+  }
+}
+
+@media (max-width: 700px) {
+  .admin-section .admin-console {
+    padding: 12px 16px 0;
+  }
+
+  .admin-section .admin-panel {
+    padding: 18px 16px;
+  }
+
+  .admin-section .bk-card {
+    padding: 16px;
+  }
+
+  .admin-section .bk-header {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+
+  .admin-section .bk-slot-main {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+}
