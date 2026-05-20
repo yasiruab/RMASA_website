@@ -1087,10 +1087,12 @@ function DetailPanel({
                 <div key={`${slot.date}|${slot.startTime}`} className={`admin-bookings-slot-row${staged ? " is-staged" : ""}`}>
                   <div className="admin-bookings-slot-idx ac-mono">{String(idx + 1).padStart(2, "0")}</div>
                   <div className="admin-bookings-slot-body">
-                    <div className="admin-bookings-slot-label">Slot {idx + 1}</div>
+                    <div className="admin-bookings-slot-label">{formatSlotDate(slot.date)}</div>
                     <div className="admin-bookings-slot-meta ac-mono">
-                      {formatSlotDate(slot.date)} · {slot.startTime}–{slot.endTime}
-                      {eventType?.cleanupDurationMinutes ? ` · +${eventType.cleanupDurationMinutes}min cleanup` : ""}
+                      {slot.startTime}–{slot.endTime}
+                      {eventType?.cleanupDurationMinutes
+                        ? ` · +${eventType.cleanupDurationMinutes}min cleanup`
+                        : ""}
                     </div>
                     <div className="admin-bookings-slot-where">
                       {roomName} · {booking.acMode === "with_ac" ? "With A/C" : "Without A/C"}

@@ -3232,9 +3232,11 @@ main > .admin-section {
 
 .admin-bookings-slot-row {
   display: grid;
-  grid-template-columns: 38px 1fr 130px 140px;
+  /* minmax(0, 1fr) lets the body column shrink without overflowing or
+     forcing text into a one-word-per-line column. */
+  grid-template-columns: 32px minmax(0, 1fr) auto auto;
   align-items: center;
-  gap: 16px;
+  gap: 14px;
   padding: 14px 16px;
   border-top: 1px solid var(--ac-line);
 }
@@ -4187,13 +4189,18 @@ main > .admin-section {
 }
 
 /* ─── Responsive ─────────────────────────────────────────────────────────── */
+@media (max-width: 1400px) {
+  /* On medium-width desktops (~1280–1400) the 1.6fr / 1fr detail grid
+     leaves the slot table too narrow to render slot meta on one line.
+     Stack the requester / purpose card BELOW the slots instead. */
+  .admin-bookings-detail-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
 @media (max-width: 1180px) {
   .admin-bookings-split {
     grid-template-columns: minmax(320px, 360px) 1fr;
-  }
-
-  .admin-bookings-detail-grid {
-    grid-template-columns: 1fr;
   }
 
   .admin-bookings-bulk-grid {
