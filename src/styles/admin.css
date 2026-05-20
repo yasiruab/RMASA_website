@@ -2773,11 +2773,37 @@ main > .admin-section {
   text-transform: uppercase;
 }
 
-/* Split layout */
+/* Split layout
+ *
+ * On desktop the split becomes a sticky two-pane app: the breadcrumb +
+ * hero + KPI strip scroll past normally, then the split snaps to viewport
+ * top and both panels scroll independently. Long bookings can be read on
+ * the right while the queue list stays visible (and itself scrollable) on
+ * the left. Below 980px the panes stack and scroll with the page like a
+ * normal phone layout. */
 .admin-bookings-split {
   display: grid;
   grid-template-columns: minmax(360px, 400px) 1fr;
   min-height: calc(100vh - 360px);
+}
+
+@media (min-width: 981px) {
+  .admin-bookings-split {
+    position: sticky;
+    top: 0;
+    height: 100vh;
+    min-height: 0;
+  }
+
+  .admin-bookings-queue {
+    max-height: 100vh;
+    overflow: hidden;
+  }
+
+  .admin-bookings-detail {
+    max-height: 100vh;
+    overflow-y: auto;
+  }
 }
 
 /* Queue panel */
