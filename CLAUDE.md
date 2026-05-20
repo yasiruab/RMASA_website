@@ -115,9 +115,58 @@ Helper classes — use these instead of re-declaring inline:
 
 The site-wide chrome lives in [`src/components/nav.tsx`](src/components/nav.tsx) (two-strip header: live strip + nav strip) and [`src/components/footer.tsx`](src/components/footer.tsx) (4-col + meta row + edition tag).
 
-### Admin panel — legacy tokens (kept for compatibility)
+### Admin panel — Arena Court redesign
 
-The legacy `--brand` / `--ink` / `--muted` / `--bg` / `--panel` / `--line` / `--footer` tokens are still defined in `:root` and are used by all `.admin-*`, `.bk-*`, `.rpt-*`, `.gc-*` rules. Do **not** rename or remove these. Admin pages render inside `.content-page` (white card) and read fine on top of the new dark `body` background; the dark perimeter around the admin card is expected and matches the new public chrome that wraps every page in the App Router.
+The admin portal at `/admin/calendar/*` shares the public site's dark Arena
+Court palette (`--ac-*` tokens above) and the same Archivo / Newsreader /
+Space Grotesk / Geist Mono type stack. The chrome (live-strip + logo-nav-strip
+header + four-column footer) is provided by the public `src/app/layout.tsx`
+— there is no parallel admin layout. The admin layout at
+[`src/app/admin/calendar/layout.tsx`](src/app/admin/calendar/layout.tsx) only
+enforces the auth guard and exposes the session to client pages via
+[`src/components/admin/admin-session-context.tsx`](src/components/admin/admin-session-context.tsx).
+
+**Hub** at `/admin/calendar` — server-rendered by [`src/components/admin/hub/admin-hub.tsx`](src/components/admin/hub/admin-hub.tsx).
+Composition: hero (display title + identity pill + Sign Out) → 5-tile KPI strip
+(In queue, Approved today, Active blockouts, Conflicts, Outstanding) →
+secure-access notice → section grid (01 Bookings primary card / 02 Revenue /
+04 Accounts (super-admin only) / 05 Reports, plus a 03 Configuration card
+grouping Blockouts / Rooms / Event types / Pricing) → revenue snapshot card
+(4 tiles + last-3-month stacked-bar trend + deep link) → recent-activity
+table (top 8 audit-log rows joined to bookings). All data is fetched
+server-side in `src/app/admin/calendar/page.tsx` via `readCalendarDb()` and a
+fresh audit-log query; the revenue model is the shared `buildRevenueModel()`
+applied to a 90-day window. The `[section]/page.tsx` dynamic route no longer
+accepts `"dashboard"` (the hub occupies that slot).
+
+**Legacy sections** (`/admin/calendar/{bookings,blockouts,rooms,event-types,
+pricing,accounts,revenue,reports}`) still render the mega-component
+[`src/components/admin/admin-calendar-console.tsx`](src/components/admin/admin-calendar-console.tsx)
+or the standalone reports page. They share their markup with the previous
+light-theme admin but pick up the dark Arena Court look automatically via a
+scoped override block at the bottom of
+[`src/styles/admin.css`](src/styles/admin.css). The override has two layers:
+
+1. **Token remap inside `.admin-section`** — the legacy palette tokens
+   (`--brand`, `--ink`, `--muted`, `--bg`, `--panel`, `--line`, `--footer`)
+   are re-pointed at the equivalent `--ac-*` tokens, so every rule that uses
+   them picks up the dark theme automatically.
+2. **Surface restyle** — selectors that hard-code hex values (status pills,
+   pay tags, slot badges, bar-chart bar colours, white-card backgrounds,
+   drop shadows, table headers, native inputs, `.btn-primary` / `.btn-secondary`,
+   `.bk-card`, `.bk-status-*`, `.bk-slot-*`, `.bk-btn-approve` / `.bk-btn-reject`,
+   `.admin-booking-tab*`, `.rpt-*`, `.modal-*`, etc.) get explicit dark
+   Arena Court treatments.
+
+The legacy tokens themselves stay declared in `:root` of `globals.css` — do
+NOT remove them. They're still consulted by hundreds of selectors in
+`globals.css` itself; deletion would cascade-break the entire admin panel.
+
+**Where to add new admin CSS**: [`src/styles/admin.css`](src/styles/admin.css)
+(imported once from `src/app/layout.tsx`). Keep new selectors scoped under
+`.admin-section .…` so they don't leak into the public site. Use the
+`--ac-*` tokens directly, never the legacy `--brand`/`--ink`/`--bg` ones —
+those are kept only for compatibility with existing legacy bodies.
 
 ### Live booking-desk status
 
