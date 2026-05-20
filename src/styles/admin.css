@@ -2197,3 +2197,367 @@ main > .admin-section {
     align-items: flex-start;
   }
 }
+
+/* ── Booking card — explicit background fixes for surface classes that
+ *    hard-code light hex backgrounds in globals.css. Without these, the top
+ *    .bk-header strip and the bottom .bk-footer strip (containing bulk
+ *    actions + the .bk-ledger payment panel) render on #F5F7FB on top of
+ *    the dark .bk-card and the card visibly "bands" light/dark/light. */
+
+.admin-section .bk-header {
+  background: var(--ac-card);
+  border-bottom: 1px solid var(--ac-line);
+  padding: 16px 20px;
+}
+
+.admin-section .bk-footer {
+  background: var(--ac-ink2);
+  border-top: 1px solid var(--ac-line);
+  padding: 16px 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.admin-section .bk-bulk {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.admin-section .bk-bulk-label {
+  color: var(--ac-text-mute);
+  font-family: "Geist Mono", monospace;
+  font-size: 10px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+
+.admin-section .bk-btn-bulk {
+  display: inline-flex;
+  align-items: center;
+  padding: 8px 14px;
+  border-radius: 0;
+  border: 1px solid transparent;
+  font-family: "Archivo", sans-serif;
+  font-weight: 800;
+  font-size: 11px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  cursor: pointer;
+  transition: background 0.12s, color 0.12s, border-color 0.12s;
+}
+
+.admin-section .bk-bulk-approve {
+  background: transparent;
+  color: var(--ac-live);
+  border-color: color-mix(in srgb, var(--ac-live) 60%, transparent);
+}
+
+.admin-section .bk-bulk-approve:hover {
+  background: var(--ac-live);
+  color: var(--ac-ink);
+  border-color: var(--ac-live);
+}
+
+.admin-section .bk-bulk-tentative {
+  background: transparent;
+  color: #c77bff;
+  border-color: color-mix(in srgb, #c77bff 60%, transparent);
+}
+
+.admin-section .bk-bulk-tentative:hover {
+  background: #c77bff;
+  color: var(--ac-ink);
+  border-color: #c77bff;
+}
+
+.admin-section .bk-bulk-reject {
+  background: transparent;
+  color: var(--ac-danger);
+  border-color: color-mix(in srgb, var(--ac-danger) 60%, transparent);
+}
+
+.admin-section .bk-bulk-reject:hover {
+  background: var(--ac-danger);
+  color: var(--ac-text);
+  border-color: var(--ac-danger);
+}
+
+/* ── Payment ledger ─────────────────────────────────────────────────── */
+.admin-section .bk-ledger {
+  margin-top: 0;
+  padding-top: 14px;
+  border-top: 1px dashed var(--ac-line);
+}
+
+.admin-section .bk-ledger-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 12px;
+}
+
+.admin-section .bk-ledger-title {
+  color: var(--ac-text);
+  font-family: "Geist Mono", monospace;
+  font-size: 11px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  font-weight: 600;
+}
+
+.admin-section .bk-ledger-add-btn {
+  /* Override the !important sizing from globals; let the .btn base do its thing. */
+  height: auto !important;
+  padding: 8px 14px !important;
+  font-size: 10px !important;
+}
+
+.admin-section .bk-ledger-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12px;
+  font-family: "Geist Mono", monospace;
+  margin-bottom: 8px;
+}
+
+.admin-section .bk-ledger-table th {
+  background: var(--ac-bg);
+  color: var(--ac-text-mute);
+  text-align: left;
+  padding: 8px 10px;
+  border-bottom: 1px solid var(--ac-line);
+  font-family: "Geist Mono", monospace;
+  font-size: 10px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  font-weight: 500;
+}
+
+.admin-section .bk-ledger-table td {
+  padding: 8px 10px;
+  border-bottom: 1px solid var(--ac-line);
+  color: var(--ac-text);
+}
+
+.admin-section .bk-ledger-row:last-child td {
+  border-bottom: none;
+}
+
+.admin-section .bk-ledger-credit {
+  color: var(--ac-live);
+  font-weight: 700;
+}
+
+.admin-section .bk-ledger-debit {
+  color: #f5a524;
+  font-weight: 700;
+}
+
+.admin-section .bk-ledger-type {
+  text-transform: capitalize;
+  white-space: nowrap;
+  color: var(--ac-text-dim);
+}
+
+.admin-section .bk-ledger-by {
+  color: var(--ac-text-mute);
+  font-size: 10px;
+}
+
+.admin-section .bk-ledger-empty {
+  margin: 0 0 8px;
+  color: var(--ac-text-mute);
+  font-family: "Newsreader", serif;
+  font-style: italic;
+  font-size: 13px;
+}
+
+.admin-section .bk-ledger-form {
+  background: var(--ac-card);
+  border: 1px solid var(--ac-line);
+  border-radius: 0;
+  padding: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin-top: 10px;
+}
+
+.admin-section .bk-ledger-form-row {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  align-items: center;
+}
+
+/* ── Per-booking error slot ─────────────────────────────────────────── */
+.admin-section .bk-booking-error {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 10px;
+  margin: 12px 16px;
+  padding: 10px 14px;
+  background: color-mix(in srgb, var(--ac-danger) 12%, transparent);
+  border: 1px solid color-mix(in srgb, var(--ac-danger) 50%, transparent);
+  color: var(--ac-danger);
+  font-size: 13px;
+}
+
+.admin-section .bk-booking-error-dismiss {
+  background: transparent;
+  border: none;
+  color: var(--ac-danger);
+  cursor: pointer;
+  font-size: 16px;
+  line-height: 1;
+  padding: 0 4px;
+}
+
+/* ── Save / discard buttons (staged changes) ────────────────────────── */
+.admin-section .bk-save-staged-btn,
+.admin-section .bk-discard-btn {
+  display: inline-flex;
+  align-items: center;
+  padding: 8px 14px;
+  border-radius: 0;
+  font-family: "Archivo", sans-serif;
+  font-weight: 800;
+  font-size: 11px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  cursor: pointer;
+  transition: background 0.12s, color 0.12s, border-color 0.12s;
+}
+
+.admin-section .bk-save-staged-btn {
+  background: var(--ac-gold);
+  color: var(--ac-ink);
+  border: 1px solid var(--ac-gold);
+}
+
+.admin-section .bk-save-staged-btn:hover {
+  background: var(--ac-gold-bright);
+  border-color: var(--ac-gold-bright);
+}
+
+.admin-section .bk-discard-btn {
+  background: transparent;
+  color: var(--ac-text-dim);
+  border: 1px solid var(--ac-line);
+}
+
+.admin-section .bk-discard-btn:hover {
+  border-color: var(--ac-text);
+  color: var(--ac-text);
+}
+
+/* ── Inline inputs inside booking card (e.g. payment amount, reconcile) ─ */
+.admin-section .bk-paid-input,
+.admin-section .bk-recon-notes,
+.admin-section .bk-recon-select {
+  background: var(--ac-bg);
+  color: var(--ac-text);
+  border: 1px solid var(--ac-line);
+  border-radius: 0;
+  padding: 8px 10px;
+  font-family: "Space Grotesk", sans-serif;
+  font-size: 13px;
+}
+
+.admin-section .bk-paid-input:focus,
+.admin-section .bk-recon-notes:focus,
+.admin-section .bk-recon-select:focus {
+  outline: none;
+  border-color: var(--ac-gold);
+}
+
+.admin-section .bk-slot-conflict-msg {
+  margin-top: 8px;
+  padding: 8px 10px;
+  background: color-mix(in srgb, #f5a524 12%, transparent);
+  border: 1px solid color-mix(in srgb, #f5a524 50%, transparent);
+  color: #f5a524;
+  font-size: 12px;
+}
+
+/* ── Reject-reason / bulk-reject modal ──────────────────────────────── */
+.admin-section .bk-modal-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(6, 17, 46, 0.78);
+  backdrop-filter: blur(2px);
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  z-index: 100;
+}
+
+.admin-section .bk-modal {
+  background: var(--ac-card);
+  border: 1px solid var(--ac-line);
+  border-radius: 0;
+  padding: 28px;
+  width: min(540px, 92vw);
+  color: var(--ac-text);
+}
+
+.admin-section .bk-modal-title {
+  margin: 0 0 8px;
+  font-family: "Archivo", sans-serif;
+  font-weight: 900;
+  font-size: 22px;
+  letter-spacing: -0.02em;
+  color: var(--ac-text);
+}
+
+.admin-section .bk-modal-desc {
+  margin: 0 0 16px;
+  color: var(--ac-text-dim);
+  font-family: "Space Grotesk", sans-serif;
+  font-size: 13px;
+  line-height: 1.55;
+}
+
+.admin-section .bk-modal-label {
+  display: block;
+  margin-bottom: 6px;
+  color: var(--ac-text);
+  font-family: "Geist Mono", monospace;
+  font-size: 11px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+
+.admin-section .bk-modal-required {
+  color: var(--ac-danger);
+  margin-left: 4px;
+}
+
+.admin-section .bk-modal-textarea {
+  width: 100%;
+  min-height: 100px;
+  background: var(--ac-bg);
+  color: var(--ac-text);
+  border: 1px solid var(--ac-line);
+  border-radius: 0;
+  padding: 10px 12px;
+  font-family: "Space Grotesk", sans-serif;
+  font-size: 13px;
+  resize: vertical;
+}
+
+.admin-section .bk-modal-textarea:focus {
+  outline: none;
+  border-color: var(--ac-gold);
+}
+
+.admin-section .bk-modal-actions {
+  margin-top: 18px;
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+}
