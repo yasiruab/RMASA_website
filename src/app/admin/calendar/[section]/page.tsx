@@ -18,16 +18,15 @@ const SECTION_LABELS: Record<AdminCalendarSection, string> = {
   blockouts: "Blockouts",
 };
 
-// "dashboard" used to be the default; it has been replaced by the new hub at
-// /admin/calendar. The remaining legacy sections stay here until each is
-// reimplemented as an explicit route in Phase 5 of the admin redesign.
+// "dashboard" was replaced by the new hub at /admin/calendar.
+// "bookings" was replaced by the explicit route at /admin/calendar/bookings,
+// which Next.js automatically prefers over this dynamic segment.
 const allowedSections: AdminCalendarSection[] = [
   "revenue",
   "accounts",
   "rooms",
   "event-types",
   "pricing",
-  "bookings",
   "blockouts",
 ];
 
