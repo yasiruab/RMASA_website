@@ -4,6 +4,54 @@
 
 Next.js 15 App Router · Prisma v6 · PostgreSQL · NextAuth · Tailwind (admin) · CSS custom properties (public)
 
+## Local dev server — non-negotiables
+
+Spending a session debugging the dev server has produced the following hard rules.
+Re-read these before running anything that touches `.next/` or before starting a second
+process in this repo.
+
+1. **Only ONE `next dev` per `.next` directory.** If the user is already running
+   `npm run dev` in their VSCode terminal, do NOT spawn another in the background.
+   Two `next dev` processes silently clobber each other's chunks in `.next/static/`,
+   producing the "unstyled page + spinner forever" symptom. The give-away is
+   `pgrep -lf "next dev"` returning two `next dev` PIDs (one with `TERM_PROGRAM=vscode`,
+   one without).
+
+2. **NEVER run `next build` while `next dev` is up.** Same race, same outcome —
+   production writes hashed chunk filenames (`layout-b8e8390e3c066441.js`); dev expects
+   unhashed (`layout.js`). The two overwrite each other and dev can no longer find its
+   own artifacts.
+
+3. **Recovery from a wedged dev cache** (404s on `_next/static/css/app/layout.css`,
+   `_next/static/chunks/app/layout.js`, `main-app.js`, etc. — even though
+   `✓ Compiled` lines appear in the dev log):
+   ```bash
+   pkill -f "next dev"        # or Ctrl+C in the VSCode terminal
+   rm -rf .next node_modules/.cache
+   npm run dev                # exactly once, in one terminal
+   ```
+   Then hard-refresh the browser. Killing without clearing both directories is not
+   enough — the SWC cache holds stale module graphs that re-corrupt the next session.
+
+4. **CSP allows `'unsafe-eval'` in dev only.** See the [Security Headers](#security-headers-content-security-policy)
+   section. If the dev CSP ever blocks `eval()` again, React Refresh fails with an
+   *uncaught* `EvalError` and the client bundle halts before hydration — every
+   `useEffect` (including the bookings calendar's config fetch) silently never runs and
+   the page stays on `// WARMING UP THE COURTS / LOADING.` forever. Production CSP
+   still excludes `'unsafe-eval'`; production builds don't need it.
+
+5. **Local dev is genuinely slow against Neon Singapore.** First config call ~4-5 s,
+   each availability call ~1.5-4 s, week-load ~5-10 s on cold cache. This is network
+   latency, not a bug. Production Lambdas are co-located with Neon and don't pay it.
+   If a calendar feels stuck, **wait 15 s** before declaring it broken.
+
+6. **The "calendar not loading" symptom has had three distinct causes in this repo**,
+   in this order — diagnose in this order:
+   1. Two `next dev` processes racing (kill all, restart one)
+   2. Wedged `.next` cache (rm -rf + restart)
+   3. CSP blocking `eval()` (rule 4 above)
+   4. Just slow Neon latency (rule 5 above)
+
 ## Key File Locations
 
 | What | Where |
@@ -272,9 +320,13 @@ X-Frame-Options, X-Content-Type-Options, Referrer-Policy, and Permissions-Policy
 | `form-action` | `'self'` | Forms only submit to same origin |
 | `base-uri` | `'none'` | Block injected `<base>` |
 
-**`'unsafe-eval'` is NOT included.** Production builds don't need it. The dev server may
-emit CSP-violation warnings in the browser console because Next.js dev uses `eval`-based
-source maps; these are harmless for prod and we accept them in dev.
+**`'unsafe-eval'` is added in dev only**, gated on `process.env.NODE_ENV !== "production"`
+inside `next.config.ts`. Next.js dev's React Refresh runtime calls `eval()` to apply
+HMR updates; a strict prod CSP correctly blocks it, but in dev the block surfaced as an
+uncaught `EvalError` that halted the client bundle before hydration — the bookings
+calendar's config-fetch `useEffect` never fired and the page stayed on the
+"WARMING UP THE COURTS / LOADING." state forever. Production builds don't use `eval()`
+and the production CSP does not allow it.
 
 **When adding a new script or external asset**: grep for the hostname, add it to the
 relevant directive in `CSP_DIRECTIVES`, then verify with `curl -I http://localhost:3000/`.

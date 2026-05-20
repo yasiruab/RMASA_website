@@ -12,14 +12,20 @@ import type { NextConfig } from "next";
 //
 // 'unsafe-inline' is required on script-src for the Microsoft Clarity bootstrap
 // (an inline <Script> tag in src/app/layout.tsx) and on style-src for the
-// inline style attributes that Next.js / React produce. 'unsafe-eval' is NOT
-// included — nothing in the build needs it.
+// inline style attributes that Next.js / React produce. 'unsafe-eval' is only
+// added in development — Next.js dev's React Refresh runtime evaluates strings
+// as JS, which a strict prod CSP correctly blocks but which would otherwise
+// halt the dev bundle before hydration and leave client effects (e.g. the
+// bookings calendar's config fetch) never firing. Production builds don't
+// need it.
 //
 // frame-ancestors 'none' duplicates X-Frame-Options: DENY but is the modern
 // browser-preferred header.
+const isDev = process.env.NODE_ENV !== "production";
+const scriptSrc = `script-src 'self' 'unsafe-inline'${isDev ? " 'unsafe-eval'" : ""} https://www.clarity.ms https://*.clarity.ms https://challenges.cloudflare.com`;
 const CSP_DIRECTIVES = [
   "default-src 'self'",
-  "script-src 'self' 'unsafe-inline' https://www.clarity.ms https://*.clarity.ms https://challenges.cloudflare.com",
+  scriptSrc,
   "connect-src 'self' https://*.clarity.ms https://challenges.cloudflare.com",
   "img-src 'self' data: https://*.clarity.ms",
   "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
