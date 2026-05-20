@@ -6,8 +6,10 @@ import {
 } from "@/components/admin/admin-calendar-console";
 import { authOptions } from "@/lib/auth";
 
+// "dashboard" used to be the default; it has been replaced by the new hub at
+// /admin/calendar. The remaining legacy sections stay here until each is
+// reimplemented as an explicit route in Phase 5 of the admin redesign.
 const allowedSections: AdminCalendarSection[] = [
-  "dashboard",
   "revenue",
   "accounts",
   "rooms",

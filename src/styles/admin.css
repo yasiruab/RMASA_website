@@ -2,9 +2,9 @@
  * Admin portal — Arena Court redesign.
  *
  * New CSS for the dark-theme admin redesign lives here, imported once from
- * src/app/globals.css. Keeping it separate from globals.css makes the redesign
- * easy to revert or cherry-pick and prevents the 6 000-line globals.css from
- * growing further.
+ * src/app/layout.tsx (alongside globals.css). Keeping it separate from
+ * globals.css makes the redesign easy to revert or cherry-pick and prevents
+ * the 6 000-line globals.css from growing further.
  *
  * All values reference the existing public-site `--ac-*` tokens defined in
  * :root of globals.css; no admin-specific tokens are introduced.
@@ -15,6 +15,12 @@
   background: var(--ac-bg);
   color: var(--ac-text);
   min-height: 100vh;
+}
+
+/* Override the global "main { padding: 0 } isn't enough — public chrome
+   already wraps us. Ensure no double padding leaks in. */
+main > .admin-section {
+  display: block;
 }
 
 /* ── Breadcrumb strip ─────────────────────────────────────────────────────── */
@@ -64,14 +70,924 @@
   color: var(--ac-line);
 }
 
+/* ── Hub (admin console landing) ──────────────────────────────────────────── */
+.admin-hub {
+  background: var(--ac-bg);
+  color: var(--ac-text);
+  padding-bottom: 64px;
+}
+
+/* Hub hero ─────────────────────────────────────────────────────────────── */
+.admin-hub-hero {
+  padding: 24px 48px 22px;
+  border-bottom: 1px solid var(--ac-line);
+  background:
+    radial-gradient(ellipse at 90% 30%, rgba(232, 183, 58, 0.08), transparent 60%),
+    linear-gradient(180deg, var(--ac-ink2), var(--ac-bg));
+}
+
+.admin-hub-hero-inner {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 24px;
+  flex-wrap: wrap;
+}
+
+.admin-hub-hero-title-row {
+  display: flex;
+  align-items: baseline;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+
+.admin-hub-hero-title {
+  margin: 0;
+  display: inline-flex;
+  align-items: baseline;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.admin-hub-hero-title .ac-display {
+  font-family: "Archivo", sans-serif;
+  font-weight: 900;
+  font-size: 40px;
+  line-height: 0.92;
+  letter-spacing: -0.035em;
+  color: var(--ac-text);
+}
+
+.admin-hub-hero-title .ac-display .punct {
+  color: var(--ac-gold);
+}
+
+.admin-hub-hero-italic {
+  font-family: "Archivo", sans-serif;
+  font-weight: 500;
+  font-style: italic;
+  font-size: 28px;
+  line-height: 0.92;
+  letter-spacing: -0.02em;
+  color: var(--ac-text-dim);
+}
+
+.admin-hub-hero-stamp {
+  margin-left: 8px;
+  font-size: 11px;
+  color: var(--ac-text-mute);
+}
+
+.admin-hub-identity-row {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  flex-wrap: wrap;
+}
+
+.admin-hub-identity-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 14px;
+  background: var(--ac-card);
+  border: 1px solid var(--ac-line);
+}
+
+.admin-hub-identity-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--ac-live);
+  box-shadow: 0 0 8px var(--ac-live);
+}
+
+.admin-hub-identity-email {
+  font-family: "Geist Mono", monospace;
+  font-size: 11px;
+  color: var(--ac-text);
+  letter-spacing: 0.04em;
+}
+
+.admin-hub-identity-role {
+  padding: 2px 8px;
+  background: rgba(232, 183, 58, 0.1);
+  border: 1px solid color-mix(in srgb, var(--ac-gold) 25%, transparent);
+  color: var(--ac-gold);
+  font-family: "Archivo", sans-serif;
+  font-weight: 800;
+  font-size: 9px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+
+.admin-hub-identity-row .btn,
+.admin-hub-identity-row button {
+  padding: 9px 14px;
+  background: transparent;
+  color: var(--ac-gold);
+  border: 1px solid var(--ac-gold);
+  font-family: "Archivo", sans-serif;
+  font-weight: 800;
+  font-size: 10px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  cursor: pointer;
+  border-radius: 0;
+  transition: background 0.15s, color 0.15s;
+}
+
+.admin-hub-identity-row .btn:hover,
+.admin-hub-identity-row button:hover {
+  background: var(--ac-gold);
+  color: var(--ac-ink);
+}
+
+/* Hub KPI strip ────────────────────────────────────────────────────────── */
+.admin-hub-kpis {
+  display: grid;
+  grid-template-columns: repeat(5, 1fr);
+  background: var(--ac-ink2);
+  border-bottom: 1px solid var(--ac-line);
+}
+
+.admin-hub-kpi-tile {
+  padding: 22px 24px;
+  border-left: 1px solid var(--ac-line);
+}
+
+.admin-hub-kpi-tile:first-child {
+  border-left: none;
+}
+
+.admin-hub-kpi-label {
+  font-family: "Geist Mono", monospace;
+  font-size: 10px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--ac-text-mute);
+}
+
+.admin-hub-kpi-value {
+  margin-top: 8px;
+  font-family: "Archivo", sans-serif;
+  font-weight: 900;
+  font-size: 44px;
+  line-height: 0.92;
+  letter-spacing: -0.035em;
+  color: var(--ac-text);
+}
+
+.admin-hub-kpi-value.is-hot {
+  color: var(--ac-gold);
+}
+
+.admin-hub-kpi-value.is-small {
+  font-size: 24px;
+  letter-spacing: -0.02em;
+}
+
+.admin-hub-kpi-sub {
+  margin-top: 6px;
+  font-family: "Geist Mono", monospace;
+  font-size: 10px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--ac-text-mute);
+}
+
+/* Access notice strip ─────────────────────────────────────────────────── */
+.admin-hub-notice {
+  padding: 14px 48px;
+  background: var(--ac-ink2);
+  border-bottom: 1px solid var(--ac-line);
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  flex-wrap: wrap;
+  font-family: "Space Grotesk", sans-serif;
+  font-size: 12px;
+  color: var(--ac-text-dim);
+}
+
+.admin-hub-notice-tag {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--ac-gold);
+  font-family: "Geist Mono", monospace;
+  font-size: 11px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+
+.admin-hub-notice-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--ac-gold);
+}
+
+/* Subheading (used by Sections / Revenue / Activity) ───────────────────── */
+.admin-hub-subheading {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-end;
+  gap: 16px;
+  flex-wrap: wrap;
+  margin-bottom: 18px;
+}
+
+.admin-hub-subheading-title {
+  margin: 0;
+  font-family: "Newsreader", serif;
+  font-weight: 500;
+  font-style: italic;
+  font-size: 28px;
+  letter-spacing: -0.005em;
+  line-height: 1.15;
+  color: var(--ac-text);
+}
+
+.admin-hub-subheading-italic {
+  font-style: italic;
+  color: var(--ac-text-dim);
+}
+
+.admin-hub-subheading-accent {
+  margin-left: 10px;
+  font-style: normal;
+  font-family: "Geist Mono", monospace;
+  font-size: 13px;
+  letter-spacing: 0.06em;
+  color: var(--ac-gold);
+  vertical-align: middle;
+}
+
+.admin-hub-subheading-rule {
+  display: block;
+  margin-top: 8px;
+  width: 32px;
+  height: 2px;
+  background: var(--ac-gold);
+}
+
+.admin-hub-subheading-meta {
+  font-size: 10px;
+  color: var(--ac-text-mute);
+}
+
+/* Section grid ──────────────────────────────────────────────────────── */
+.admin-hub-sections {
+  padding: 40px 48px 24px;
+}
+
+.admin-hub-section-grid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 16px;
+}
+
+.admin-hub-section-card {
+  display: block;
+  padding: 24px 26px 22px;
+  background: var(--ac-card);
+  border: 1px solid var(--ac-line);
+  color: var(--ac-text);
+  position: relative;
+  text-decoration: none;
+  transition: border-color 0.15s, transform 0.15s;
+}
+
+.admin-hub-section-card:hover {
+  border-color: var(--ac-gold);
+  transform: translateY(-2px);
+}
+
+.admin-hub-section-card.is-primary {
+  border-color: var(--ac-gold);
+}
+
+.admin-hub-section-card-badge {
+  position: absolute;
+  top: -1px;
+  right: -1px;
+  padding: 4px 10px;
+  background: var(--ac-gold);
+  color: var(--ac-ink);
+  font-family: "Archivo", sans-serif;
+  font-weight: 900;
+  font-size: 10px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+}
+
+.admin-hub-section-card-head {
+  display: flex;
+  align-items: baseline;
+  gap: 14px;
+}
+
+.admin-hub-section-card-code {
+  color: var(--ac-gold);
+  font-size: 11px;
+}
+
+.admin-hub-section-card-name {
+  font-family: "Archivo", sans-serif;
+  font-weight: 900;
+  font-size: 28px;
+  letter-spacing: -0.035em;
+  line-height: 0.92;
+  color: var(--ac-text);
+}
+
+.admin-hub-section-card-desc {
+  margin: 12px 0 0;
+  font-family: "Space Grotesk", sans-serif;
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--ac-text-dim);
+}
+
+.admin-hub-section-card-foot {
+  margin-top: 18px;
+  padding-top: 14px;
+  border-top: 1px solid var(--ac-line);
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-family: "Geist Mono", monospace;
+  font-size: 11px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.admin-hub-section-card-stat {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--ac-text-dim);
+}
+
+.admin-hub-section-card-stat.is-hot {
+  color: var(--ac-gold);
+}
+
+.admin-hub-section-card-stat-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--ac-gold);
+}
+
+.admin-hub-section-card-cta {
+  color: var(--ac-gold);
+  font-size: 14px;
+}
+
+/* Configuration card (full-width) ───────────────────────────────────── */
+.admin-hub-config-card {
+  grid-column: 1 / -1;
+  padding: 24px 26px;
+  background: var(--ac-card);
+  border: 1px solid var(--ac-line);
+}
+
+.admin-hub-config-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+
+.admin-hub-config-blurb {
+  margin: 0;
+  max-width: 540px;
+  text-align: right;
+  font-family: "Space Grotesk", sans-serif;
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--ac-text-dim);
+}
+
+.admin-hub-config-divider {
+  margin: 18px -26px;
+  height: 1px;
+  background: var(--ac-line);
+}
+
+.admin-hub-config-grid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 12px;
+}
+
+.admin-hub-config-tile {
+  display: block;
+  padding: 16px 18px 14px;
+  background: var(--ac-bg);
+  border: 1px solid var(--ac-line);
+  color: var(--ac-text);
+  text-decoration: none;
+  transition: border-color 0.15s;
+}
+
+.admin-hub-config-tile:not(.is-locked):hover {
+  border-color: var(--ac-gold);
+}
+
+.admin-hub-config-tile.is-locked {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+.admin-hub-config-tile-name {
+  font-family: "Archivo", sans-serif;
+  font-weight: 800;
+  font-size: 17px;
+  letter-spacing: -0.005em;
+  color: var(--ac-text);
+}
+
+.admin-hub-config-tile-desc {
+  margin: 6px 0 0;
+  font-family: "Space Grotesk", sans-serif;
+  font-size: 12px;
+  line-height: 1.45;
+  color: var(--ac-text-dim);
+}
+
+.admin-hub-config-tile-foot {
+  margin-top: 12px;
+  padding-top: 10px;
+  border-top: 1px solid var(--ac-line);
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-family: "Geist Mono", monospace;
+  font-size: 10px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.admin-hub-config-tile-stat {
+  color: var(--ac-text-dim);
+}
+
+.admin-hub-config-tile-cta {
+  color: var(--ac-gold);
+  font-size: 12px;
+}
+
+.admin-hub-config-tile-cta.is-locked {
+  color: var(--ac-text-mute);
+}
+
+/* Revenue snapshot ─────────────────────────────────────────────────── */
+.admin-hub-revenue {
+  padding: 20px 48px 24px;
+}
+
+.admin-hub-revenue-card {
+  background: var(--ac-card);
+  border: 1px solid var(--ac-line);
+}
+
+.admin-hub-revenue-tiles {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  border-bottom: 1px solid var(--ac-line);
+}
+
+.admin-hub-revenue-tile {
+  padding: 20px 24px;
+  border-left: 1px solid var(--ac-line);
+}
+
+.admin-hub-revenue-tile:first-child {
+  border-left: none;
+}
+
+.admin-hub-revenue-tile-value {
+  margin-top: 8px;
+  font-family: "Archivo", sans-serif;
+  font-weight: 900;
+  font-size: 26px;
+  letter-spacing: -0.02em;
+}
+
+.admin-hub-revenue-tile-value.tone-text {
+  color: var(--ac-text);
+}
+.admin-hub-revenue-tile-value.tone-live {
+  color: var(--ac-live);
+}
+.admin-hub-revenue-tile-value.tone-warn {
+  color: #f5a524;
+}
+.admin-hub-revenue-tile-value.tone-gold {
+  color: var(--ac-gold);
+}
+
+.admin-hub-revenue-chart-wrap {
+  padding: 28px 24px 20px;
+}
+
+.admin-hub-revenue-chart-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 16px;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.admin-hub-revenue-chart-title {
+  color: var(--ac-text);
+  font-size: 11px;
+}
+
+.admin-hub-revenue-legend {
+  display: flex;
+  gap: 14px;
+  flex-wrap: wrap;
+  font-family: "Geist Mono", monospace;
+  font-size: 10px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--ac-text-dim);
+}
+
+.admin-hub-revenue-legend > span {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.legend-swatch {
+  display: inline-block;
+  width: 10px;
+  height: 10px;
+}
+
+.legend-swatch.tone-text {
+  background: var(--ac-text);
+}
+.legend-swatch.tone-live {
+  background: var(--ac-live);
+}
+.legend-swatch.tone-warn {
+  background: #f5a524;
+}
+
+.admin-hub-revenue-chart {
+  height: 200px;
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-around;
+  gap: 12px;
+  border-top: 1px dashed var(--ac-line);
+  padding-top: 16px;
+}
+
+.admin-hub-revenue-bar-group {
+  flex: 1;
+  text-align: center;
+}
+
+.admin-hub-revenue-bar-stack {
+  height: 160px;
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  gap: 8px;
+}
+
+.admin-hub-revenue-bar {
+  width: 28px;
+  min-height: 1px;
+  background: var(--ac-text);
+}
+
+.admin-hub-revenue-bar.tone-live {
+  background: var(--ac-live);
+}
+.admin-hub-revenue-bar.tone-warn {
+  background: #f5a524;
+}
+
+.admin-hub-revenue-bar-label {
+  display: block;
+  margin-top: 10px;
+  font-family: "Geist Mono", monospace;
+  font-size: 11px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--ac-text);
+}
+
+.admin-hub-revenue-empty {
+  margin: 0;
+  text-align: center;
+  font-family: "Space Grotesk", sans-serif;
+  font-size: 13px;
+  color: var(--ac-text-dim);
+  padding: 32px 0;
+}
+
+.admin-hub-revenue-foot {
+  padding: 14px 24px;
+  border-top: 1px solid var(--ac-line);
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-family: "Geist Mono", monospace;
+  font-size: 11px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--ac-text-mute);
+}
+
+.admin-hub-revenue-link {
+  color: var(--ac-gold);
+  text-decoration: none;
+}
+
+.admin-hub-revenue-link:hover {
+  color: var(--ac-gold-bright);
+}
+
+/* Recent activity ─────────────────────────────────────────────────── */
+.admin-hub-activity {
+  padding: 20px 48px 0;
+}
+
+.admin-hub-activity-card {
+  background: var(--ac-card);
+  border: 1px solid var(--ac-line);
+}
+
+.admin-hub-activity-head,
+.admin-hub-activity-row {
+  display: grid;
+  grid-template-columns: 170px 150px 1fr 1.6fr 100px;
+  padding: 14px 20px;
+  align-items: center;
+}
+
+.admin-hub-activity-head {
+  background: var(--ac-ink3);
+  border-bottom: 1px solid var(--ac-line);
+  font-family: "Geist Mono", monospace;
+  font-size: 10px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--ac-text-mute);
+  padding-top: 12px;
+  padding-bottom: 12px;
+}
+
+.admin-hub-activity-head .is-right {
+  text-align: right;
+}
+
+.admin-hub-activity-row {
+  border-bottom: 1px solid var(--ac-line);
+  text-decoration: none;
+  color: var(--ac-text);
+  transition: background 0.12s;
+}
+
+.admin-hub-activity-row:last-child {
+  border-bottom: none;
+}
+
+.admin-hub-activity-row:hover {
+  background: color-mix(in srgb, var(--ac-gold) 4%, transparent);
+}
+
+.admin-hub-activity-when-abs {
+  font-family: "Geist Mono", monospace;
+  font-size: 12px;
+  color: var(--ac-text);
+  letter-spacing: 0.04em;
+}
+
+.admin-hub-activity-when-rel {
+  margin-top: 2px;
+  font-family: "Geist Mono", monospace;
+  font-size: 10px;
+  color: var(--ac-text-mute);
+}
+
+.admin-hub-activity-action {
+  font-family: "Archivo", sans-serif;
+  font-weight: 800;
+  font-size: 12px;
+  letter-spacing: 0.04em;
+}
+
+.admin-hub-activity-action.tone-ok {
+  color: var(--ac-live);
+}
+.admin-hub-activity-action.tone-warn {
+  color: #f5a524;
+}
+.admin-hub-activity-action.tone-danger {
+  color: var(--ac-danger);
+}
+.admin-hub-activity-action.tone-info {
+  color: #c77bff;
+}
+.admin-hub-activity-action.tone-neutral {
+  color: var(--ac-text);
+}
+
+.admin-hub-activity-who {
+  font-family: "Geist Mono", monospace;
+  font-size: 12px;
+  letter-spacing: 0.04em;
+}
+
+.admin-hub-activity-who.role-admin,
+.admin-hub-activity-who.role-super_admin {
+  color: var(--ac-gold);
+}
+
+.admin-hub-activity-who.role-system {
+  color: var(--ac-text-dim);
+}
+
+.admin-hub-activity-ref {
+  font-family: "Geist Mono", monospace;
+  font-size: 11px;
+  color: var(--ac-text-mute);
+}
+
+.admin-hub-activity-subject {
+  font-family: "Archivo", sans-serif;
+  font-weight: 700;
+  font-size: 12px;
+  color: var(--ac-text);
+}
+
+.admin-hub-activity-note {
+  margin-top: 4px;
+  font-family: "Space Grotesk", sans-serif;
+  font-size: 12px;
+  line-height: 1.45;
+  color: var(--ac-text-dim);
+}
+
+.admin-hub-activity-go {
+  text-align: right;
+  color: var(--ac-gold);
+  font-family: "Geist Mono", monospace;
+  font-size: 11px;
+  letter-spacing: 0.06em;
+}
+
+.admin-hub-activity-empty {
+  padding: 24px;
+  text-align: center;
+  font-family: "Space Grotesk", sans-serif;
+  font-size: 13px;
+  color: var(--ac-text-dim);
+}
+
+/* ── Responsive ─────────────────────────────────────────────────────────── */
+@media (max-width: 980px) {
+  .admin-hub-hero,
+  .admin-hub-notice,
+  .admin-hub-sections,
+  .admin-hub-revenue,
+  .admin-hub-activity {
+    padding-left: 24px;
+    padding-right: 24px;
+  }
+
+  .admin-hub-kpis {
+    grid-template-columns: repeat(3, 1fr);
+  }
+
+  .admin-hub-kpis .admin-hub-kpi-tile:nth-child(3n + 1) {
+    border-left: none;
+  }
+
+  .admin-hub-section-grid {
+    grid-template-columns: repeat(2, 1fr);
+  }
+
+  .admin-hub-config-grid {
+    grid-template-columns: repeat(2, 1fr);
+  }
+
+  .admin-hub-revenue-tiles {
+    grid-template-columns: repeat(2, 1fr);
+  }
+
+  .admin-hub-revenue-tile:nth-child(2n + 1) {
+    border-left: none;
+  }
+
+  .admin-hub-activity-head,
+  .admin-hub-activity-row {
+    grid-template-columns: 130px 110px 1fr 1.4fr 60px;
+  }
+}
+
 @media (max-width: 700px) {
   .admin-breadcrumbs {
     padding: 16px 24px;
+  }
+
+  .admin-hub-hero,
+  .admin-hub-notice,
+  .admin-hub-sections,
+  .admin-hub-revenue,
+  .admin-hub-activity {
+    padding-left: 16px;
+    padding-right: 16px;
+  }
+
+  .admin-hub-hero-title .ac-display {
+    font-size: 32px;
+  }
+
+  .admin-hub-hero-italic {
+    font-size: 22px;
+  }
+
+  .admin-hub-kpis {
+    grid-template-columns: repeat(2, 1fr);
+  }
+
+  .admin-hub-kpi-tile {
+    border-left: none;
+    border-top: 1px solid var(--ac-line);
+  }
+
+  .admin-hub-kpi-tile:nth-child(-n + 2) {
+    border-top: none;
+  }
+
+  .admin-hub-kpi-value {
+    font-size: 32px;
+  }
+
+  .admin-hub-section-grid,
+  .admin-hub-config-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .admin-hub-config-blurb {
+    text-align: left;
+  }
+
+  .admin-hub-revenue-tiles {
+    grid-template-columns: 1fr;
+  }
+
+  .admin-hub-revenue-tile {
+    border-left: none;
+    border-top: 1px solid var(--ac-line);
+  }
+
+  .admin-hub-revenue-tile:first-child {
+    border-top: none;
+  }
+
+  .admin-hub-activity-head {
+    display: none;
+  }
+
+  .admin-hub-activity-row {
+    grid-template-columns: 1fr;
+    gap: 4px;
+    padding: 16px;
+  }
+
+  .admin-hub-activity-go {
+    text-align: left;
   }
 }
 
 @media (max-width: 420px) {
   .admin-breadcrumbs {
     padding: 14px 16px;
+  }
+
+  .admin-hub-kpis {
+    grid-template-columns: 1fr;
+  }
+
+  .admin-hub-kpi-tile {
+    border-top: 1px solid var(--ac-line);
+  }
+
+  .admin-hub-kpi-tile:first-child {
+    border-top: none;
   }
 }
