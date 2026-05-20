@@ -99,13 +99,13 @@ main {
 .ac-logo-plaque {
   display: inline-flex;
   align-items: center;
-  padding: 8px 14px;
+  padding: 4px 8px;
   background: var(--ac-paper);
   border: 1px solid var(--ac-hair);
   border-radius: 4px;
 }
 .ac-logo-plaque img {
-  height: 30px;
+  height: 44px;
   width: auto;
   display: block;
 }
@@ -3207,10 +3207,10 @@ a.ac-channel-card:focus-visible {
     gap: 12px;
   }
   .ac-logo-plaque {
-    padding: 6px 10px;
+    padding: 4px 8px;
   }
   .ac-logo-plaque img {
-    height: 24px;
+    height: 36px;
   }
 
   /* Activities: force single-column + let body shrink properly so labels don't spill */
@@ -3329,10 +3329,10 @@ a.ac-channel-card:focus-visible {
     padding: 12px 12px;
   }
   .ac-logo-plaque {
-    padding: 5px 8px;
+    padding: 4px 6px;
   }
   .ac-logo-plaque img {
-    height: 20px;
+    height: 30px;
   }
 
   /* Recurrence row collapses to a single column */
