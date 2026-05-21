@@ -2,6 +2,7 @@ import Link from "next/link";
 import { AdminBreadcrumbs } from "@/components/admin/admin-breadcrumbs";
 import { AdminLogoutButton } from "@/components/admin/admin-logout-button";
 import {
+  activeBookingTotalLkr,
   computeBookingEffectiveStatus,
   isActiveBooking,
 } from "@/lib/admin/booking-utils";
@@ -114,12 +115,13 @@ export function AdminHub({ email, isSuperAdmin, bookings, blocks, revenue, activ
   const weekEndYmd = weekEnd.toISOString().slice(0, 10);
   const activeBlocks = blocks.filter((b) => b.date >= weekStartYmd && b.date < weekEndYmd).length;
 
-  // Outstanding across all active bookings
+  // Outstanding across all active bookings. Uses active-slot total so
+  // partially-rejected bookings only count their non-rejected slot amounts.
   let outstandingLkr = 0;
   for (const b of bookings) {
     if (!isActiveBooking(b)) continue;
     const totals = computePaymentTotals(b.paymentEntries);
-    const due = computeAmountDue(b.totalAmountLkr, totals);
+    const due = computeAmountDue(activeBookingTotalLkr(b), totals);
     const outstanding = Math.max(0, due - b.paidAmountLkr);
     outstandingLkr += outstanding;
   }
@@ -170,11 +172,40 @@ export function AdminHub({ email, isSuperAdmin, bookings, blocks, revenue, activ
       </section>
 
       <div className="admin-hub-kpis">
-        <KpiTile label="In queue" value={String(pending + tentative)} sub={`${pending} pending · ${tentative} tentative`} hot={pending + tentative > 0} />
-        <KpiTile label="Approved · today" value={String(approvedToday)} sub="rolling 24h" />
-        <KpiTile label="Active blockouts" value={String(activeBlocks)} sub="this week" />
-        <KpiTile label="Conflicts" value={String(conflictBookingIds.size)} sub="requires reconciliation" hot={conflictBookingIds.size > 0} />
-        <KpiTile label="Outstanding" value={fmtLkr(outstandingLkr)} sub="across all open bookings" hot={outstandingLkr > 0} small />
+        <KpiTile
+          label="In queue"
+          value={String(pending + tentative)}
+          sub={`${pending} pending · ${tentative} tentative`}
+          hot={pending + tentative > 0}
+          href="/admin/calendar/bookings?approval=pending,tentative"
+        />
+        <KpiTile
+          label="Approved · today"
+          value={String(approvedToday)}
+          sub="rolling 24h"
+          href="/admin/calendar/bookings?approval=confirmed"
+        />
+        <KpiTile
+          label="Active blockouts"
+          value={String(activeBlocks)}
+          sub="this week"
+          href="/admin/calendar/blockouts"
+        />
+        <KpiTile
+          label="Conflicts"
+          value={String(conflictBookingIds.size)}
+          sub="requires reconciliation"
+          hot={conflictBookingIds.size > 0}
+          href="/admin/calendar/bookings?conflict=with"
+        />
+        <KpiTile
+          label="Outstanding"
+          value={fmtLkr(outstandingLkr)}
+          sub="across all open bookings"
+          hot={outstandingLkr > 0}
+          small
+          href="/admin/calendar/bookings?payment=unpaid,part_paid"
+        />
       </div>
 
       <div className="admin-hub-notice">
@@ -226,19 +257,29 @@ function KpiTile({
   sub,
   hot,
   small,
+  href,
 }: {
   label: string;
   value: string;
   sub: string;
   hot?: boolean;
   small?: boolean;
+  href?: string;
 }) {
-  return (
-    <div className="admin-hub-kpi-tile">
+  const body = (
+    <>
       <div className="admin-hub-kpi-label">{label}</div>
       <div className={`admin-hub-kpi-value${hot ? " is-hot" : ""}${small ? " is-small" : ""}`}>{value}</div>
       <div className="admin-hub-kpi-sub">· {sub}</div>
-    </div>
+    </>
+  );
+  if (!href) {
+    return <div className="admin-hub-kpi-tile">{body}</div>;
+  }
+  return (
+    <Link className="admin-hub-kpi-tile is-link" href={href}>
+      {body}
+    </Link>
   );
 }
 

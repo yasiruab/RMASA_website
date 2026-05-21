@@ -7,12 +7,12 @@ import { AdminLogoutButton } from "@/components/admin/admin-logout-button";
 import { useAdminSession } from "@/components/admin/admin-session-context";
 import { safeJson } from "@/lib/admin/api";
 import {
+  activeBookingTotalLkr,
   bookingStatusLabel,
   computeBookingEffectiveStatus,
   effectivePaidLkr,
   formatSlotDate,
   isActiveBooking,
-  isOverpaid,
 } from "@/lib/admin/booking-utils";
 import { computeAmountDue, computePaymentTotals } from "@/lib/payments";
 
@@ -87,10 +87,48 @@ type StagedSlotChange = {
   rejectReason?: string;
 };
 
-type ApprovalFilter = "all" | "pending" | "tentative" | "confirmed" | "rejected";
-type PaymentFilter = "all" | "unpaid" | "part_paid" | "paid" | "overpaid";
+type ApprovalValue = "pending" | "tentative" | "confirmed" | "rejected";
+type PaymentValue = "unpaid" | "part_paid" | "paid" | "overpaid";
 type ConflictFilter = "all" | "with" | "without";
 type SortMode = "newest" | "oldest";
+
+const APPROVAL_VALUES = ["pending", "tentative", "confirmed", "rejected"] as const;
+const PAYMENT_VALUES = ["unpaid", "part_paid", "paid", "overpaid"] as const;
+const CONFLICT_FILTER_VALUES = ["all", "with", "without"] as const;
+
+const APPROVAL_LABELS: Record<ApprovalValue, string> = {
+  pending: "Pending",
+  tentative: "Tentative",
+  confirmed: "Confirmed",
+  rejected: "Rejected",
+};
+
+const PAYMENT_LABELS: Record<PaymentValue, string> = {
+  unpaid: "Unpaid",
+  part_paid: "Part paid",
+  paid: "Paid",
+  overpaid: "Overpaid",
+};
+
+/** Narrow a free-form URL param to one of a known union, falling back when
+ *  the value is missing or unrecognised. */
+function pickEnumParam<T extends string>(value: string | null, allowed: readonly T[], fallback: T): T {
+  return value !== null && (allowed as readonly string[]).includes(value) ? (value as T) : fallback;
+}
+
+/** Parse a comma-separated URL param into a Set of allowed values. Unknown
+ *  tokens are dropped silently. Empty / missing yields an empty Set, which
+ *  the filter logic treats as "match everything". */
+function parseMultiParam<T extends string>(value: string | null, allowed: readonly T[]): Set<T> {
+  if (!value) return new Set();
+  const allowSet = new Set<string>(allowed);
+  const out = new Set<T>();
+  for (const part of value.split(",")) {
+    const trimmed = part.trim();
+    if (allowSet.has(trimmed)) out.add(trimmed as T);
+  }
+  return out;
+}
 
 /* ── Formatters ──────────────────────────────────────────────────────────── */
 
@@ -136,10 +174,19 @@ function bookingTitle(b: Booking, eventName: string) {
 }
 
 function paymentTone(b: Booking): "paid" | "part" | "unpaid" | "overpaid" | "waived" {
-  if (isOverpaid(b)) return "overpaid";
-  if (b.reconciliationStatus === "waived") return "waived";
-  if (b.reconciliationStatus === "paid") return "paid";
-  if (b.reconciliationStatus === "part_paid") return "part";
+  // Legacy waiver-only state (no payment entries) keeps its own tag.
+  if (b.reconciliationStatus === "waived" && b.paymentEntries.length === 0) return "waived";
+  // Compute owing against the ACTIVE-slot total — rejected slots don't
+  // create debt. Booking.totalAmountLkr and reconciliationStatus are cached
+  // at booking creation and never reduced when slots are later rejected,
+  // so deriving the tone from the active total is the only correct shape.
+  const totals = computePaymentTotals(b.paymentEntries);
+  const activeDue = Math.max(0, activeBookingTotalLkr(b) - totals.totalDeducted);
+  const paid = effectivePaidLkr(b);
+  if (paid > activeDue) return "overpaid";
+  if (activeDue === 0) return "paid";
+  if (paid >= activeDue) return "paid";
+  if (paid > 0) return "part";
   return "unpaid";
 }
 
@@ -269,12 +316,28 @@ export function AdminBookings() {
   const [message, setMessage] = useState<{ text: string; tone: "success" | "error" } | null>(null);
   const [bookingErrors, setBookingErrors] = useState<Map<string, string>>(new Map());
 
-  // Filters
+  // Filters — initial values can come from the URL (?approval / ?payment /
+  // ?conflict), letting the hub KPI tiles deep-link into a pre-filtered queue.
+  // ?approval and ?payment accept comma-separated multi values
+  // (e.g. ?approval=pending,tentative).
+  const initialApproval = parseMultiParam<ApprovalValue>(
+    searchParams.get("approval"),
+    APPROVAL_VALUES,
+  );
+  const initialPayment = parseMultiParam<PaymentValue>(
+    searchParams.get("payment"),
+    PAYMENT_VALUES,
+  );
+  const initialConflict = pickEnumParam<ConflictFilter>(
+    searchParams.get("conflict"),
+    CONFLICT_FILTER_VALUES,
+    "all",
+  );
   const [query, setQuery] = useState("");
   const [sort, setSort] = useState<SortMode>("newest");
-  const [approvalFilter, setApprovalFilter] = useState<ApprovalFilter>("all");
-  const [paymentFilter, setPaymentFilter] = useState<PaymentFilter>("all");
-  const [conflictFilter, setConflictFilter] = useState<ConflictFilter>("all");
+  const [approvalFilter, setApprovalFilter] = useState<Set<ApprovalValue>>(initialApproval);
+  const [paymentFilter, setPaymentFilter] = useState<Set<PaymentValue>>(initialPayment);
+  const [conflictFilter, setConflictFilter] = useState<ConflictFilter>(initialConflict);
 
   // Detail / action state
   const [selectedId, setSelectedId] = useState<string | null>(searchParams.get("id"));
@@ -351,30 +414,38 @@ export function AdminBookings() {
       .filter((b) => {
         // Search
         if (q) {
+          const roomName = (roomNameMap[b.roomTypeId] ?? "").toLowerCase();
+          const eventName = (eventNameMap[b.eventTypeId] ?? "").toLowerCase();
           const hit =
             b.reference.toLowerCase().includes(q) ||
             b.customer.name.toLowerCase().includes(q) ||
             b.customer.email.toLowerCase().includes(q) ||
             b.customer.purpose.toLowerCase().includes(q) ||
-            b.id.toLowerCase().includes(q);
+            b.id.toLowerCase().includes(q) ||
+            roomName.includes(q) ||
+            eventName.includes(q);
           if (!hit) return false;
         }
-        // Approval
-        if (approvalFilter !== "all") {
-          const eff = computeBookingEffectiveStatus(b);
-          if (eff !== approvalFilter) return false;
+        // Approval — empty set means "all"
+        if (approvalFilter.size > 0) {
+          const eff = computeBookingEffectiveStatus(b) as ApprovalValue;
+          if (!approvalFilter.has(eff)) return false;
         }
-        // Payment
-        if (paymentFilter !== "all") {
+        // Payment — empty set means "all". Fully-rejected bookings with no
+        // payments are filtered out: they owe nothing, so they don't belong
+        // in any payment bucket. Bookings with payments still surface via
+        // "overpaid" (refund due) when applicable.
+        if (paymentFilter.size > 0) {
+          if (!isActiveBooking(b) && effectivePaidLkr(b) === 0) return false;
           const tone = paymentTone(b);
-          const map: Record<PaymentFilter, string[]> = {
-            all: [],
-            unpaid: ["unpaid"],
-            part_paid: ["part"],
-            paid: ["paid"],
-            overpaid: ["overpaid"],
+          const toneToValue: Record<string, PaymentValue | undefined> = {
+            unpaid: "unpaid",
+            part: "part_paid",
+            paid: "paid",
+            overpaid: "overpaid",
           };
-          if (!map[paymentFilter].includes(tone)) return false;
+          const v = toneToValue[tone];
+          if (!v || !paymentFilter.has(v)) return false;
         }
         // Conflict
         if (conflictFilter === "with" && !conflictMap.has(b.id)) return false;
@@ -386,7 +457,7 @@ export function AdminBookings() {
         const bt = new Date(b.createdAt).getTime();
         return sort === "newest" ? bt - at : at - bt;
       });
-  }, [bookings, query, approvalFilter, paymentFilter, conflictFilter, conflictMap, sort]);
+  }, [bookings, query, approvalFilter, paymentFilter, conflictFilter, conflictMap, sort, roomNameMap, eventNameMap]);
 
   /* Pick a default booking on the desktop pane when none selected */
   useEffect(() => {
@@ -443,7 +514,7 @@ export function AdminBookings() {
     for (const b of bookings) {
       if (!isActiveBooking(b)) continue;
       const totals = computePaymentTotals(b.paymentEntries);
-      const due = computeAmountDue(b.totalAmountLkr, totals);
+      const due = computeAmountDue(activeBookingTotalLkr(b), totals);
       outstanding += Math.max(0, due - effectivePaidLkr(b));
     }
 
@@ -601,6 +672,11 @@ export function AdminBookings() {
       <BookingsHero
         kpis={kpis}
         email={session.email ?? "—"}
+        approvalFilter={approvalFilter}
+        setApprovalFilter={setApprovalFilter}
+        paymentFilter={paymentFilter}
+        setPaymentFilter={setPaymentFilter}
+        setConflictFilter={setConflictFilter}
       />
 
       <section className="admin-bookings-split">
@@ -704,19 +780,54 @@ export function AdminBookings() {
 function BookingsHero({
   kpis,
   email,
+  approvalFilter,
+  setApprovalFilter,
+  paymentFilter,
+  setPaymentFilter,
+  setConflictFilter,
 }: {
   kpis: { pending: number; tentative: number; approvedToday: number; rejectedToday: number; confirmRate: number; outstanding: number; conflicts: number };
   email: string;
+  approvalFilter: Set<ApprovalValue>;
+  setApprovalFilter: (v: Set<ApprovalValue>) => void;
+  paymentFilter: Set<PaymentValue>;
+  setPaymentFilter: (v: Set<PaymentValue>) => void;
+  setConflictFilter: (v: ConflictFilter) => void;
 }) {
-  const items = [
+  // Tiles that map to a filter are clickable — clicking applies the filter,
+  // clicking again toggles it back to "all". Static tiles (confirm rate)
+  // render as plain divs.
+  type TileFilter =
+    | { kind: "approval"; values: ApprovalValue[] }
+    | { kind: "payment"; values: PaymentValue[] };
+
+  const items: Array<{
+    label: string;
+    value: string;
+    sub: string;
+    hot?: boolean;
+    small?: boolean;
+    filter?: TileFilter;
+  }> = [
     {
       label: "In queue",
       value: String(kpis.pending + kpis.tentative),
       sub: `${kpis.pending} pending · ${kpis.tentative} tentative`,
       hot: kpis.pending + kpis.tentative > 0,
+      filter: { kind: "approval", values: ["pending", "tentative"] },
     },
-    { label: "Approved · today", value: String(kpis.approvedToday), sub: "rolling 24h" },
-    { label: "Rejected · today", value: String(kpis.rejectedToday), sub: "rolling 24h" },
+    {
+      label: "Approved · today",
+      value: String(kpis.approvedToday),
+      sub: "rolling 24h",
+      filter: { kind: "approval", values: ["confirmed"] },
+    },
+    {
+      label: "Rejected · today",
+      value: String(kpis.rejectedToday),
+      sub: "rolling 24h",
+      filter: { kind: "approval", values: ["rejected"] },
+    },
     { label: "Confirm rate", value: `${kpis.confirmRate}%`, sub: "last 30 days" },
     {
       label: "Outstanding",
@@ -724,8 +835,39 @@ function BookingsHero({
       sub: `${kpis.conflicts} booking${kpis.conflicts === 1 ? "" : "s"} flagged for conflict`,
       hot: kpis.outstanding > 0,
       small: true,
+      filter: { kind: "payment", values: ["unpaid", "part_paid"] },
     },
   ];
+
+  const setEquals = <T,>(a: Set<T>, b: readonly T[]): boolean =>
+    a.size === b.length && b.every((v) => a.has(v));
+
+  const isActive = (f: TileFilter | undefined): boolean => {
+    if (!f) return false;
+    if (f.kind === "approval") return setEquals(approvalFilter, f.values);
+    return setEquals(paymentFilter, f.values);
+  };
+
+  // KPI tiles are single-purpose filter shortcuts: clicking one resets the
+  // other axes back to "all" so the queue shows exactly what the tile claims.
+  // Clicking the active tile again clears everything.
+  const applyFilter = (f: TileFilter) => {
+    if (isActive(f)) {
+      setApprovalFilter(new Set());
+      setPaymentFilter(new Set());
+      setConflictFilter("all");
+      return;
+    }
+    if (f.kind === "approval") {
+      setApprovalFilter(new Set(f.values));
+      setPaymentFilter(new Set());
+      setConflictFilter("all");
+    } else {
+      setPaymentFilter(new Set(f.values));
+      setApprovalFilter(new Set());
+      setConflictFilter("all");
+    }
+  };
 
   return (
     <>
@@ -749,15 +891,131 @@ function BookingsHero({
         </div>
       </section>
       <div className="admin-bookings-kpis">
-        {items.map((s) => (
-          <div className="admin-bookings-kpi-tile" key={s.label}>
-            <div className="admin-bookings-kpi-label">{s.label}</div>
-            <div className={`admin-bookings-kpi-value${s.hot ? " is-hot" : ""}${s.small ? " is-small" : ""}`}>{s.value}</div>
-            <div className="admin-bookings-kpi-sub">· {s.sub}</div>
-          </div>
-        ))}
+        {items.map((s) => {
+          const active = isActive(s.filter);
+          const cls = `admin-bookings-kpi-tile${s.filter ? " is-link" : ""}${active ? " is-active" : ""}`;
+          const body = (
+            <>
+              <div className="admin-bookings-kpi-label">{s.label}</div>
+              <div className={`admin-bookings-kpi-value${s.hot ? " is-hot" : ""}${s.small ? " is-small" : ""}`}>{s.value}</div>
+              <div className="admin-bookings-kpi-sub">· {s.sub}</div>
+            </>
+          );
+          if (s.filter) {
+            return (
+              <button
+                key={s.label}
+                type="button"
+                className={cls}
+                onClick={() => applyFilter(s.filter!)}
+                aria-pressed={active}
+              >
+                {body}
+              </button>
+            );
+          }
+          return (
+            <div className={cls} key={s.label}>
+              {body}
+            </div>
+          );
+        })}
       </div>
     </>
+  );
+}
+
+/* ── Multi-select filter dropdown ────────────────────────────────────────── */
+
+function MultiSelectFilter<T extends string>({
+  label,
+  options,
+  selected,
+  onChange,
+}: {
+  label: string;
+  options: Array<{ value: T; label: string }>;
+  selected: Set<T>;
+  onChange: (next: Set<T>) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const rootRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!open) return;
+    function onDoc(e: MouseEvent) {
+      if (!rootRef.current?.contains(e.target as Node)) setOpen(false);
+    }
+    function onKey(e: KeyboardEvent) {
+      if (e.key === "Escape") setOpen(false);
+    }
+    document.addEventListener("mousedown", onDoc);
+    document.addEventListener("keydown", onKey);
+    return () => {
+      document.removeEventListener("mousedown", onDoc);
+      document.removeEventListener("keydown", onKey);
+    };
+  }, [open]);
+
+  const summary =
+    selected.size === 0
+      ? "All"
+      : selected.size === 1
+        ? (options.find((o) => selected.has(o.value))?.label ?? "—")
+        : `${selected.size} selected`;
+
+  const toggle = (value: T) => {
+    const next = new Set(selected);
+    if (next.has(value)) next.delete(value);
+    else next.add(value);
+    onChange(next);
+  };
+
+  return (
+    <label className="admin-bookings-multi">
+      <span>{label}</span>
+      <div className="admin-bookings-multi-wrap" ref={rootRef}>
+        <button
+          type="button"
+          className={`admin-bookings-multi-trigger${open ? " is-open" : ""}`}
+          onClick={() => setOpen((v) => !v)}
+          aria-haspopup="listbox"
+          aria-expanded={open}
+        >
+          <span>{summary.toUpperCase()}</span>
+          <span aria-hidden className="admin-bookings-multi-caret">▾</span>
+        </button>
+        {open ? (
+          <div className="admin-bookings-multi-panel" role="listbox">
+            {options.map((opt) => {
+              const checked = selected.has(opt.value);
+              return (
+                <button
+                  key={opt.value}
+                  type="button"
+                  className={`admin-bookings-multi-option${checked ? " is-checked" : ""}`}
+                  onClick={() => toggle(opt.value)}
+                  role="option"
+                  aria-selected={checked}
+                >
+                  <span aria-hidden className="admin-bookings-multi-check">{checked ? "✓" : ""}</span>
+                  <span>{opt.label}</span>
+                </button>
+              );
+            })}
+            {selected.size > 0 ? (
+              <button
+                type="button"
+                className="admin-bookings-multi-clear"
+                onClick={() => onChange(new Set())}
+              >
+                Clear
+              </button>
+            ) : null}
+          </div>
+        ) : null}
+      </div>
+    </label>
   );
 }
 
@@ -788,10 +1046,10 @@ function QueuePanel({
   setQuery: (v: string) => void;
   sort: SortMode;
   setSort: (v: SortMode) => void;
-  approvalFilter: ApprovalFilter;
-  setApprovalFilter: (v: ApprovalFilter) => void;
-  paymentFilter: PaymentFilter;
-  setPaymentFilter: (v: PaymentFilter) => void;
+  approvalFilter: Set<ApprovalValue>;
+  setApprovalFilter: (v: Set<ApprovalValue>) => void;
+  paymentFilter: Set<PaymentValue>;
+  setPaymentFilter: (v: Set<PaymentValue>) => void;
   conflictFilter: ConflictFilter;
   setConflictFilter: (v: ConflictFilter) => void;
   conflictMap: Map<string, string[]>;
@@ -809,7 +1067,7 @@ function QueuePanel({
               type="search"
               value={query}
               onChange={(e) => setQuery(e.target.value)}
-              placeholder="Search ID, org, requester…"
+              placeholder="Search ref, name, email, room, event…"
             />
           </div>
           <select className="admin-bookings-queue-sort" value={sort} onChange={(e) => setSort(e.target.value as SortMode)}>
@@ -818,26 +1076,18 @@ function QueuePanel({
           </select>
         </div>
         <div className="admin-bookings-queue-filters">
-          <label>
-            <span>Approval</span>
-            <select value={approvalFilter} onChange={(e) => setApprovalFilter(e.target.value as ApprovalFilter)}>
-              <option value="all">All</option>
-              <option value="pending">Pending</option>
-              <option value="tentative">Tentative</option>
-              <option value="confirmed">Confirmed</option>
-              <option value="rejected">Rejected</option>
-            </select>
-          </label>
-          <label>
-            <span>Payment</span>
-            <select value={paymentFilter} onChange={(e) => setPaymentFilter(e.target.value as PaymentFilter)}>
-              <option value="all">All</option>
-              <option value="unpaid">Unpaid</option>
-              <option value="part_paid">Part paid</option>
-              <option value="paid">Paid</option>
-              <option value="overpaid">Overpaid</option>
-            </select>
-          </label>
+          <MultiSelectFilter
+            label="Approval"
+            options={APPROVAL_VALUES.map((v) => ({ value: v, label: APPROVAL_LABELS[v] }))}
+            selected={approvalFilter}
+            onChange={setApprovalFilter}
+          />
+          <MultiSelectFilter
+            label="Payment"
+            options={PAYMENT_VALUES.map((v) => ({ value: v, label: PAYMENT_LABELS[v] }))}
+            selected={paymentFilter}
+            onChange={setPaymentFilter}
+          />
           <label>
             <span>Conflicts</span>
             <select value={conflictFilter} onChange={(e) => setConflictFilter(e.target.value as ConflictFilter)}>
@@ -889,6 +1139,10 @@ function QueueRow({
   const slotCount = booking.slots.length;
   const firstSlot = booking.slots[0];
   const tone = paymentTone(booking);
+  // Hide the pay tag for fully-rejected bookings with no payments — the
+  // Rejected status pill already says everything. A refund-due ("overpaid")
+  // tag still surfaces here when an admin owes the customer money back.
+  const showPayTag = isActiveBooking(booking) || effectivePaidLkr(booking) > 0;
 
   return (
     <button className={`admin-bookings-queue-row${active ? " is-active" : ""}`} onClick={onClick} type="button">
@@ -905,7 +1159,7 @@ function QueueRow({
         <span className="admin-bookings-chip admin-bookings-chip-gold">
           {slotCount} slot{slotCount === 1 ? "" : "s"}
         </span>
-        <PaymentTag tone={tone} size="sm" />
+        {showPayTag ? <PaymentTag tone={tone} size="sm" /> : null}
         {hasConflict ? <span className="admin-bookings-chip admin-bookings-chip-danger">⚠ Conflict</span> : null}
         <span className="admin-bookings-queue-row-sport">{eventName}</span>
       </div>
@@ -1021,6 +1275,19 @@ function DetailPanel({
   const openCount = booking.slots.filter(
     (s) => (s.slotStatus ?? booking.status) === "pending" || (s.slotStatus ?? booking.status) === "tentative",
   ).length;
+  // Recovery / refund headline — what the desk needs to act on. Uses the
+  // active-slot total so rejected slots don't inflate the figure.
+  const recoveryTotals = computePaymentTotals(booking.paymentEntries);
+  const recoveryDue = computeAmountDue(activeBookingTotalLkr(booking), recoveryTotals);
+  const recoveryPaid = effectivePaidLkr(booking);
+  const outstandingLkr = Math.max(0, recoveryDue - recoveryPaid);
+  const refundDueLkr = Math.max(0, recoveryPaid - recoveryDue);
+  const recoveryLabel =
+    refundDueLkr > 0 ? "REFUND DUE" : outstandingLkr > 0 ? "OUTSTANDING" : "SETTLED";
+  const recoveryValue =
+    refundDueLkr > 0 ? fmtLkr(refundDueLkr) : outstandingLkr > 0 ? fmtLkr(outstandingLkr) : "—";
+  const recoveryTone =
+    refundDueLkr > 0 ? "refund" : outstandingLkr > 0 ? "owed" : "settled";
   const title = bookingTitle(booking, eventName);
 
   return (
@@ -1040,7 +1307,7 @@ function DetailPanel({
             {title.toUpperCase()}<span className="punct">.</span>
           </h2>
           <p className="admin-bookings-detail-subline">
-            {roomName} · {eventName} · {booking.acMode === "with_ac" ? "With A/C" : "Without — ventilated"}
+            {roomName} · {eventName} · {booking.acMode === "with_ac" ? "With A/C" : "Without A/C"}
           </p>
         </div>
         <div className="admin-bookings-detail-stamp">
@@ -1073,6 +1340,10 @@ function DetailPanel({
             <div>
               <p className="ac-mono">FEE</p>
               <p>{fmtLkr(booking.totalAmountLkr)}</p>
+            </div>
+            <div className={`admin-bookings-summary-recovery tone-${recoveryTone}`}>
+              <p className="ac-mono">{recoveryLabel}</p>
+              <p className="admin-bookings-summary-recovery-value">{recoveryValue}</p>
             </div>
           </div>
 
@@ -1272,7 +1543,9 @@ function PaymentLedger({
   onSubmit: () => void;
 }) {
   const totals = computePaymentTotals(booking.paymentEntries);
-  const amountDue = computeAmountDue(booking.totalAmountLkr, totals);
+  const activeTotal = activeBookingTotalLkr(booking);
+  const rejectedReduction = booking.totalAmountLkr - activeTotal;
+  const amountDue = computeAmountDue(activeTotal, totals);
   const effectivePaid = effectivePaidLkr(booking);
   const balance = Math.max(0, amountDue - effectivePaid);
   const tone = paymentTone(booking);
@@ -1288,6 +1561,9 @@ function PaymentLedger({
 
   const tiles: Array<{ label: string; value: string; tone: "text" | "dim" | "ok" | "warn" | "danger" | "info" }> = [
     { label: "Invoice", value: fmtLkr(booking.totalAmountLkr), tone: "text" },
+    ...(rejectedReduction > 0
+      ? [{ label: "Less rejected slots", value: `− ${fmtLkr(rejectedReduction)}`, tone: "dim" as const }]
+      : []),
     { label: "Less waiver / credit", value: `− ${fmtLkr(totals.totalDeducted)}`, tone: "dim" },
     { label: "Net owed", value: fmtLkr(amountDue), tone: "text" },
     { label: "Payments", value: fmtLkr(payments), tone: "ok" },

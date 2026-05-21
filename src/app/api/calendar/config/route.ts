@@ -10,8 +10,8 @@ export async function GET() {
     eventTypes: db.eventTypes,
     pricingRules: db.pricingRules,
     acModes: [
-      { id: "with_ac", label: "With AC" },
-      { id: "without_ac", label: "Without AC" },
+      { id: "with_ac", label: "With A/C" },
+      { id: "without_ac", label: "Without A/C" },
     ],
   });
 }
