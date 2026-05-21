@@ -8,6 +8,38 @@ and flags tables that exist but are no longer used.
 strings — pooled (`DATABASE_URL`, runtime) and direct (`DIRECT_URL`,
 `prisma migrate deploy`). Migrated from Aurora Serverless v2 in May 2026.
 
+## Date / time storage convention
+
+Two distinct shapes, by intent:
+
+| Pattern | Examples | Postgres type |
+|---|---|---|
+| Business-semantic dates / times — "when does the booking happen?" | `BookingSlot.date` (`"2026-05-20"`), `BookingSlot.startTime` / `endTime` (`"07:00"`), `CalendarBlock.date`, `BookingAmountBreakdown.date` / `slot`, `Booking.recurrenceEndDate`, `PaymentEntry.date` | **`text`** (Prisma `String`) |
+| System event timestamps — "when did this row happen?" | `Booking.createdAt` / `updatedAt` / `confirmedAt`, `EmailLog.createdAt`, `AuditLog.createdAt`, `PaymentEntry.createdAt` | **`timestamp with time zone`** (Prisma `DateTime`) |
+
+A booking slot is "May 20, 7:00 AM **in Colombo**" — independent of any
+viewer's local timezone. If we stored these as `DATE` / `TIMESTAMP`, every
+read would round-trip through JavaScript's `Date`, which is TZ-aware and
+will silently shift values when the runtime or the viewer is not in
+Asia/Colombo. The whole calendar logic already keys slots by
+`"YYYY-MM-DD|HH:mm"` strings (see [`src/lib/calendar-store.ts`](../src/lib/calendar-store.ts),
+[`src/lib/admin/booking-utils.ts`](../src/lib/admin/booking-utils.ts),
+`computeSlotAllocations()`), so keeping them as strings end-to-end means
+zero conversion and zero TZ bugs.
+
+ISO 8601 (`YYYY-MM-DD`) sorts lexicographically the same as
+chronologically, so `WHERE slot.date >= from` works correctly on the string
+column and indexes on `(date)` are still useful.
+
+System timestamps (`createdAt` etc.) are real points in absolute time —
+TZ-aware comparison is what you want for "what's the newest audit row?",
+so those stay `DateTime`.
+
+**Tradeoff**: Postgres won't reject `BookingSlot.date = 'banana'`. Input
+validation is the app's responsibility (Zod / regex / Prisma typing all
+handle this at the API boundary). A direct DB write that bypasses the app
+could insert garbage — accepted in exchange for the TZ-safety benefit.
+
 ## Table summary
 
 | Table | Status | Purpose |
