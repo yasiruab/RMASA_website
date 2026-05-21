@@ -10,9 +10,11 @@ import {
   activeBookingTotalLkr,
   bookingStatusLabel,
   computeBookingEffectiveStatus,
+  computeSlotAllocations,
   effectivePaidLkr,
   formatSlotDate,
   isActiveBooking,
+  type SlotAllocation,
 } from "@/lib/admin/booking-utils";
 import { computeAmountDue, computePaymentTotals } from "@/lib/payments";
 
@@ -1348,13 +1350,17 @@ function DetailPanel({
           </div>
 
           <div className="admin-bookings-slot-table">
-            {booking.slots.map((slot, idx) => {
-              const slotStatus = slot.slotStatus ?? booking.status;
-              const isApproved = slotStatus === "confirmed";
-              const isTentative = slotStatus === "tentative";
-              const isRejected = slotStatus === "rejected";
-              const staged = stagedChanges.find((c) => c.slotDate === slot.date && c.slotStartTime === slot.startTime);
-              return (
+            {(() => {
+              const allocations = computeSlotAllocations(booking);
+              const allocByKey = new Map(allocations.map((a) => [a.key, a]));
+              return booking.slots.map((slot, idx) => {
+                const slotStatus = slot.slotStatus ?? booking.status;
+                const isApproved = slotStatus === "confirmed";
+                const isTentative = slotStatus === "tentative";
+                const isRejected = slotStatus === "rejected";
+                const staged = stagedChanges.find((c) => c.slotDate === slot.date && c.slotStartTime === slot.startTime);
+                const allocation = allocByKey.get(`${slot.date}|${slot.startTime}`);
+                return (
                 <div key={`${slot.date}|${slot.startTime}`} className={`admin-bookings-slot-row${staged ? " is-staged" : ""}`}>
                   <div className="admin-bookings-slot-idx ac-mono">{String(idx + 1).padStart(2, "0")}</div>
                   <div className="admin-bookings-slot-body">
@@ -1372,6 +1378,7 @@ function DetailPanel({
                       <div className="admin-bookings-slot-reject-reason">↳ {slot.rejectReason}</div>
                     ) : null}
                   </div>
+                  <SlotPriceCell allocation={allocation} />
                   <div className="admin-bookings-slot-status">
                     <StatusPill status={slotStatus} size="sm" />
                   </div>
@@ -1402,8 +1409,9 @@ function DetailPanel({
                     </SlotBtn>
                   </div>
                 </div>
-              );
-            })}
+                );
+              });
+            })()}
           </div>
         </div>
 
@@ -1772,6 +1780,47 @@ function StatusPill({ status, size = "md" }: { status: BookingStatus; size?: "sm
 
 function PaymentTag({ tone, size = "md" }: { tone: ReturnType<typeof paymentTone>; size?: "sm" | "md" }) {
   return <span className={`admin-bookings-paytag tone-${tone} size-${size}`}>{paymentLabel(tone)}</span>;
+}
+
+const SLOT_CHIP_TONE: Record<SlotAllocation["status"], string> = {
+  paid: "paid",
+  part_paid: "part",
+  unpaid: "unpaid",
+  waived: "waived",
+  rejected: "",
+};
+
+const SLOT_CHIP_LABEL: Record<SlotAllocation["status"], string> = {
+  paid: "Paid",
+  part_paid: "Part paid",
+  unpaid: "Unpaid",
+  waived: "Waived",
+  rejected: "",
+};
+
+function SlotPriceCell({ allocation }: { allocation: SlotAllocation | undefined }) {
+  if (!allocation) {
+    return <div className="admin-bookings-slot-price" aria-hidden />;
+  }
+  const isRejected = allocation.status === "rejected";
+  const covered = allocation.paidLkr + allocation.waiverLkr + allocation.creditNoteLkr;
+  return (
+    <div className="admin-bookings-slot-price">
+      <div className={`admin-bookings-slot-price-amount${isRejected ? " is-struck" : ""}`}>
+        {fmtLkr(allocation.amountLkr)}
+      </div>
+      {isRejected ? null : (
+        <div className={`admin-bookings-slot-price-chip tone-${SLOT_CHIP_TONE[allocation.status]}`}>
+          <span className="admin-bookings-slot-price-chip-label">{SLOT_CHIP_LABEL[allocation.status]}</span>
+          {allocation.status !== "unpaid" ? (
+            <span className="admin-bookings-slot-price-chip-amount ac-mono">
+              {fmtLkr(covered)}
+            </span>
+          ) : null}
+        </div>
+      )}
+    </div>
+  );
 }
 
 function SubHeading({ title, accent, meta }: { title: string; accent?: string; meta?: string }) {

@@ -783,12 +783,25 @@ This is display-only — payments are still recorded at booking level, not per-s
 
 ## Accounting Report
 
-`GET /api/admin/calendar/reports?from=YYYY-MM-DD&to=YYYY-MM-DD` — returns all booking slots in the date range with per-slot financial allocation.
-
-**Per-slot financial allocation logic** (server-side, same approach as `computeSlotPaymentAllocation`):
-1. Separate payment entries into: `netCash` (payments − refunds), `totalWaiver`, `totalCredit`
-2. Active slots sorted oldest-first
-3. Walk slots: allocate cash first, then waiver, then credit notes until each stream exhausted
-4. `slotBalanceLkr = slotAmountLkr − paidLkr − waiverLkr − creditNoteLkr` (min 0)
+`GET /api/admin/calendar/reports?from=YYYY-MM-DD&to=YYYY-MM-DD` — returns all booking slots in the date range with per-slot financial allocation. The route delegates allocation to the shared [`computeSlotAllocations()`](src/lib/admin/booking-utils.ts) helper documented below, so the CSV columns always agree with what the admin sees in the bookings detail pane.
 
 Report page at `/admin/calendar/reports` (visible to all admins, not super-admin-only). Columns: Date, Time, Room, Event Type, Ref, Customer, Purpose, Status, Pay Status, Amount (LKR), Paid (LKR), Waiver (LKR), Credit Note (LKR), Balance (LKR), Reject Reason. Summary row shows totals. CSV export available.
+
+## Per-slot Payment Allocation
+
+The bookings detail pane shows each slot's price + a payment status chip (PAID / PART PAID / UNPAID / WAIVED). The chip and its accompanying numbers come from [`computeSlotAllocations()`](src/lib/admin/booking-utils.ts), a pure derivation from the booking's current `slots` + `amountBreakdown` + `paymentEntries`. Nothing is persisted; every render recomputes from scratch, so any subsequent edit (per-slot status change, new ledger entry) automatically updates the view.
+
+**Allocation direction — intentionally asymmetric:**
+
+| Stream | Direction | Slot scope |
+|---|---|---|
+| Payments | oldest → newest | all slots (incl. rejected) |
+| Refunds | newest → oldest | all slots (incl. rejected) |
+| Waivers | newest → oldest | active slots only |
+| Credit notes | newest → oldest | active slots only |
+
+Payments include rejected slots because if the customer paid before the rejection, the cash actually landed on that slot — a later refund needs to reverse from exactly there. Waivers and credit notes skip rejected slots because rejected slots have no debt to forgive.
+
+**Rejected slot rendering**: the slot row shows the original price struck through and **no chip**. The Rejected status pill on the same row carries all the relevant info.
+
+**Single source of truth**: both the admin bookings detail pane ([src/components/admin/sections/admin-bookings.tsx](src/components/admin/sections/admin-bookings.tsx)) and the reports route ([src/app/api/admin/calendar/reports/route.ts](src/app/api/admin/calendar/reports/route.ts)) call `computeSlotAllocations()`. The pre-existing `computeSlotPaymentAllocation()` (cash-only, oldest-first) is kept for the legacy mega-component but is **not** the canonical helper — new code should always use `computeSlotAllocations()`.

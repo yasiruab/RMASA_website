@@ -6,8 +6,8 @@
 // both the canonical Booking type from @/lib/calendar-types and any narrower
 // admin-internal shape that happens to include the required fields.
 
-import { computeAmountDue, computePaymentTotals } from "@/lib/payments";
-import type { BookingStatus, PaymentEntry, ReconciliationStatus } from "@/lib/calendar-types";
+import { computeAmountDue, computePaymentTotals } from "../payments.ts";
+import type { BookingStatus, PaymentEntry, ReconciliationStatus } from "../calendar-types.ts";
 
 export const ACTIVE_EFFECTIVE_STATUSES = ["pending", "confirmed", "tentative"] as const;
 
@@ -131,6 +131,159 @@ export function activeBookingTotalLkr<B extends BookingForActiveTotal>(booking: 
       );
       return sum + (bd?.amountLkr ?? 0);
     }, 0);
+}
+
+export type SlotAllocationStatus =
+  | "paid"
+  | "part_paid"
+  | "unpaid"
+  | "waived"
+  | "rejected";
+
+export type SlotAllocation = {
+  key: string;
+  date: string;
+  startTime: string;
+  endTime: string;
+  amountLkr: number;
+  paidLkr: number;
+  waiverLkr: number;
+  creditNoteLkr: number;
+  balanceLkr: number;
+  status: SlotAllocationStatus;
+};
+
+type BookingForSlotAllocations = BookingLite & {
+  amountBreakdown: AmountBreakdownLite[];
+  paymentEntries: Array<Pick<PaymentEntry, "type" | "amountLkr">>;
+};
+
+/** Per-slot allocation breakdown. Always re-derived from the booking's
+ *  current state — never stored. Allocation rules:
+ *  - Payments oldest → newest over ALL slots (including rejected slots:
+ *    if cash was paid before a rejection, it landed on that slot and a
+ *    future refund may reverse it from exactly there).
+ *  - Refunds newest → oldest over ALL slots (reverses cash in the order
+ *    most-recently-paid first).
+ *  - Waivers newest → oldest over ACTIVE slots only (rejected slots have
+ *    no debt to forgive).
+ *  - Credit notes newest → oldest over ACTIVE slots only.
+ *  Rejected / cancelled_override slots always return `status: "rejected"`
+ *  regardless of any residual paidLkr the allocation may have left on
+ *  them — the UI uses a struck-through price + no chip for those rows. */
+export function computeSlotAllocations<B extends BookingForSlotAllocations>(
+  booking: B,
+): SlotAllocation[] {
+  const sorted = [...booking.slots].sort((a, b) =>
+    a.date !== b.date ? (a.date < b.date ? -1 : 1) : a.startTime < b.startTime ? -1 : 1,
+  );
+
+  const isRejected = (s: { slotStatus?: BookingStatus | null }) => {
+    const eff = s.slotStatus ?? booking.status;
+    return eff === "rejected" || eff === "cancelled_override";
+  };
+
+  const entries: SlotAllocation[] = sorted.map((slot) => {
+    const bd = booking.amountBreakdown.find(
+      (b) => b.date === slot.date && b.slot === `${slot.startTime}-${slot.endTime}`,
+    );
+    return {
+      key: `${slot.date}|${slot.startTime}`,
+      date: slot.date,
+      startTime: slot.startTime,
+      endTime: slot.endTime,
+      amountLkr: bd?.amountLkr ?? 0,
+      paidLkr: 0,
+      waiverLkr: 0,
+      creditNoteLkr: 0,
+      balanceLkr: 0,
+      status: "unpaid",
+    };
+  });
+
+  let totalPayments = 0;
+  let totalRefunds = 0;
+  let totalWaivers = 0;
+  let totalCreditNotes = 0;
+  for (const e of booking.paymentEntries) {
+    if (e.type === "payment") totalPayments += e.amountLkr;
+    else if (e.type === "refund") totalRefunds += e.amountLkr;
+    else if (e.type === "waiver") totalWaivers += e.amountLkr;
+    else if (e.type === "credit_note") totalCreditNotes += e.amountLkr;
+  }
+
+  // Pass 1 — Payments oldest → newest, over ALL slots.
+  let remaining = totalPayments;
+  for (const entry of entries) {
+    if (remaining <= 0) break;
+    const capacity = entry.amountLkr - entry.paidLkr;
+    if (capacity <= 0) continue;
+    const fill = Math.min(remaining, capacity);
+    entry.paidLkr += fill;
+    remaining -= fill;
+  }
+
+  // Pass 2 — Refunds newest → oldest, over ALL slots.
+  remaining = totalRefunds;
+  for (let i = entries.length - 1; i >= 0 && remaining > 0; i -= 1) {
+    const entry = entries[i];
+    const reverse = Math.min(remaining, entry.paidLkr);
+    if (reverse <= 0) continue;
+    entry.paidLkr -= reverse;
+    remaining -= reverse;
+  }
+
+  // Pass 3 — Waivers newest → oldest, ACTIVE slots only.
+  remaining = totalWaivers;
+  for (let i = entries.length - 1; i >= 0 && remaining > 0; i -= 1) {
+    const entry = entries[i];
+    const slot = sorted[i];
+    if (isRejected(slot)) continue;
+    const capacity = entry.amountLkr - entry.paidLkr - entry.waiverLkr - entry.creditNoteLkr;
+    if (capacity <= 0) continue;
+    const fill = Math.min(remaining, capacity);
+    entry.waiverLkr += fill;
+    remaining -= fill;
+  }
+
+  // Pass 4 — Credit notes newest → oldest, ACTIVE slots only.
+  remaining = totalCreditNotes;
+  for (let i = entries.length - 1; i >= 0 && remaining > 0; i -= 1) {
+    const entry = entries[i];
+    const slot = sorted[i];
+    if (isRejected(slot)) continue;
+    const capacity = entry.amountLkr - entry.paidLkr - entry.waiverLkr - entry.creditNoteLkr;
+    if (capacity <= 0) continue;
+    const fill = Math.min(remaining, capacity);
+    entry.creditNoteLkr += fill;
+    remaining -= fill;
+  }
+
+  // Derive status + balance.
+  for (let i = 0; i < entries.length; i += 1) {
+    const entry = entries[i];
+    const slot = sorted[i];
+    if (isRejected(slot)) {
+      entry.status = "rejected";
+      entry.balanceLkr = 0;
+      continue;
+    }
+    const covered = entry.paidLkr + entry.waiverLkr + entry.creditNoteLkr;
+    entry.balanceLkr = Math.max(0, entry.amountLkr - covered);
+    if (entry.amountLkr === 0) {
+      entry.status = "paid";
+    } else if (covered >= entry.amountLkr && entry.paidLkr === 0 && (entry.waiverLkr + entry.creditNoteLkr) > 0) {
+      entry.status = "waived";
+    } else if (covered >= entry.amountLkr) {
+      entry.status = "paid";
+    } else if (covered > 0) {
+      entry.status = "part_paid";
+    } else {
+      entry.status = "unpaid";
+    }
+  }
+
+  return entries;
 }
 
 /** Server-computed net of payments minus refunds. Treats legacy "waived" rows
