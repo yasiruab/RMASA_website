@@ -3477,7 +3477,7 @@ button.admin-bookings-kpi-tile {
   display: grid;
   /* minmax(0, 1fr) lets the body column shrink without overflowing or
      forcing text into a one-word-per-line column. */
-  grid-template-columns: 32px minmax(0, 1fr) auto auto;
+  grid-template-columns: 32px minmax(0, 1fr) auto auto auto;
   align-items: center;
   gap: 14px;
   padding: 14px 16px;
@@ -3530,6 +3530,70 @@ button.admin-bookings-kpi-tile {
   font-family: "Space Grotesk", sans-serif;
   font-size: 12px;
   color: var(--ac-danger);
+}
+
+.admin-bookings-slot-price {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 4px;
+  min-width: 92px;
+}
+
+.admin-bookings-slot-price-amount {
+  font-family: "Archivo", sans-serif;
+  font-weight: 800;
+  font-size: 13px;
+  color: var(--ac-text);
+  letter-spacing: -0.005em;
+}
+
+.admin-bookings-slot-price-amount.is-struck {
+  text-decoration: line-through;
+  color: var(--ac-text-mute);
+  font-weight: 600;
+}
+
+.admin-bookings-slot-price-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 6px;
+  border-radius: 2px;
+  font-family: "Archivo", sans-serif;
+  font-weight: 800;
+  font-size: 9px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.admin-bookings-slot-price-chip-label {
+  white-space: nowrap;
+}
+
+.admin-bookings-slot-price-chip-amount {
+  font-size: 9px;
+  opacity: 0.85;
+}
+
+.admin-bookings-slot-price-chip.tone-paid {
+  background: color-mix(in srgb, var(--ac-live) 22%, var(--ac-ink2));
+  color: var(--ac-live);
+}
+
+.admin-bookings-slot-price-chip.tone-part {
+  background: color-mix(in srgb, var(--ac-gold) 22%, var(--ac-ink2));
+  color: var(--ac-gold);
+}
+
+.admin-bookings-slot-price-chip.tone-unpaid {
+  background: color-mix(in srgb, #ff5d5d 22%, var(--ac-ink2));
+  color: #ff5d5d;
+}
+
+.admin-bookings-slot-price-chip.tone-waived {
+  background: color-mix(in srgb, var(--ac-text-mute) 22%, var(--ac-ink2));
+  color: var(--ac-text-dim);
 }
 
 .admin-bookings-slot-status {
@@ -4571,6 +4635,11 @@ button.admin-bookings-kpi-tile {
 
   .admin-bookings-slot-actions {
     justify-content: flex-start;
+  }
+
+  .admin-bookings-slot-price {
+    align-items: flex-start;
+    min-width: 0;
   }
 
   .admin-bookings-ledger-form-grid {
