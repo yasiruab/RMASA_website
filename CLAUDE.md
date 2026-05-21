@@ -145,6 +145,19 @@ fresh audit-log query; the revenue model is the shared `buildRevenueModel()`
 applied to a 90-day window. The `[section]/page.tsx` dynamic route no longer
 accepts `"dashboard"` (the hub occupies that slot).
 
+**Hub KPI tiles deep-link** to filtered bookings views via URL params:
+
+| Tile | Link |
+|---|---|
+| In queue | `/admin/calendar/bookings?approval=pending` |
+| Approved · today | `/admin/calendar/bookings?approval=confirmed` |
+| Active blockouts | `/admin/calendar/blockouts` |
+| Conflicts | `/admin/calendar/bookings?conflict=with` |
+| Outstanding | `/admin/calendar/bookings?payment=unpaid` |
+
+`KpiTile` accepts an optional `href`; when set it renders as a Next.js `<Link>` with
+a gold-accent hover state (`.admin-hub-kpi-tile.is-link`).
+
 **Bookings split-pane** at `/admin/calendar/bookings` —
 [`src/components/admin/sections/admin-bookings.tsx`](src/components/admin/sections/admin-bookings.tsx)
 (client component, mounted inside a `<Suspense>` boundary in
@@ -166,6 +179,13 @@ removed from `allowedSections`). Composition:
     payment ledger (6-tile totals strip + inline + Add entry form + ledger
     table), derived history timeline
 - URL sync: `?id=<bookingId>` keeps deep links shareable
+- Initial filter state can also be set via URL params: `?approval=…` accepts
+  `all | pending | tentative | confirmed | rejected`; `?payment=…` accepts
+  `all | unpaid | part_paid | paid | overpaid` (where `unpaid` intentionally
+  matches BOTH unpaid AND part_paid — any booking with outstanding balance, so
+  the "Outstanding" KPI deep-link surfaces every booking with money owed, not
+  only zero-paid); `?conflict=…` accepts `all | with | without`. Unknown values
+  fall back to `all`.
 - Reject modals (per-slot + bulk) require a reason before confirm
 
 **Sticky scroll behaviour** (desktop ≥ 981px) — the `.admin-bookings-split`

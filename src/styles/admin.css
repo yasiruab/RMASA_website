@@ -214,6 +214,23 @@ main > .admin-section {
 .admin-hub-kpi-tile {
   padding: 22px 24px;
   border-left: 1px solid var(--ac-line);
+  /* `.is-link` variant turns the tile into a Link to a filtered booking
+     view. Hover gets the same gold accent as the section cards below. */
+  display: block;
+  color: inherit;
+  text-decoration: none;
+  transition: background 0.15s, box-shadow 0.15s;
+}
+
+.admin-hub-kpi-tile.is-link {
+  cursor: pointer;
+}
+
+.admin-hub-kpi-tile.is-link:hover,
+.admin-hub-kpi-tile.is-link:focus-visible {
+  background: color-mix(in srgb, var(--ac-gold) 6%, transparent);
+  box-shadow: inset 0 -2px 0 0 var(--ac-gold);
+  outline: none;
 }
 
 .admin-hub-kpi-tile:first-child {
@@ -2737,6 +2754,29 @@ main > .admin-section {
   border-left: none;
 }
 
+button.admin-bookings-kpi-tile {
+  appearance: none;
+  background: transparent;
+  text-align: left;
+  font: inherit;
+  color: inherit;
+  width: 100%;
+  cursor: pointer;
+  transition: background 0.15s, box-shadow 0.15s;
+}
+
+.admin-bookings-kpi-tile.is-link:hover,
+.admin-bookings-kpi-tile.is-link:focus-visible {
+  background: color-mix(in srgb, var(--ac-gold) 6%, transparent);
+  box-shadow: inset 0 -2px 0 0 var(--ac-gold);
+  outline: none;
+}
+
+.admin-bookings-kpi-tile.is-active {
+  background: color-mix(in srgb, var(--ac-gold) 10%, transparent);
+  box-shadow: inset 0 -2px 0 0 var(--ac-gold);
+}
+
 .admin-bookings-kpi-label {
   font-family: "Geist Mono", monospace;
   font-size: 10px;
@@ -2910,6 +2950,132 @@ main > .admin-section {
   text-transform: uppercase;
   width: 100%;
   cursor: pointer;
+}
+
+/* Multi-select dropdown — matches the native <select> visual but lets the
+ * admin tick multiple values. Closes on outside click or Escape. */
+.admin-bookings-multi {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  flex: 1;
+  min-width: 0;
+}
+
+.admin-bookings-multi > span {
+  font-family: "Geist Mono", monospace;
+  font-size: 9px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--ac-text-mute);
+}
+
+.admin-bookings-multi-wrap {
+  position: relative;
+}
+
+.admin-bookings-multi-trigger {
+  appearance: none;
+  padding: 8px 10px;
+  background: var(--ac-bg);
+  border: 1px solid var(--ac-line);
+  color: var(--ac-text);
+  font-family: "Archivo", sans-serif;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  width: 100%;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  text-align: left;
+}
+
+.admin-bookings-multi-trigger:hover,
+.admin-bookings-multi-trigger:focus-visible,
+.admin-bookings-multi-trigger.is-open {
+  border-color: var(--ac-gold);
+  outline: none;
+}
+
+.admin-bookings-multi-caret {
+  font-size: 10px;
+  color: var(--ac-text-mute);
+}
+
+.admin-bookings-multi-panel {
+  position: absolute;
+  top: calc(100% + 4px);
+  left: 0;
+  right: 0;
+  z-index: 30;
+  background: var(--ac-ink2);
+  border: 1px solid var(--ac-line);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.45);
+  display: flex;
+  flex-direction: column;
+  padding: 4px;
+}
+
+.admin-bookings-multi-option {
+  appearance: none;
+  background: transparent;
+  border: none;
+  padding: 8px 10px;
+  color: var(--ac-text);
+  font-family: "Space Grotesk", sans-serif;
+  font-size: 13px;
+  display: grid;
+  grid-template-columns: 18px 1fr;
+  align-items: center;
+  gap: 8px;
+  cursor: pointer;
+  text-align: left;
+  border-radius: 2px;
+}
+
+.admin-bookings-multi-option:hover,
+.admin-bookings-multi-option:focus-visible {
+  background: color-mix(in srgb, var(--ac-gold) 8%, transparent);
+  outline: none;
+}
+
+.admin-bookings-multi-option.is-checked {
+  color: var(--ac-gold);
+  font-weight: 600;
+}
+
+.admin-bookings-multi-check {
+  font-family: "Archivo", sans-serif;
+  font-weight: 900;
+  font-size: 12px;
+  color: var(--ac-gold);
+  text-align: center;
+}
+
+.admin-bookings-multi-clear {
+  appearance: none;
+  background: transparent;
+  border: none;
+  border-top: 1px solid var(--ac-line);
+  margin-top: 4px;
+  padding: 8px 10px;
+  color: var(--ac-text-mute);
+  font-family: "Geist Mono", monospace;
+  font-size: 10px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  cursor: pointer;
+  text-align: left;
+}
+
+.admin-bookings-multi-clear:hover,
+.admin-bookings-multi-clear:focus-visible {
+  color: var(--ac-text);
+  outline: none;
 }
 
 .admin-bookings-queue-list {
@@ -3215,7 +3381,7 @@ main > .admin-section {
 /* Sport/use/fee summary strip */
 .admin-bookings-summary-strip {
   display: grid;
-  grid-template-columns: repeat(3, 1fr);
+  grid-template-columns: repeat(4, 1fr);
   background: var(--ac-card);
   border: 1px solid var(--ac-line);
 }
@@ -3247,6 +3413,57 @@ main > .admin-section {
   font-weight: 700;
   font-size: 14px;
   letter-spacing: -0.005em;
+}
+
+/* Recovery tile — what the desk needs to collect or refund. Gold-tinted
+ * panel + larger Archivo display to draw the eye over the FEE / hours tiles. */
+.admin-bookings-summary-recovery {
+  background: color-mix(in srgb, var(--ac-gold) 8%, transparent);
+}
+
+.admin-bookings-summary-recovery.tone-refund {
+  background: color-mix(in srgb, #7fb7ff 10%, transparent);
+}
+
+.admin-bookings-summary-recovery.tone-settled {
+  background: color-mix(in srgb, var(--ac-live) 8%, transparent);
+}
+
+.admin-bookings-summary-strip .admin-bookings-summary-recovery-value {
+  margin-top: 6px;
+  font-family: "Archivo", sans-serif;
+  font-weight: 900;
+  font-size: 22px;
+  letter-spacing: -0.01em;
+  color: var(--ac-gold);
+  text-shadow: 0 0 12px color-mix(in srgb, var(--ac-gold) 25%, transparent);
+}
+
+.admin-bookings-summary-recovery.tone-refund .admin-bookings-summary-recovery-value {
+  color: #7fb7ff;
+  text-shadow: 0 0 12px color-mix(in srgb, #7fb7ff 25%, transparent);
+}
+
+.admin-bookings-summary-recovery.tone-settled .admin-bookings-summary-recovery-value {
+  color: var(--ac-live);
+  text-shadow: none;
+  font-weight: 700;
+  font-size: 18px;
+}
+
+@media (max-width: 700px) {
+  .admin-bookings-summary-strip {
+    grid-template-columns: repeat(2, 1fr);
+  }
+  .admin-bookings-summary-strip > div {
+    border-top: 1px solid var(--ac-line);
+  }
+  .admin-bookings-summary-strip > div:nth-child(-n + 2) {
+    border-top: none;
+  }
+  .admin-bookings-summary-strip > div:nth-child(odd) {
+    border-left: none;
+  }
 }
 
 /* Slot table */

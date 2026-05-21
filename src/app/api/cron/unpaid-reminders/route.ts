@@ -4,6 +4,7 @@ import {
   sendAdminUnpaidDigest,
   sendBookingUnpaidReminder,
 } from "@/lib/email";
+import { activeBookingTotalLkr } from "@/lib/admin/booking-utils";
 import { computeAmountDue, computePaymentTotals } from "@/lib/payments";
 
 const CRON_SECRET = process.env.CRON_SECRET ?? process.env._AMPLIFY_CRON_SECRET ?? "";
@@ -51,6 +52,7 @@ export async function POST(req: Request) {
         orderBy: [{ date: "asc" }, { startTime: "asc" }],
       },
       paymentEntries: { select: { type: true, amountLkr: true } },
+      amountBreakdown: { select: { date: true, slot: true, amountLkr: true } },
     },
   });
 
@@ -87,7 +89,10 @@ export async function POST(req: Request) {
     }));
 
     const totals = computePaymentTotals(booking.paymentEntries);
-    const amountDue = computeAmountDue(booking.totalAmountLkr, totals);
+    // Use the active-slot total — partially-rejected bookings don't owe for
+    // their rejected slot amounts.
+    const activeTotal = activeBookingTotalLkr(booking);
+    const amountDue = computeAmountDue(activeTotal, totals);
     const balance = Math.max(0, amountDue - booking.paidAmountLkr);
     // Defense in depth: skip bookings whose balance is fully covered by waivers
     // and/or payments even if reconciliationStatus is stale. Don't dun a customer
@@ -101,7 +106,10 @@ export async function POST(req: Request) {
       roomName: booking.roomType.name,
       eventTypeName: booking.eventType.name,
       slots: slotsForEmail,
-      totalAmountLkr: booking.totalAmountLkr,
+      // Show the active-slot total in the email (not the original invoice)
+      // so the customer's "Paid X of Y" line reads correctly when some
+      // slots were rejected after the original quote.
+      totalAmountLkr: activeTotal,
       paidAmountLkr: booking.paidAmountLkr,
       amountDueLkr: amountDue,
       daysOverdue: milestone,

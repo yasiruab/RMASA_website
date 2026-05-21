@@ -865,9 +865,9 @@ export function AdminCalendarConsole({ section }: AdminCalendarConsoleProps) {
                 }))
               }
             >
-              <option value="all">All AC Modes</option>
-              <option value="with_ac">With AC</option>
-              <option value="without_ac">Without AC</option>
+              <option value="all">All A/C Modes</option>
+              <option value="with_ac">With A/C</option>
+              <option value="without_ac">Without A/C</option>
             </select>
           </div>
 
@@ -1003,7 +1003,7 @@ export function AdminCalendarConsole({ section }: AdminCalendarConsoleProps) {
                 <tbody>
                   {revenueModel.acModeBreakdown.map((item) => (
                     <tr key={item.key}>
-                      <td>{item.key === "with_ac" ? "With AC" : "Without AC"}</td>
+                      <td>{item.key === "with_ac" ? "With A/C" : "Without A/C"}</td>
                       <td>LKR {currencyFormatter.format(Math.round(item.amountLkr))}</td>
                     </tr>
                   ))}
@@ -1438,8 +1438,8 @@ export function AdminCalendarConsole({ section }: AdminCalendarConsoleProps) {
                   )
                 }
               >
-                <option value="with_ac">With AC</option>
-                <option value="without_ac">Without AC</option>
+                <option value="with_ac">With A/C</option>
+                <option value="without_ac">Without A/C</option>
               </select>
               <select
                 value={rule.dayType}
@@ -1863,7 +1863,7 @@ export function AdminCalendarConsole({ section }: AdminCalendarConsoleProps) {
                       <p className="bk-subtitle">
                         {roomNameMap[booking.roomTypeId]} &middot;{" "}
                         {eventNameMap[booking.eventTypeId]} &middot;{" "}
-                        {booking.acMode === "with_ac" ? "With AC" : "No AC"}
+                        {booking.acMode === "with_ac" ? "With A/C" : "Without A/C"}
                       </p>
                     </div>
                     <div className="bk-header-right">

@@ -15,8 +15,8 @@ type SlotLite = {
   date: string;
   startTime: string;
   endTime: string;
-  slotStatus?: BookingStatus;
-  rejectReason?: string;
+  slotStatus?: BookingStatus | null;
+  rejectReason?: string | null;
 };
 
 type BookingLite = {
@@ -100,6 +100,38 @@ type BookingForPay = {
   paymentEntries: Array<Pick<PaymentEntry, "type" | "amountLkr">>;
   totalAmountLkr: number;
 };
+
+type BookingForActiveTotal = BookingLite & {
+  totalAmountLkr: number;
+  amountBreakdown: AmountBreakdownLite[];
+};
+
+/** Sum of amountBreakdown for non-rejected / non-cancelled slots. When all
+ *  slots are active, returns the cached totalAmountLkr (covers old bookings
+ *  whose amountBreakdown rows may be empty or shape-mismatched).
+ *
+ *  Why: Booking.totalAmountLkr is set at creation and never reduced when
+ *  slots are later rejected — but the customer doesn't owe for slots we
+ *  rejected. Use this when computing "what's actually owed". */
+export function activeBookingTotalLkr<B extends BookingForActiveTotal>(booking: B): number {
+  const allActive = booking.slots.every((s) => {
+    const eff = s.slotStatus ?? booking.status;
+    return eff !== "rejected" && eff !== "cancelled_override";
+  });
+  if (allActive) return booking.totalAmountLkr;
+
+  return booking.slots
+    .filter((s) => {
+      const eff = s.slotStatus ?? booking.status;
+      return eff !== "rejected" && eff !== "cancelled_override";
+    })
+    .reduce((sum, slot) => {
+      const bd = booking.amountBreakdown.find(
+        (b) => b.date === slot.date && b.slot === `${slot.startTime}-${slot.endTime}`,
+      );
+      return sum + (bd?.amountLkr ?? 0);
+    }, 0);
+}
 
 /** Server-computed net of payments minus refunds. Treats legacy "waived" rows
  *  (no payment entries) as zero collected. */
