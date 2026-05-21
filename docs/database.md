@@ -14,9 +14,6 @@ strings — pooled (`DATABASE_URL`, runtime) and direct (`DIRECT_URL`,
 |---|---|---|
 | `_prisma_migrations` | system | Prisma migration history — managed by `prisma migrate`, never touched by app code |
 | `User` | **used** | Admin identity + role + active flag (Postgres-side complement to Cognito) |
-| `Account` | **unused** | NextAuth DB-adapter table; project uses JWT session strategy |
-| `Session` | **unused** | NextAuth DB-adapter table; same reason |
-| `VerificationToken` | **unused** | NextAuth DB-adapter table; same reason |
 | `RoomType` | **used** | Bookable venues (Main Arena, Studio Room, etc.) |
 | `EventType` | **used** | Sport / event categories with duration, cleanup, priority, advance-booking limits |
 | `PricingRule` | **used** | Per (room, event, AC mode, day type) price |
@@ -45,8 +42,7 @@ emails not present here, or where `active = false`.
 | `passwordHash` | **legacy** | Pre-Cognito column. Never read by current code; safe to drop in a future migration. |
 | `emailVerified`, `image` | **unused** | NextAuth-adapter columns. Never read or written by current code. |
 
-Relations: `accounts[]`, `sessions[]` — both unused (see below). `auditLogs[]`
-— populated by `AuditLog.actorUserId`.
+Relations: `auditLogs[]` — populated by `AuditLog.actorUserId`.
 
 ### RoomType
 
@@ -156,23 +152,16 @@ rendered HTML; treat as sensitive — every user-supplied interpolation in
 
 Indexes: `(bookingReference)`, `(createdAt)`.
 
-## Unused tables
+## Removed tables
 
-`Account`, `Session`, `VerificationToken` exist in the schema and the
-database from when NextAuth was configured with the Prisma DB-adapter
-strategy. The project now uses NextAuth's JWT session strategy
-([src/lib/auth.ts](../src/lib/auth.ts) — `session: { strategy: "jwt" }`)
-with AWS Cognito as the identity provider, so these tables are never read
-or written.
-
-The relations `User.accounts[]` and `User.sessions[]` are similarly dead.
-
-**Recommendation**: keep them for now (zero storage cost, zero query cost,
-and dropping them would forfeit the option to add NextAuth DB sessions or
-account-linking later without another migration). If you do want to remove
-them, a single migration can `DROP TABLE "Account", "Session",
-"VerificationToken"` and remove the corresponding models from the schema —
-no code path needs updating.
+`Account`, `Session`, `VerificationToken` were dropped in migration
+`20260521032505_drop_unused_nextauth_tables`. They existed from when
+NextAuth was configured with the Prisma DB-adapter strategy; the project
+moved to the JWT session strategy + AWS Cognito IdP and the tables had
+never received writes since. If NextAuth DB sessions or account-linking
+are ever needed again, restore them by adding the models back to
+`schema.prisma` and running a new migration — no application code change
+is required.
 
 ## Documenting changes
 
