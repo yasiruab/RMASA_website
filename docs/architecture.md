@@ -18,7 +18,7 @@ The site supports that mission by:
 
 - **Framework**: Next.js 15 (App Router) with React and TypeScript.
 - **Styling**: Global CSS in `src/app/globals.css` plus component-level Tailwind/utility classes (where used).
-- **Database**: Aurora PostgreSQL Serverless v2 (AWS RDS, ap-southeast-1) via Prisma v6.
+- **Database**: Neon Serverless Postgres (`aws-ap-southeast-1`) via Prisma v6. Two connection strings — pooled (`DATABASE_URL`, used at runtime by Lambda) and direct (`DIRECT_URL`, used by `prisma migrate deploy`). Neon autosuspends after 5 min idle and wakes in ~300 ms, so cold-start failures are not observable in practice. Migrated off Aurora Serverless v2 in May 2026 — see `docs/deployment.md`.
 - **Auth**: NextAuth v4 (JWT strategy) as the session layer, AWS Cognito User Pool as the
   identity provider. Cognito holds passwords + account lockout; the Postgres `User` table
   remains the source of truth for admin role and `active` status. Federated sign-out via
@@ -39,17 +39,18 @@ AWS Amplify Hosting (ap-southeast-1)
   └─ Web compute (managed Node.js — runs .next/standalone/server.js)
        │
        ▼
-Aurora PostgreSQL Serverless v2
-  └─ VPC: default  ·  Region: ap-southeast-1
-  └─ Connected via DATABASE_URL (sslmode=require)
+Neon Serverless Postgres (aws-ap-southeast-1)
+  └─ Pooled URL (DATABASE_URL, runtime) + direct URL (DIRECT_URL, migrations)
+  └─ Public over TLS (sslmode=require)
+  └─ Autosuspends after 5 min idle; wakes in ~300 ms
 ```
 
-Key AWS resources:
+Key resources:
 
 | Resource | Details |
 |---|---|
 | Amplify app | `main.d8k1nfzx3tpc7.amplifyapp.com` |
-| Aurora cluster | ap-southeast-1, Serverless v2, pauses when idle |
+| Neon project | `aws-ap-southeast-1`, public over TLS, pooler + direct endpoints |
 | Amplify service role | `AmplifySSRLoggingRole` — used during build/deploy. Permissions: default `AmplifySSRLoggingPolicy` + scoped inline `AmplifyBuildSsmAccess` (SSM Put/Get/Delete on `/amplify/*` + KMS via SSM only). |
 | Amplify compute role | `AmplifySSRComputeRole` — assumed by SSR runtime. Permissions: only `AWSLambdaBasicExecutionRole`. (Gen 1 doesn't expose IAM creds to SSR, so SSM at runtime never worked — see deployment.md issue 1.) |
 
