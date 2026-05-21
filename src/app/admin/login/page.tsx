@@ -11,7 +11,7 @@ export default async function AdminLoginPage({
 }) {
   const session = await getServerSession(authOptions);
   const params = await searchParams;
-  const nextPath = params.next && params.next.startsWith("/admin") ? params.next : "/admin/calendar/dashboard";
+  const nextPath = params.next && params.next.startsWith("/admin") ? params.next : "/admin/calendar";
 
   if (session?.user?.id) {
     redirect(nextPath);

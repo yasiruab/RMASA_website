@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { AdminBreadcrumbs } from "@/components/admin/admin-breadcrumbs";
 
 type SlotRow = {
   slotDate: string;
@@ -132,6 +133,12 @@ export default function ReportsPage() {
 
   return (
     <div className="admin-console">
+      <AdminBreadcrumbs
+        trail={[
+          { label: "Admin", href: "/admin/calendar" },
+          { label: "Reports" },
+        ]}
+      />
       <section className="admin-panel">
         <h2>Accounting Report</h2>
 

@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { requireAdmin } from "@/lib/auth-guards";
+import { computeSlotAllocations } from "@/lib/admin/booking-utils";
 import { readCalendarDb } from "@/lib/calendar-store";
 import { Booking, BookingSlot } from "@/lib/calendar-types";
 
@@ -12,60 +13,6 @@ type SlotEffectiveStatus = Booking["status"];
 
 function slotEffectiveStatus(slot: BookingSlot, bookingStatus: Booking["status"]): SlotEffectiveStatus {
   return (slot.slotStatus ?? bookingStatus) as SlotEffectiveStatus;
-}
-
-function allocatePayments(booking: Booking, activeSlotKeys: Set<string>) {
-  const netCash = booking.paymentEntries.reduce((sum, e) => {
-    if (e.type === "payment") return sum + e.amountLkr;
-    if (e.type === "refund") return sum - e.amountLkr;
-    return sum;
-  }, 0);
-  const totalWaiver = booking.paymentEntries.reduce(
-    (sum, e) => (e.type === "waiver" ? sum + e.amountLkr : sum),
-    0,
-  );
-  const totalCredit = booking.paymentEntries.reduce(
-    (sum, e) => (e.type === "credit_note" ? sum + e.amountLkr : sum),
-    0,
-  );
-
-  const activeSlots = booking.slots
-    .filter((s) => activeSlotKeys.has(`${s.date}|${s.startTime}`))
-    .sort((a, b) =>
-      a.date !== b.date ? (a.date < b.date ? -1 : 1) : a.startTime < b.startTime ? -1 : 1,
-    );
-
-  let remainingCash = Math.max(0, netCash);
-  let remainingWaiver = Math.max(0, totalWaiver);
-  let remainingCredit = Math.max(0, totalCredit);
-
-  const alloc = new Map<
-    string,
-    { paidLkr: number; waiverLkr: number; creditNoteLkr: number }
-  >();
-
-  for (const slot of activeSlots) {
-    const key = `${slot.date}|${slot.startTime}`;
-    const bd = booking.amountBreakdown.find(
-      (b) => b.date === slot.date && b.slot === `${slot.startTime}-${slot.endTime}`,
-    );
-    const amount = bd?.amountLkr ?? 0;
-
-    const cashAlloc = Math.min(remainingCash, amount);
-    remainingCash = Math.max(0, remainingCash - cashAlloc);
-
-    const afterCash = Math.max(0, amount - cashAlloc);
-    const waiverAlloc = Math.min(remainingWaiver, afterCash);
-    remainingWaiver = Math.max(0, remainingWaiver - waiverAlloc);
-
-    const afterWaiver = Math.max(0, afterCash - waiverAlloc);
-    const creditAlloc = Math.min(remainingCredit, afterWaiver);
-    remainingCredit = Math.max(0, remainingCredit - creditAlloc);
-
-    alloc.set(key, { paidLkr: cashAlloc, waiverLkr: waiverAlloc, creditNoteLkr: creditAlloc });
-  }
-
-  return alloc;
 }
 
 export async function GET(req: Request) {
@@ -90,45 +37,28 @@ export async function GET(req: Request) {
   const rows = [];
 
   for (const booking of db.bookings) {
+    // Per-slot allocation uses the shared helper — payments oldest→newest,
+    // refunds/waivers/credit_notes newest→oldest. See computeSlotAllocations
+    // in src/lib/admin/booking-utils.ts for the algorithm.
+    const allocations = computeSlotAllocations(booking);
+    const allocByKey = new Map(allocations.map((a) => [a.key, a]));
+
     for (const slot of booking.slots) {
       if (slot.date < from || slot.date > to) continue;
 
       const effStatus = slotEffectiveStatus(slot, booking.status);
-      const isActive = effStatus !== "rejected" && effStatus !== "cancelled_override";
-
-      const activeSlotKeys = new Set(
-        booking.slots
-          .filter((s) => {
-            const eff = slotEffectiveStatus(s, booking.status);
-            return eff !== "rejected" && eff !== "cancelled_override";
-          })
-          .map((s) => `${s.date}|${s.startTime}`),
-      );
-
-      const alloc = allocatePayments(booking, activeSlotKeys);
       const slotKey = `${slot.date}|${slot.startTime}`;
-      const slotAlloc = alloc.get(slotKey) ?? { paidLkr: 0, waiverLkr: 0, creditNoteLkr: 0 };
-
-      const bd = booking.amountBreakdown.find(
-        (b) => b.date === slot.date && b.slot === `${slot.startTime}-${slot.endTime}`,
-      );
-      const slotAmountLkr = isActive ? (bd?.amountLkr ?? 0) : 0;
-      const slotPaidLkr = isActive ? slotAlloc.paidLkr : 0;
-      const slotWaiverLkr = isActive ? slotAlloc.waiverLkr : 0;
-      const slotCreditNoteLkr = isActive ? slotAlloc.creditNoteLkr : 0;
-      const slotBalanceLkr = Math.max(
-        0,
-        slotAmountLkr - slotPaidLkr - slotWaiverLkr - slotCreditNoteLkr,
-      );
-
-      let slotPaymentStatus: "paid" | "part_paid" | "unpaid" | "waived" = "unpaid";
-      if (!isActive) {
-        slotPaymentStatus = "unpaid";
-      } else if (slotBalanceLkr === 0 && slotAmountLkr > 0) {
-        slotPaymentStatus = slotWaiverLkr > 0 && slotPaidLkr === 0 ? "waived" : "paid";
-      } else if (slotPaidLkr > 0 || slotWaiverLkr > 0 || slotCreditNoteLkr > 0) {
-        slotPaymentStatus = "part_paid";
-      }
+      const alloc = allocByKey.get(slotKey);
+      const slotAmountLkr = alloc?.amountLkr ?? 0;
+      const slotPaidLkr = alloc?.paidLkr ?? 0;
+      const slotWaiverLkr = alloc?.waiverLkr ?? 0;
+      const slotCreditNoteLkr = alloc?.creditNoteLkr ?? 0;
+      const slotBalanceLkr = alloc?.balanceLkr ?? 0;
+      // Map the shared helper's status to the legacy reports schema.
+      // Rejected → "unpaid" preserves the CSV column shape (the
+      // slotEffectiveStatus column carries the rejection info).
+      const slotPaymentStatus: "paid" | "part_paid" | "unpaid" | "waived" =
+        alloc?.status === "rejected" ? "unpaid" : (alloc?.status ?? "unpaid");
 
       rows.push({
         slotDate: slot.date,

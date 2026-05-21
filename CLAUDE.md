@@ -4,6 +4,54 @@
 
 Next.js 15 App Router · Prisma v6 · PostgreSQL · NextAuth · Tailwind (admin) · CSS custom properties (public)
 
+## Local dev server — non-negotiables
+
+Spending a session debugging the dev server has produced the following hard rules.
+Re-read these before running anything that touches `.next/` or before starting a second
+process in this repo.
+
+1. **Only ONE `next dev` per `.next` directory.** If the user is already running
+   `npm run dev` in their VSCode terminal, do NOT spawn another in the background.
+   Two `next dev` processes silently clobber each other's chunks in `.next/static/`,
+   producing the "unstyled page + spinner forever" symptom. The give-away is
+   `pgrep -lf "next dev"` returning two `next dev` PIDs (one with `TERM_PROGRAM=vscode`,
+   one without).
+
+2. **NEVER run `next build` while `next dev` is up.** Same race, same outcome —
+   production writes hashed chunk filenames (`layout-b8e8390e3c066441.js`); dev expects
+   unhashed (`layout.js`). The two overwrite each other and dev can no longer find its
+   own artifacts.
+
+3. **Recovery from a wedged dev cache** (404s on `_next/static/css/app/layout.css`,
+   `_next/static/chunks/app/layout.js`, `main-app.js`, etc. — even though
+   `✓ Compiled` lines appear in the dev log):
+   ```bash
+   pkill -f "next dev"        # or Ctrl+C in the VSCode terminal
+   rm -rf .next node_modules/.cache
+   npm run dev                # exactly once, in one terminal
+   ```
+   Then hard-refresh the browser. Killing without clearing both directories is not
+   enough — the SWC cache holds stale module graphs that re-corrupt the next session.
+
+4. **CSP allows `'unsafe-eval'` in dev only.** See the [Security Headers](#security-headers-content-security-policy)
+   section. If the dev CSP ever blocks `eval()` again, React Refresh fails with an
+   *uncaught* `EvalError` and the client bundle halts before hydration — every
+   `useEffect` (including the bookings calendar's config fetch) silently never runs and
+   the page stays on `// WARMING UP THE COURTS / LOADING.` forever. Production CSP
+   still excludes `'unsafe-eval'`; production builds don't need it.
+
+5. **Local dev is genuinely slow against Neon Singapore.** First config call ~4-5 s,
+   each availability call ~1.5-4 s, week-load ~5-10 s on cold cache. This is network
+   latency, not a bug. Production Lambdas are co-located with Neon and don't pay it.
+   If a calendar feels stuck, **wait 15 s** before declaring it broken.
+
+6. **The "calendar not loading" symptom has had three distinct causes in this repo**,
+   in this order — diagnose in this order:
+   1. Two `next dev` processes racing (kill all, restart one)
+   2. Wedged `.next` cache (rm -rf + restart)
+   3. CSP blocking `eval()` (rule 4 above)
+   4. Just slow Neon latency (rule 5 above)
+
 ## Key File Locations
 
 | What | Where |
@@ -11,7 +59,13 @@ Next.js 15 App Router · Prisma v6 · PostgreSQL · NextAuth · Tailwind (admin)
 | Public pages | `src/app/<route>/page.tsx` |
 | Admin pages | `src/app/admin/<route>/page.tsx` |
 | API routes | `src/app/api/<route>/route.ts` |
-| Admin component | `src/components/admin/admin-calendar-console.tsx` |
+| Admin hub page | `src/components/admin/hub/admin-hub.tsx` |
+| Admin bookings page | `src/components/admin/sections/admin-bookings.tsx` |
+| Admin breadcrumbs | `src/components/admin/admin-breadcrumbs.tsx` |
+| Admin session context | `src/components/admin/admin-session-context.tsx` |
+| Admin mega-component (legacy sections) | `src/components/admin/admin-calendar-console.tsx` |
+| Admin shared utilities | `src/lib/admin/{booking-utils,revenue-model,date-utils,api}.ts` |
+| Admin-specific CSS | `src/styles/admin.css` |
 | Calendar business logic | `src/lib/calendar-core.ts` |
 | Calendar data access | `src/lib/calendar-store.ts` |
 | Calendar TypeScript types | `src/lib/calendar-types.ts` |
@@ -67,9 +121,131 @@ Helper classes — use these instead of re-declaring inline:
 
 The site-wide chrome lives in [`src/components/nav.tsx`](src/components/nav.tsx) (two-strip header: live strip + nav strip) and [`src/components/footer.tsx`](src/components/footer.tsx) (4-col + meta row + edition tag).
 
-### Admin panel — legacy tokens (kept for compatibility)
+### Admin panel — Arena Court redesign
 
-The legacy `--brand` / `--ink` / `--muted` / `--bg` / `--panel` / `--line` / `--footer` tokens are still defined in `:root` and are used by all `.admin-*`, `.bk-*`, `.rpt-*`, `.gc-*` rules. Do **not** rename or remove these. Admin pages render inside `.content-page` (white card) and read fine on top of the new dark `body` background; the dark perimeter around the admin card is expected and matches the new public chrome that wraps every page in the App Router.
+The admin portal at `/admin/calendar/*` shares the public site's dark Arena
+Court palette (`--ac-*` tokens above) and the same Archivo / Newsreader /
+Space Grotesk / Geist Mono type stack. The chrome (live-strip + logo-nav-strip
+header + four-column footer) is provided by the public `src/app/layout.tsx`
+— there is no parallel admin layout. The admin layout at
+[`src/app/admin/calendar/layout.tsx`](src/app/admin/calendar/layout.tsx) only
+enforces the auth guard and exposes the session to client pages via
+[`src/components/admin/admin-session-context.tsx`](src/components/admin/admin-session-context.tsx).
+
+**Hub** at `/admin/calendar` — server-rendered by [`src/components/admin/hub/admin-hub.tsx`](src/components/admin/hub/admin-hub.tsx).
+Composition: hero (display title + identity pill + Sign Out) → 5-tile KPI strip
+(In queue, Approved today, Active blockouts, Conflicts, Outstanding) →
+secure-access notice → section grid (01 Bookings primary card / 02 Revenue /
+04 Accounts (super-admin only) / 05 Reports, plus a 03 Configuration card
+grouping Blockouts / Rooms / Event types / Pricing) → revenue snapshot card
+(4 tiles + last-3-month stacked-bar trend + deep link) → recent-activity
+table (top 8 audit-log rows joined to bookings). All data is fetched
+server-side in `src/app/admin/calendar/page.tsx` via `readCalendarDb()` and a
+fresh audit-log query; the revenue model is the shared `buildRevenueModel()`
+applied to a 90-day window. The `[section]/page.tsx` dynamic route no longer
+accepts `"dashboard"` (the hub occupies that slot).
+
+**Hub KPI tiles deep-link** to filtered bookings views via URL params:
+
+| Tile | Link |
+|---|---|
+| In queue | `/admin/calendar/bookings?approval=pending` |
+| Approved · today | `/admin/calendar/bookings?approval=confirmed` |
+| Active blockouts | `/admin/calendar/blockouts` |
+| Conflicts | `/admin/calendar/bookings?conflict=with` |
+| Outstanding | `/admin/calendar/bookings?payment=unpaid` |
+
+`KpiTile` accepts an optional `href`; when set it renders as a Next.js `<Link>` with
+a gold-accent hover state (`.admin-hub-kpi-tile.is-link`).
+
+**Bookings split-pane** at `/admin/calendar/bookings` —
+[`src/components/admin/sections/admin-bookings.tsx`](src/components/admin/sections/admin-bookings.tsx)
+(client component, mounted inside a `<Suspense>` boundary in
+[`src/app/admin/calendar/bookings/page.tsx`](src/app/admin/calendar/bookings/page.tsx)).
+The explicit route shadows the `[section]` dynamic segment ("bookings" was
+removed from `allowedSections`). Composition:
+
+- Hero strip ("`// BOOKINGS DESK · OPERATIONS`" eyebrow → `QUEUE.` display
+  title → identity pill with Sign Out)
+- KPI strip: In queue / Approved today / Rejected today / Confirm rate /
+  Outstanding (gold-highlighted on non-zero)
+- Two-column split (`minmax(360px, 400px) 1fr`):
+  - **Queue rail** (left): search box, NEWEST/OLDEST sort, three filter
+    selects (approval / payment / conflict), scrollable booking row list
+  - **Detail pane** (right): status pill + title + conflict tag + submitted
+    stamp, sport/hours/fee summary strip, slot table with `✓ ? ✕` per-slot
+    buttons + staged-change indicator, requester card, italic Newsreader
+    purpose blockquote, bulk-action row, Save Changes / Discard staged bar,
+    payment ledger (6-tile totals strip + inline + Add entry form + ledger
+    table), derived history timeline
+- URL sync: `?id=<bookingId>` keeps deep links shareable
+- Initial filter state can also be set via URL params: `?approval=…` accepts
+  `all | pending | tentative | confirmed | rejected`; `?payment=…` accepts
+  `all | unpaid | part_paid | paid | overpaid` (where `unpaid` intentionally
+  matches BOTH unpaid AND part_paid — any booking with outstanding balance, so
+  the "Outstanding" KPI deep-link surfaces every booking with money owed, not
+  only zero-paid); `?conflict=…` accepts `all | with | without`. Unknown values
+  fall back to `all`.
+- Reject modals (per-slot + bulk) require a reason before confirm
+
+**Sticky scroll behaviour** (desktop ≥ 981px) — the `.admin-bookings-split`
+container becomes `position: sticky; top: 0; height: 100vh` once it scrolls
+into view. The breadcrumb + hero + KPI strip scroll past normally; then the
+split locks to viewport top and both panes scroll independently (`.admin-
+bookings-queue` height-locked with its inner list scrolling, `.admin-
+bookings-detail` overflow-y: auto). Below 981 px the panes stack and the
+page scrolls normally.
+
+All booking actions call the same `/api/admin/calendar/*` endpoints as the
+legacy mega-component (updateBookingStatus, batchSlotUpdates, payments POST)
+— no behaviour regressions on data writes.
+
+**History timeline** is *derived* from the booking row on the client
+(submitted = `booking.createdAt` + customer email/purpose; per-slot rejection
+= slot.rejectReason; payment events = `booking.paymentEntries`). The audit
+log table is not queried for this view — keeping the page off a separate
+API round trip. If admins need granular "who clicked what" history later, an
+admin-side audit-log query endpoint would be the right addition.
+
+**Status pills and payment tags** follow the mockup STATUS_META and
+PAYMENT_META palettes — solid-fill chips with the colour as background and
+`--ac-ink` (dark) text (or white text on red `rejected` / `unpaid`). The
+leading dot is `currentColor` at 55 % opacity for soft contrast. Slight
+4 px corner radius, Archivo 900 weight, `letter-spacing: 0.1em`, uppercase.
+Tones in `src/styles/admin.css`: `tone-pending` (gold), `tone-tentative`
+(`#c77bff`), `tone-confirmed` (live green), `tone-rejected` (danger red),
+`tone-cancelled_override` (line grey); payment tones add `tone-part`
+(orange), `tone-overpaid` (`#7fb7ff`), `tone-waived` (ink3).
+
+**Remaining legacy sections** (`/admin/calendar/{blockouts,rooms,event-types,
+pricing,accounts,revenue}` and `/admin/calendar/reports`) still render the
+mega-component
+[`src/components/admin/admin-calendar-console.tsx`](src/components/admin/admin-calendar-console.tsx)
+or the standalone reports page. They share their markup with the previous
+light-theme admin but pick up the dark Arena Court look automatically via a
+scoped override block at the bottom of
+[`src/styles/admin.css`](src/styles/admin.css). The override has two layers:
+
+1. **Token remap inside `.admin-section`** — the legacy palette tokens
+   (`--brand`, `--ink`, `--muted`, `--bg`, `--panel`, `--line`, `--footer`)
+   are re-pointed at the equivalent `--ac-*` tokens, so every rule that uses
+   them picks up the dark theme automatically.
+2. **Surface restyle** — selectors that hard-code hex values (status pills,
+   pay tags, slot badges, bar-chart bar colours, white-card backgrounds,
+   drop shadows, table headers, native inputs, `.btn-primary` / `.btn-secondary`,
+   `.bk-card`, `.bk-status-*`, `.bk-slot-*`, `.bk-btn-approve` / `.bk-btn-reject`,
+   `.admin-booking-tab*`, `.rpt-*`, `.modal-*`, etc.) get explicit dark
+   Arena Court treatments.
+
+The legacy tokens themselves stay declared in `:root` of `globals.css` — do
+NOT remove them. They're still consulted by hundreds of selectors in
+`globals.css` itself; deletion would cascade-break the entire admin panel.
+
+**Where to add new admin CSS**: [`src/styles/admin.css`](src/styles/admin.css)
+(imported once from `src/app/layout.tsx`). Keep new selectors scoped under
+`.admin-section .…` so they don't leak into the public site. Use the
+`--ac-*` tokens directly, never the legacy `--brand`/`--ink`/`--bg` ones —
+those are kept only for compatibility with existing legacy bodies.
 
 ### Live booking-desk status
 
@@ -272,9 +448,13 @@ X-Frame-Options, X-Content-Type-Options, Referrer-Policy, and Permissions-Policy
 | `form-action` | `'self'` | Forms only submit to same origin |
 | `base-uri` | `'none'` | Block injected `<base>` |
 
-**`'unsafe-eval'` is NOT included.** Production builds don't need it. The dev server may
-emit CSP-violation warnings in the browser console because Next.js dev uses `eval`-based
-source maps; these are harmless for prod and we accept them in dev.
+**`'unsafe-eval'` is added in dev only**, gated on `process.env.NODE_ENV !== "production"`
+inside `next.config.ts`. Next.js dev's React Refresh runtime calls `eval()` to apply
+HMR updates; a strict prod CSP correctly blocks it, but in dev the block surfaced as an
+uncaught `EvalError` that halted the client bundle before hydration — the bookings
+calendar's config-fetch `useEffect` never fired and the page stayed on the
+"WARMING UP THE COURTS / LOADING." state forever. Production builds don't use `eval()`
+and the production CSP does not allow it.
 
 **When adding a new script or external asset**: grep for the hostname, add it to the
 relevant directive in `CSP_DIRECTIVES`, then verify with `curl -I http://localhost:3000/`.
@@ -603,12 +783,25 @@ This is display-only — payments are still recorded at booking level, not per-s
 
 ## Accounting Report
 
-`GET /api/admin/calendar/reports?from=YYYY-MM-DD&to=YYYY-MM-DD` — returns all booking slots in the date range with per-slot financial allocation.
-
-**Per-slot financial allocation logic** (server-side, same approach as `computeSlotPaymentAllocation`):
-1. Separate payment entries into: `netCash` (payments − refunds), `totalWaiver`, `totalCredit`
-2. Active slots sorted oldest-first
-3. Walk slots: allocate cash first, then waiver, then credit notes until each stream exhausted
-4. `slotBalanceLkr = slotAmountLkr − paidLkr − waiverLkr − creditNoteLkr` (min 0)
+`GET /api/admin/calendar/reports?from=YYYY-MM-DD&to=YYYY-MM-DD` — returns all booking slots in the date range with per-slot financial allocation. The route delegates allocation to the shared [`computeSlotAllocations()`](src/lib/admin/booking-utils.ts) helper documented below, so the CSV columns always agree with what the admin sees in the bookings detail pane.
 
 Report page at `/admin/calendar/reports` (visible to all admins, not super-admin-only). Columns: Date, Time, Room, Event Type, Ref, Customer, Purpose, Status, Pay Status, Amount (LKR), Paid (LKR), Waiver (LKR), Credit Note (LKR), Balance (LKR), Reject Reason. Summary row shows totals. CSV export available.
+
+## Per-slot Payment Allocation
+
+The bookings detail pane shows each slot's price + a payment status chip (PAID / PART PAID / UNPAID / WAIVED). The chip and its accompanying numbers come from [`computeSlotAllocations()`](src/lib/admin/booking-utils.ts), a pure derivation from the booking's current `slots` + `amountBreakdown` + `paymentEntries`. Nothing is persisted; every render recomputes from scratch, so any subsequent edit (per-slot status change, new ledger entry) automatically updates the view.
+
+**Allocation direction — intentionally asymmetric:**
+
+| Stream | Direction | Slot scope |
+|---|---|---|
+| Payments | oldest → newest | all slots (incl. rejected) |
+| Refunds | newest → oldest | all slots (incl. rejected) |
+| Waivers | newest → oldest | active slots only |
+| Credit notes | newest → oldest | active slots only |
+
+Payments include rejected slots because if the customer paid before the rejection, the cash actually landed on that slot — a later refund needs to reverse from exactly there. Waivers and credit notes skip rejected slots because rejected slots have no debt to forgive.
+
+**Rejected slot rendering**: the slot row shows the original price struck through and **no chip**. The Rejected status pill on the same row carries all the relevant info.
+
+**Single source of truth**: both the admin bookings detail pane ([src/components/admin/sections/admin-bookings.tsx](src/components/admin/sections/admin-bookings.tsx)) and the reports route ([src/app/api/admin/calendar/reports/route.ts](src/app/api/admin/calendar/reports/route.ts)) call `computeSlotAllocations()`. The pre-existing `computeSlotPaymentAllocation()` (cash-only, oldest-first) is kept for the legacy mega-component but is **not** the canonical helper — new code should always use `computeSlotAllocations()`.

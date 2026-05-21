@@ -28,17 +28,38 @@ Key pieces:
   - Renders the admin login form UI.
   - Uses `src/components/admin/admin-login-form.tsx`.
 - `src/app/admin/calendar/layout.tsx`
-  - Layout wrapper for all calendar admin pages (shared nav, guards, etc.).
+  - Thin layout wrapper. Enforces the auth guard via `getServerSession` and
+    exposes the signed-in identity to client pages through
+    `src/components/admin/admin-session-context.tsx`. The public Nav + Footer
+    from the root layout already supply the Arena Court chrome around every
+    admin page; this layout adds no inner sidebar or header.
 - `src/app/admin/calendar/page.tsx`
-  - Main admin calendar console entry.
+  - The **hub** (server-rendered). Fetches bookings, blocks, recent audit
+    log entries, and the 90-day revenue model, then renders the
+    `<AdminHub>` from `src/components/admin/hub/admin-hub.tsx`.
+- `src/app/admin/calendar/bookings/page.tsx`
+  - The **bookings split-pane** (Suspense-wrapped). Mounts the
+    `<AdminBookings>` client component from
+    `src/components/admin/sections/admin-bookings.tsx`. URL sync via
+    `?id=<bookingId>` keeps deep links shareable.
 - `src/app/admin/calendar/[section]/page.tsx`
-  - Sectioned views inside the calendar console (e.g. bookings, settings, blocks).
+  - Dynamic segment for the remaining legacy sections: `revenue`,
+    `accounts`, `rooms`, `event-types`, `pricing`, `blockouts`. `dashboard`
+    is no longer accepted (the new hub replaces it); `bookings` is no
+    longer accepted (the explicit route shadows it). Super-admin gates
+    are enforced on `accounts`, `rooms`, `event-types`, and `pricing`.
+- `src/app/admin/calendar/reports/page.tsx`
+  - Standalone reports view (separate from the mega-component).
 
 Key components:
 
 - `src/components/admin/admin-login-form.tsx`: handles credential input and submit.
-- `src/components/admin/admin-logout-button.tsx`: logs out the admin.
-- `src/components/admin/admin-calendar-console.tsx`: main admin calendar interface (views, filters, actions).
+- `src/components/admin/admin-logout-button.tsx`: logs out the admin (federated to Cognito).
+- `src/components/admin/admin-breadcrumbs.tsx`: Geist Mono breadcrumb strip used on every admin page.
+- `src/components/admin/admin-session-context.tsx`: `AdminSessionProvider` + `useAdminSession` hook.
+- `src/components/admin/hub/admin-hub.tsx`: hub page composition (hero, KPI strip, section cards, revenue snapshot, recent activity).
+- `src/components/admin/sections/admin-bookings.tsx`: bookings split-pane (queue + detail + action surfaces). All actions call `/api/admin/calendar/*` endpoints unchanged from the legacy implementation.
+- `src/components/admin/admin-calendar-console.tsx`: legacy mega-component, still mounted for revenue / accounts / rooms / event-types / pricing / blockouts sections.
 
 ### Admin API routes
 

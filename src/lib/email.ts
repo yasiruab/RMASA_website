@@ -500,8 +500,8 @@ export async function sendAdminUnpaidDigest(params: {
   if (params.bookings.length === 0) return false;
 
   const adminPortalUrl = process.env.NEXTAUTH_URL
-    ? `${process.env.NEXTAUTH_URL}/admin/calendar/dashboard`
-    : "/admin/calendar/dashboard";
+    ? `${process.env.NEXTAUTH_URL}/admin/calendar`
+    : "/admin/calendar";
 
   const rows = params.bookings
     .map(

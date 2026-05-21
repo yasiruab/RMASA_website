@@ -42,9 +42,9 @@ export function Footer() {
             <Image
               alt="Royal MAS Arena"
               height={60}
-              sizes="120px"
-              src="/rmasa/logo.png"
-              width={200}
+              sizes="160px"
+              src="/rmasa/royal-mas-arena-logo.png"
+              width={158}
             />
           </Link>
           <p>

@@ -4,6 +4,37 @@ import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 import { useSession } from "next-auth/react";
 import { computeAmountDue, computePaymentTotals } from "@/lib/payments";
+import {
+  ACTIVE_EFFECTIVE_STATUSES,
+  bookingStatusLabel,
+  computeBookingEffectiveStatus,
+  computeSlotPaymentAllocation,
+  effectivePaidLkr,
+  formatSlotDate,
+  hasRejectedSlot,
+  isActiveBooking,
+  isOverpaid,
+} from "@/lib/admin/booking-utils";
+import { safeJson } from "@/lib/admin/api";
+import {
+  addDays,
+  inDateRange,
+  isWeekend,
+  monthKey,
+  monthLabel,
+  startOfMonth,
+  toYmd,
+  ymdToDate,
+} from "@/lib/admin/date-utils";
+import { buildRevenueModel } from "@/lib/admin/revenue-model";
+import type {
+  BreakdownRow,
+  CollectionsRow,
+  RefundRow,
+  RevenueBucket,
+  RevenueFilters,
+  RevenueRangePreset,
+} from "@/lib/admin/revenue-model";
 
 type RoomType = {
   id: string;
@@ -70,344 +101,8 @@ function uid(prefix: string) {
   return `${prefix}-${Math.random().toString(36).slice(2, 8)}`;
 }
 
-function computeBookingEffectiveStatus(booking: Booking): Booking["status"] {
-  if (booking.slots.length === 0) return booking.status;
-  const effectives = booking.slots.map((s) => s.slotStatus ?? booking.status);
-  const active = effectives.filter((s) => s !== "rejected" && s !== "cancelled_override");
-  if (active.length === 0) return "rejected";
-  if (active.every((s) => s === active[0])) return active[0] as Booking["status"];
-  return booking.status;
-}
-
-const ACTIVE_EFFECTIVE_STATUSES = ["pending", "confirmed", "tentative"] as const;
-function isActiveBooking(b: Booking) {
-  return (ACTIVE_EFFECTIVE_STATUSES as readonly string[]).includes(computeBookingEffectiveStatus(b));
-}
-
-function hasRejectedSlot(b: Booking) {
-  return b.slots.some((s) => (s.slotStatus ?? b.status) === "rejected");
-}
-
-function computeSlotPaymentAllocation(booking: Booking): Map<string, "paid" | "part_paid" | "unpaid"> {
-  const activeSlots = booking.slots
-    .filter((s) => {
-      const eff = s.slotStatus ?? booking.status;
-      return eff !== "rejected" && eff !== "cancelled_override";
-    })
-    .sort((a, b) => (a.date !== b.date ? (a.date < b.date ? -1 : 1) : a.startTime < b.startTime ? -1 : 1));
-
-  let remaining = booking.paidAmountLkr;
-  const result = new Map<string, "paid" | "part_paid" | "unpaid">();
-
-  for (const slot of activeSlots) {
-    const key = `${slot.date}|${slot.startTime}`;
-    const bd = booking.amountBreakdown.find((b) => b.date === slot.date && b.slot === `${slot.startTime}-${slot.endTime}`);
-    const amount = bd?.amountLkr ?? 0;
-    if (amount === 0) {
-      result.set(key, "paid");
-    } else if (remaining >= amount) {
-      result.set(key, "paid");
-      remaining -= amount;
-    } else if (remaining > 0) {
-      result.set(key, "part_paid");
-      remaining = 0;
-    } else {
-      result.set(key, "unpaid");
-    }
-  }
-  return result;
-}
-
-function formatSlotDate(ymd: string): string {
-  const [y, m, d] = ymd.split("-").map(Number);
-  return new Date(y, m - 1, d).toLocaleDateString("en-US", {
-    weekday: "short",
-    month: "short",
-    day: "numeric",
-  });
-}
-
-function bookingStatusLabel(status: Booking["status"]): string {
-  const map: Record<Booking["status"], string> = {
-    pending: "Pending",
-    confirmed: "Confirmed",
-    tentative: "Tentative",
-    rejected: "Rejected",
-    cancelled_override: "Cancelled",
-  };
-  return map[status] ?? status;
-}
-
-type RevenueRangePreset = "last_30_days" | "last_90_days" | "current_month";
-type RevenueFilters = {
-  rangePreset: RevenueRangePreset;
-  roomTypeId: string;
-  eventTypeId: string;
-  acMode: "all" | "with_ac" | "without_ac";
-};
-
-type RevenueBucket = {
-  key: string;
-  label: string;
-  recognizedLkr: number;
-  collectedLkr: number;
-  receivableLkr: number;
-};
-
-type BreakdownRow = {
-  key: string;
-  amountLkr: number;
-};
-
-type CollectionsRow = {
-  id: string;
-  reference: string;
-  customerName: string;
-  totalAmountLkr: number;
-  paidAmountLkr: number;
-  outstandingLkr: number;
-  reconciliationStatus: Booking["reconciliationStatus"];
-  ageDays: number;
-};
-
-type RefundRow = {
-  id: string;
-  customerName: string;
-  totalAmountLkr: number;
-  paidAmountLkr: number;
-  reconciliationStatus: Booking["reconciliationStatus"];
-};
-
-function toYmd(date: Date) {
-  const year = date.getFullYear();
-  const month = String(date.getMonth() + 1).padStart(2, "0");
-  const day = String(date.getDate()).padStart(2, "0");
-  return `${year}-${month}-${day}`;
-}
-
-function ymdToDate(ymd: string) {
-  const [year, month, day] = ymd.split("-").map(Number);
-  return new Date(year, month - 1, day, 0, 0, 0, 0);
-}
-
-async function safeJson<T>(res: Response): Promise<T> {
-  try { return (await res.json()) as T; } catch { return {} as T; }
-}
-
-function addDays(date: Date, days: number) {
-  const copy = new Date(date);
-  copy.setDate(copy.getDate() + days);
-  return copy;
-}
-
-function startOfMonth(date: Date) {
-  return new Date(date.getFullYear(), date.getMonth(), 1);
-}
-
-function monthKey(ymd: string) {
-  return ymd.slice(0, 7);
-}
-
-function monthLabel(key: string) {
-  const [year, month] = key.split("-").map(Number);
-  return new Date(year, month - 1, 1).toLocaleDateString("en-US", { month: "short", year: "2-digit" });
-}
-
-function isWeekend(ymd: string) {
-  const day = ymdToDate(ymd).getDay();
-  return day === 0 || day === 6;
-}
-
-function inDateRange(date: string, startYmd: string, endYmd: string) {
-  return date >= startYmd && date <= endYmd;
-}
-
-function effectivePaidLkr(booking: Booking): number {
-  // paidAmountLkr is the server-computed net of all payment ledger entries.
-  // For legacy bookings with reconciliationStatus "waived", treat collected as 0.
-  if (booking.reconciliationStatus === "waived" && booking.paymentEntries.length === 0) return 0;
-  return booking.paidAmountLkr;
-}
-
-// True when cash collected exceeds the post-waiver invoice. Must compare against
-// amountDue (total − waivers − credit_notes), not totalAmountLkr, otherwise a
-// booking that's been partly waived but overpaid in cash never shows up in the
-// Overpaid tab even though the booking-detail meta line correctly flags it.
-function isOverpaid(booking: Booking): boolean {
-  const totals = computePaymentTotals(booking.paymentEntries);
-  const amountDue = computeAmountDue(booking.totalAmountLkr, totals);
-  return effectivePaidLkr(booking) > amountDue;
-}
-
-// KPIs are computed from ALL confirmed bookings (no date filter) so they match the bookings tab totals.
-// The trend chart uses only slots within the selected date range for month-by-month breakdown.
-function buildRevenueModel(sourceBookings: Booking[], startYmd: string, endYmd: string) {
-  const recognizedByRoom = new Map<string, number>();
-  const recognizedByEvent = new Map<string, number>();
-  const recognizedByAcMode = new Map<string, number>();
-  let weekdayRevenueLkr = 0;
-  let weekendRevenueLkr = 0;
-  let recognizedRevenueLkr = 0;
-  let collectedRevenueLkr = 0;
-  let receivableRevenueLkr = 0;
-  let confirmedCount = 0;
-  let cancelledOverrideValueLkr = 0;
-  let deferredRevenueLkr = 0;
-
-  const startMonth = startOfMonth(ymdToDate(startYmd));
-  const endMonth = startOfMonth(ymdToDate(endYmd));
-  const monthOrder: string[] = [];
-  const trendMap = new Map<string, RevenueBucket>();
-
-  const monthPointer = new Date(startMonth);
-  while (monthPointer <= endMonth) {
-    const key = `${monthPointer.getFullYear()}-${String(monthPointer.getMonth() + 1).padStart(2, "0")}`;
-    monthOrder.push(key);
-    trendMap.set(key, { key, label: monthLabel(key), recognizedLkr: 0, collectedLkr: 0, receivableLkr: 0 });
-    monthPointer.setMonth(monthPointer.getMonth() + 1);
-  }
-
-  const collectionsQueue: CollectionsRow[] = [];
-  const refundQueue: RefundRow[] = [];
-
-  for (const booking of sourceBookings) {
-    const paid = effectivePaidLkr(booking);
-    // Use effective status (accounts for per-slot approve/reject overrides)
-    const effectiveStatus = computeBookingEffectiveStatus(booking);
-
-    if (effectiveStatus === "cancelled_override") {
-      cancelledOverrideValueLkr += booking.totalAmountLkr;
-      continue;
-    }
-
-    // Deferred revenue: rejected bookings where the customer already paid — these need a refund.
-    if (effectiveStatus === "rejected") {
-      if (paid > 0) {
-        deferredRevenueLkr += paid;
-        refundQueue.push({
-          id: booking.id,
-          customerName: booking.customer.name,
-          totalAmountLkr: booking.totalAmountLkr,
-          paidAmountLkr: paid,
-          reconciliationStatus: booking.reconciliationStatus,
-        });
-      }
-      continue;
-    }
-
-    if (effectiveStatus !== "confirmed") continue;
-
-    // ── KPIs: all confirmed, no date filter ──────────────────────────
-    confirmedCount += 1;
-    recognizedRevenueLkr += booking.totalAmountLkr;
-    collectedRevenueLkr += paid;
-
-    // Outstanding must use amountDue (post-waiver/credit), not totalAmountLkr,
-    // otherwise a fully-waived booking still shows as receivable.
-    const totals = computePaymentTotals(booking.paymentEntries);
-    const amountDue = computeAmountDue(booking.totalAmountLkr, totals);
-    const outstanding = Math.max(0, amountDue - paid);
-    if (outstanding > 0 && booking.reconciliationStatus !== "waived") {
-      receivableRevenueLkr += outstanding;
-      if (booking.reconciliationStatus === "unpaid" || booking.reconciliationStatus === "part_paid") {
-        const createdAtMs = Date.parse(booking.createdAt);
-        const nowMs = Date.now();
-        const ageDays =
-          Number.isNaN(createdAtMs) || createdAtMs > nowMs
-            ? 0
-            : Math.floor((nowMs - createdAtMs) / (1000 * 60 * 60 * 24));
-        collectionsQueue.push({
-          id: booking.id,
-          reference: booking.reference,
-          customerName: booking.customer.name,
-          totalAmountLkr: booking.totalAmountLkr,
-          paidAmountLkr: paid,
-          outstandingLkr: outstanding,
-          reconciliationStatus: booking.reconciliationStatus,
-          ageDays,
-        });
-      }
-    }
-
-    // Room/event/AC/day breakdown from full booking amount
-    recognizedByRoom.set(booking.roomTypeId, (recognizedByRoom.get(booking.roomTypeId) ?? 0) + booking.totalAmountLkr);
-    recognizedByEvent.set(booking.eventTypeId, (recognizedByEvent.get(booking.eventTypeId) ?? 0) + booking.totalAmountLkr);
-    recognizedByAcMode.set(booking.acMode, (recognizedByAcMode.get(booking.acMode) ?? 0) + booking.totalAmountLkr);
-    for (const item of booking.amountBreakdown) {
-      if (item.dayType === "weekend") weekendRevenueLkr += item.amountLkr;
-      else weekdayRevenueLkr += item.amountLkr;
-    }
-
-    // ── Trend chart: only slots within selected date range ───────────
-    const paymentFraction = booking.totalAmountLkr > 0 ? paid / booking.totalAmountLkr : 0;
-    const inRangeBreakdown = booking.amountBreakdown.filter((item) => inDateRange(item.date, startYmd, endYmd));
-
-    if (inRangeBreakdown.length > 0) {
-      for (const item of inRangeBreakdown) {
-        const bKey = monthKey(item.date);
-        const bucket = trendMap.get(bKey);
-        if (bucket) {
-          const itemPaid = Math.round(item.amountLkr * paymentFraction);
-          bucket.recognizedLkr += item.amountLkr;
-          bucket.collectedLkr += itemPaid;
-          if (outstanding > 0 && booking.reconciliationStatus !== "waived") {
-            bucket.receivableLkr += item.amountLkr - itemPaid;
-          }
-        }
-      }
-    } else {
-      const inRangeDates = booking.slots.map((s) => s.date).filter((d) => inDateRange(d, startYmd, endYmd));
-      if (inRangeDates.length > 0) {
-        const firstDate = inRangeDates.sort()[0];
-        const prorated = Math.round((booking.totalAmountLkr * inRangeDates.length) / Math.max(1, booking.slots.length));
-        const proratedPaid = Math.round(prorated * paymentFraction);
-        const bKey = monthKey(firstDate);
-        const bucket = trendMap.get(bKey);
-        if (bucket) {
-          bucket.recognizedLkr += prorated;
-          bucket.collectedLkr += proratedPaid;
-          if (outstanding > 0 && booking.reconciliationStatus !== "waived") {
-            bucket.receivableLkr += prorated - proratedPaid;
-          }
-        }
-      }
-    }
-  }
-
-  const toBreakdownRows = (map: Map<string, number>): BreakdownRow[] =>
-    [...map.entries()]
-      .map(([key, amountLkr]) => ({ key, amountLkr }))
-      .sort((a, b) => b.amountLkr - a.amountLkr);
-
-  const trendBuckets = monthOrder.map((key) => trendMap.get(key) as RevenueBucket);
-  const maxTrendValue = Math.max(
-    1,
-    ...trendBuckets.map((bucket) =>
-      Math.max(bucket.recognizedLkr, bucket.collectedLkr, bucket.receivableLkr),
-    ),
-  );
-
-  return {
-    recognizedRevenueLkr,
-    collectedRevenueLkr,
-    receivableRevenueLkr,
-    deferredRevenueLkr,
-    collectionRatePct: recognizedRevenueLkr === 0 ? 0 : collectedRevenueLkr / recognizedRevenueLkr,
-    avgBookingValueLkr: confirmedCount === 0 ? 0 : recognizedRevenueLkr / confirmedCount,
-    cancelledOverrideValueLkr,
-    roomBreakdown: toBreakdownRows(recognizedByRoom),
-    eventBreakdown: toBreakdownRows(recognizedByEvent),
-    acModeBreakdown: toBreakdownRows(recognizedByAcMode),
-    dayTypeBreakdown: [
-      { key: "weekday", amountLkr: weekdayRevenueLkr },
-      { key: "weekend", amountLkr: weekendRevenueLkr },
-    ],
-    trendBuckets,
-    maxTrendValue,
-    collectionsQueue: collectionsQueue.sort((a, b) => b.ageDays - a.ageDays),
-    refundQueue,
-  };
-}
+// Booking/revenue/date helpers moved to src/lib/admin/{booking-utils,date-utils,revenue-model}.ts
+// and src/lib/admin/api.ts. Imports at top of file.
 
 export type AdminCalendarSection =
   | "dashboard"
@@ -1170,9 +865,9 @@ export function AdminCalendarConsole({ section }: AdminCalendarConsoleProps) {
                 }))
               }
             >
-              <option value="all">All AC Modes</option>
-              <option value="with_ac">With AC</option>
-              <option value="without_ac">Without AC</option>
+              <option value="all">All A/C Modes</option>
+              <option value="with_ac">With A/C</option>
+              <option value="without_ac">Without A/C</option>
             </select>
           </div>
 
@@ -1308,7 +1003,7 @@ export function AdminCalendarConsole({ section }: AdminCalendarConsoleProps) {
                 <tbody>
                   {revenueModel.acModeBreakdown.map((item) => (
                     <tr key={item.key}>
-                      <td>{item.key === "with_ac" ? "With AC" : "Without AC"}</td>
+                      <td>{item.key === "with_ac" ? "With A/C" : "Without A/C"}</td>
                       <td>LKR {currencyFormatter.format(Math.round(item.amountLkr))}</td>
                     </tr>
                   ))}
@@ -1743,8 +1438,8 @@ export function AdminCalendarConsole({ section }: AdminCalendarConsoleProps) {
                   )
                 }
               >
-                <option value="with_ac">With AC</option>
-                <option value="without_ac">Without AC</option>
+                <option value="with_ac">With A/C</option>
+                <option value="without_ac">Without A/C</option>
               </select>
               <select
                 value={rule.dayType}
@@ -2168,7 +1863,7 @@ export function AdminCalendarConsole({ section }: AdminCalendarConsoleProps) {
                       <p className="bk-subtitle">
                         {roomNameMap[booking.roomTypeId]} &middot;{" "}
                         {eventNameMap[booking.eventTypeId]} &middot;{" "}
-                        {booking.acMode === "with_ac" ? "With AC" : "No AC"}
+                        {booking.acMode === "with_ac" ? "With A/C" : "Without A/C"}
                       </p>
                     </div>
                     <div className="bk-header-right">
