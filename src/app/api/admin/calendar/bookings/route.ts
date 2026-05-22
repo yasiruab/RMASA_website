@@ -1,8 +1,13 @@
 import { NextResponse } from "next/server";
 import { logAuditEvent } from "@/lib/audit";
 import { requireAdmin } from "@/lib/auth-guards";
-import { sendBookingStatusNotification, sendAdminRejectionNotification } from "@/lib/email";
-import { evaluateBookingConflicts } from "@/lib/calendar-core";
+import {
+  sendBookingStatusNotification,
+  sendAdminRejectionNotification,
+  sendBookingSlotOverriddenNotification,
+  sendAdminSlotOverriddenNotification,
+} from "@/lib/email";
+import { evaluateBookingConflicts, type OverrideTarget } from "@/lib/calendar-core";
 import {
   readCalendarDb,
   updateBookingSlotStatus,
@@ -210,7 +215,8 @@ export async function PATCH(req: Request) {
   }
 
   const nextStatus = payload.status ?? existing.status;
-  let overrideTargets: string[] = [];
+  let overrideTargets: OverrideTarget[] = [];
+  let overrideReason = "";
 
   if (nextStatus === "confirmed") {
     const candidate: Booking = {
@@ -228,15 +234,22 @@ export async function PATCH(req: Request) {
       );
     }
     overrideTargets = evaluation.overrideTargets;
+    if (overrideTargets.length > 0) {
+      const eventTypeName =
+        current.eventTypes.find((et) => et.id === existing.eventTypeId)?.name ?? "higher-priority booking";
+      overrideReason = `Overridden by ${existing.reference} (${eventTypeName})`;
+    }
   }
 
   // updateBookingStatus handles set-once confirmedAt internally and cascades
-  // overrideTargets to status=cancelled_override inside the same transaction.
+  // overrideTargets to slotStatus=cancelled_override on the overlapping slots
+  // (not the whole booking) inside the same transaction.
   await updateBookingStatus(
     bookingId,
     nextStatus,
     nextStatus === "rejected" ? (payload.rejectReason ?? null) : null,
     nextStatus === "confirmed" ? overrideTargets : [],
+    overrideReason,
   );
 
   await logAuditEvent({
@@ -277,6 +290,86 @@ export async function PATCH(req: Request) {
           slots: existing.slots,
           rejectReason: payload.rejectReason ?? "No reason provided",
         });
+      }
+
+      // Override-cascade notifications: per-overridden-customer + one admin
+      // alert. Only fires when the admin's confirm triggered an actual cascade.
+      // `current` is the pre-cascade snapshot so it still carries the
+      // overridden bookings' customer + slot details.
+      if (nextStatus === "confirmed" && overrideTargets.length > 0) {
+        const overrideCustomerEmails = overrideTargets.flatMap((target) => {
+          const overridden = current.bookings.find((b) => b.id === target.bookingId);
+          if (!overridden) return [];
+          const overriddenRoom = current.rooms.find((r) => r.id === overridden.roomTypeId);
+          const overriddenEventType = current.eventTypes.find(
+            (et) => et.id === overridden.eventTypeId,
+          );
+          const cancelledSlots = target.slotKeys
+            .map(({ date, startTime }) => {
+              const slot = overridden.slots.find(
+                (s) => s.date === date && s.startTime === startTime,
+              );
+              return slot ? { date, startTime, endTime: slot.endTime } : null;
+            })
+            .filter((s): s is { date: string; startTime: string; endTime: string } => s !== null);
+          const survivingSlots = overridden.slots
+            .filter((s) => {
+              const wasCancelled = target.slotKeys.some(
+                (k) => k.date === s.date && k.startTime === s.startTime,
+              );
+              if (wasCancelled) return false;
+              const eff = s.slotStatus ?? overridden.status;
+              return eff !== "rejected" && eff !== "cancelled_override";
+            })
+            .map((s) => ({ date: s.date, startTime: s.startTime, endTime: s.endTime }));
+          return [
+            sendBookingSlotOverriddenNotification({
+              to: overridden.customer.email,
+              customerName: overridden.customer.name,
+              reference: overridden.reference,
+              roomName: overriddenRoom?.name ?? room.name,
+              eventTypeName: overriddenEventType?.name ?? "—",
+              cancelledSlots,
+              survivingSlots,
+              newBookingReference: existing.reference,
+              newBookingEventTypeName: eventType.name,
+            }),
+          ];
+        });
+
+        const overrideAdminBlocks = overrideTargets
+          .map((target) => {
+            const overridden = current.bookings.find((b) => b.id === target.bookingId);
+            if (!overridden) return null;
+            const cancelledSlots = target.slotKeys
+              .map(({ date, startTime }) => {
+                const slot = overridden.slots.find(
+                  (s) => s.date === date && s.startTime === startTime,
+                );
+                return slot ? { date, startTime, endTime: slot.endTime } : null;
+              })
+              .filter(
+                (s): s is { date: string; startTime: string; endTime: string } => s !== null,
+              );
+            return {
+              reference: overridden.reference,
+              customerName: overridden.customer.name,
+              customerEmail: overridden.customer.email,
+              cancelledSlots,
+            };
+          })
+          .filter((o): o is NonNullable<typeof o> => o !== null);
+
+        await Promise.allSettled([
+          ...overrideCustomerEmails,
+          sendAdminSlotOverriddenNotification({
+            newBookingReference: existing.reference,
+            newBookingEventTypeName: eventType.name,
+            newBookingCustomerName: existing.customer.name,
+            roomName: room.name,
+            overrides: overrideAdminBlocks,
+          }),
+        ]);
       }
     }
   }

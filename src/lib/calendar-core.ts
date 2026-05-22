@@ -289,10 +289,23 @@ export function findPrice(
   return anyDay;
 }
 
+/** A single booking that's about to be partially or fully cancelled because a
+ *  higher-priority booking is moving in. `slotKeys` lists only the slots of
+ *  this booking that actually overlap the new candidate — those are the only
+ *  ones that get marked `cancelled_override`. Slot keys use composite
+ *  `(date, startTime)` because that pair is unique within a booking. */
+export type OverrideTarget = {
+  bookingId: string;
+  slotKeys: Array<{ date: string; startTime: string }>;
+};
+
 export function evaluateBookingConflicts(db: CalendarDb, candidate: Booking, ignoreBookingId?: string) {
   const candidateType = findEventType(db, candidate.eventTypeId);
   const conflicts: Array<{ slot: BookingSlot; reason: string }> = [];
-  const overrideTargets = new Set<string>();
+  // bookingId -> (slotKey string -> { date, startTime }). The inner map dedupes
+  // the same slot being hit by multiple candidate slots (e.g. cleanup-window
+  // double-touch).
+  const overrideMap = new Map<string, Map<string, { date: string; startTime: string }>>();
 
   for (const slot of candidate.slots) {
     const blocked = db.blocks.find((b) => b.roomTypeId === candidate.roomTypeId && overlaps(slot, blockToSlot(b)));
@@ -314,23 +327,41 @@ export function evaluateBookingConflicts(db: CalendarDb, candidate: Booking, ign
       // Without this filter, admin-rejected slots still block "Confirm All" on the
       // remaining booking and block customers from booking the freed window.
       // Keeps this consistent with getSlotStatus, which already filters the same way.
-      const activeOverlap = booking.slots.some((s) => {
+      // Capture which specific slots overlap so the cascade can cancel only those,
+      // not the whole booking — fixes the "1 of 2 recurring slots conflicts but
+      // both got cancelled" bug.
+      const overlappingSlots = booking.slots.filter((s) => {
         const es = s.slotStatus ?? booking.status;
         if (es === "rejected" || es === "cancelled_override") return false;
         return effectiveOverlaps(s, booking.cleanupDurationMinutes, slot, candidateType.cleanupDurationMinutes);
       });
-      if (!activeOverlap) continue;
+      if (overlappingSlots.length === 0) continue;
 
       const existingType = findEventType(db, booking.eventTypeId);
       if (candidateType.priority > existingType.priority) {
-        overrideTargets.add(booking.id);
+        let perBooking = overrideMap.get(booking.id);
+        if (!perBooking) {
+          perBooking = new Map();
+          overrideMap.set(booking.id, perBooking);
+        }
+        for (const oldSlot of overlappingSlots) {
+          const key = `${oldSlot.date}|${oldSlot.startTime}`;
+          if (!perBooking.has(key)) {
+            perBooking.set(key, { date: oldSlot.date, startTime: oldSlot.startTime });
+          }
+        }
       } else {
         conflicts.push({ slot, reason: `Conflicts with booking ${booking.id}` });
       }
     }
   }
 
-  return { conflicts, overrideTargets: [...overrideTargets] };
+  const overrideTargets: OverrideTarget[] = [...overrideMap.entries()].map(([bookingId, slotMap]) => ({
+    bookingId,
+    slotKeys: [...slotMap.values()],
+  }));
+
+  return { conflicts, overrideTargets };
 }
 
 export function blockToSlot(block: CalendarBlock): BookingSlot {

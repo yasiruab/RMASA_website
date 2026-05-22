@@ -79,6 +79,7 @@ type Booking = {
   slots: Slot[];
   amountBreakdown: AmountBreakdown[];
   createdAt: string;
+  updatedAt: string;
   confirmedAt?: string;
 };
 
@@ -241,7 +242,17 @@ type HistoryEvent = {
   t: string;
   who: string;
   whoRole: "requester" | "admin" | "system";
-  action: "submitted" | "confirmed" | "tentative" | "rejected" | "slot-rejected" | "payment" | "refund" | "credit_note" | "waiver";
+  action:
+    | "submitted"
+    | "confirmed"
+    | "tentative"
+    | "rejected"
+    | "slot-rejected"
+    | "slot-overridden"
+    | "payment"
+    | "refund"
+    | "credit_note"
+    | "waiver";
   note: string;
 };
 
@@ -288,6 +299,30 @@ function deriveHistory(b: Booking): HistoryEvent[] {
         note: `${formatSlotDate(slot.date)} ${slot.startTime}–${slot.endTime} rejected — ${slot.rejectReason}`,
       });
     }
+    if (slot.slotStatus === "cancelled_override") {
+      events.push({
+        // Approximate timestamp: the cascade bumps booking.updatedAt, so this
+        // is the most-recent-cascade time, not a per-slot wall clock.
+        t: b.updatedAt,
+        who: "desk.auto",
+        whoRole: "system",
+        action: "slot-overridden",
+        note: `${formatSlotDate(slot.date)} ${slot.startTime}–${slot.endTime} cancelled — ${slot.rejectReason ?? "overridden by a higher-priority booking"}`,
+      });
+    }
+  }
+
+  // Legacy fallback: bookings whose entire row was flipped to cancelled_override
+  // by the pre-fix cascade have no per-slot override marker. Surface them as a
+  // single booking-level event so the timeline isn't blank.
+  if (b.status === "cancelled_override" && !b.slots.some((s) => s.slotStatus === "cancelled_override")) {
+    events.push({
+      t: b.updatedAt,
+      who: "desk.auto",
+      whoRole: "system",
+      action: "slot-overridden",
+      note: "Booking cancelled — overridden by a higher-priority booking.",
+    });
   }
 
   for (const entry of b.paymentEntries) {
@@ -1723,6 +1758,7 @@ const HISTORY_META: Record<HistoryEvent["action"], { label: string; glyph: strin
   tentative: { label: "Tentative", glyph: "?", tone: "info" },
   rejected: { label: "Rejected", glyph: "✕", tone: "danger" },
   "slot-rejected": { label: "Slot rejected", glyph: "✕", tone: "danger" },
+  "slot-overridden": { label: "Slot overridden", glyph: "↪", tone: "warn" },
   payment: { label: "Payment", glyph: "$", tone: "ok" },
   refund: { label: "Refund", glyph: "↺", tone: "danger" },
   credit_note: { label: "Credit note", glyph: "₵", tone: "info" },

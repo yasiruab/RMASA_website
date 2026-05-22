@@ -1,4 +1,5 @@
 import { prisma } from "@/lib/prisma";
+import type { OverrideTarget } from "@/lib/calendar-core";
 import {
   Booking,
   BookingStatus,
@@ -132,13 +133,16 @@ export async function readCalendarDb(): Promise<CalendarDb> {
 // helpers below, which cascade them to status=cancelled_override atomically
 // with the primary write.
 
-/** Insert a new booking with all child rows. When `overriddenBookingIds` is
- *  non-empty, those bookings are cascaded to status=cancelled_override in the
- *  same transaction. The caller is responsible for running the conflict check
- *  beforehand and supplying the override target list. */
+/** Insert a new booking with all child rows. When `overrideTargets` is
+ *  non-empty, only the specific overlapping slots on those bookings get
+ *  cascaded to slotStatus=cancelled_override — not the entire booking.
+ *  The caller runs the conflict check beforehand and supplies the targets.
+ *  `overrideReason` is written to each affected slot's `rejectReason` so the
+ *  history pane can surface why a slot was cancelled. */
 export async function insertBookingWithCascade(
   booking: Booking,
-  overriddenBookingIds: string[],
+  overrideTargets: OverrideTarget[],
+  overrideReason: string,
 ) {
   await prisma.$transaction(async (tx) => {
     await tx.booking.create({
@@ -191,31 +195,51 @@ export async function insertBookingWithCascade(
       });
     }
 
-    if (overriddenBookingIds.length > 0) {
+    if (overrideTargets.length > 0) {
       await tx.bookingOverride.createMany({
-        data: overriddenBookingIds.map((overriddenBookingId) => ({
+        data: overrideTargets.map((t) => ({
           bookingId: booking.id,
-          overriddenBookingId,
+          overriddenBookingId: t.bookingId,
         })),
       });
-      await tx.booking.updateMany({
-        where: { id: { in: overriddenBookingIds } },
-        data: { status: "cancelled_override", updatedAt: new Date() },
-      });
+      for (const target of overrideTargets) {
+        for (const slotKey of target.slotKeys) {
+          await tx.bookingSlot.updateMany({
+            where: {
+              bookingId: target.bookingId,
+              date: slotKey.date,
+              startTime: slotKey.startTime,
+            },
+            data: {
+              slotStatus: "cancelled_override",
+              rejectReason: overrideReason,
+            },
+          });
+        }
+        // Bump the overridden booking's updatedAt so derived history events use
+        // an approximate "when the cascade happened" timestamp.
+        await tx.booking.update({
+          where: { id: target.bookingId },
+          data: { updatedAt: new Date() },
+        });
+      }
     }
   });
 }
 
 /** Update a booking's top-level status. When the new status is "confirmed" and
- *  `overriddenBookingIds` is non-empty, the override targets are cascaded to
- *  cancelled_override and the booking_override join rows are refreshed.
- *  Booking-level status changes also wipe per-slot overrides — the batch slot
- *  helper is the path for preserving per-slot overrides. */
+ *  `overrideTargets` is non-empty, only the specific overlapping slots of each
+ *  override target get cascaded to slotStatus=cancelled_override; the
+ *  overridden booking's top-level status is left alone so its non-conflicting
+ *  slots survive. Booking-level status changes also wipe per-slot overrides on
+ *  the booking being updated — the batch slot helper is the path for
+ *  preserving per-slot overrides on this booking. */
 export async function updateBookingStatus(
   bookingId: string,
   status: BookingStatus,
   rejectReason: string | null,
-  overriddenBookingIds: string[] = [],
+  overrideTargets: OverrideTarget[] = [],
+  overrideReason: string = "",
 ) {
   await prisma.$transaction(async (tx) => {
     // confirmedAt is set-once — only stamped the first time the booking is
@@ -245,18 +269,33 @@ export async function updateBookingStatus(
       data: { slotStatus: null, rejectReason: null },
     });
 
-    if (status === "confirmed" && overriddenBookingIds.length > 0) {
+    if (status === "confirmed" && overrideTargets.length > 0) {
       await tx.bookingOverride.deleteMany({ where: { bookingId } });
       await tx.bookingOverride.createMany({
-        data: overriddenBookingIds.map((overriddenBookingId) => ({
+        data: overrideTargets.map((t) => ({
           bookingId,
-          overriddenBookingId,
+          overriddenBookingId: t.bookingId,
         })),
       });
-      await tx.booking.updateMany({
-        where: { id: { in: overriddenBookingIds } },
-        data: { status: "cancelled_override", updatedAt: new Date() },
-      });
+      for (const target of overrideTargets) {
+        for (const slotKey of target.slotKeys) {
+          await tx.bookingSlot.updateMany({
+            where: {
+              bookingId: target.bookingId,
+              date: slotKey.date,
+              startTime: slotKey.startTime,
+            },
+            data: {
+              slotStatus: "cancelled_override",
+              rejectReason: overrideReason,
+            },
+          });
+        }
+        await tx.booking.update({
+          where: { id: target.bookingId },
+          data: { updatedAt: new Date() },
+        });
+      }
     }
   });
 }

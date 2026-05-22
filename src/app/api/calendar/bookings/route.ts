@@ -1,6 +1,11 @@
 import { randomBytes, randomUUID } from "node:crypto";
 import { NextResponse } from "next/server";
-import { sendAdminNewBookingNotification, sendBookingAcknowledgement } from "@/lib/email";
+import {
+  sendAdminNewBookingNotification,
+  sendAdminSlotOverriddenNotification,
+  sendBookingAcknowledgement,
+  sendBookingSlotOverriddenNotification,
+} from "@/lib/email";
 import {
   assertAdvanceBookingLimit,
   assertRecurrenceWindow,
@@ -231,9 +236,69 @@ export async function POST(req: Request) {
     );
   }
 
-  booking.overriddenBookingIds = overrideTargets;
+  booking.overriddenBookingIds = overrideTargets.map((t) => t.bookingId);
 
-  await insertBookingWithCascade(booking, overrideTargets);
+  const overrideReason = `Overridden by ${booking.reference} (${eventType.name})`;
+  await insertBookingWithCascade(booking, overrideTargets, overrideReason);
+
+  // Per-overridden-customer notifications + a single admin alert, derived
+  // from the override targets the cascade just applied. db.bookings is the
+  // pre-cascade snapshot so it still carries the overridden bookings' customer
+  // + slot details. Fired alongside the new-booking emails.
+  const overrideCustomerEmails = overrideTargets.flatMap((target) => {
+    const overridden = db.bookings.find((b) => b.id === target.bookingId);
+    if (!overridden) return [];
+    const overriddenRoom = db.rooms.find((r) => r.id === overridden.roomTypeId);
+    const overriddenEventType = db.eventTypes.find((et) => et.id === overridden.eventTypeId);
+    const cancelledSlots = target.slotKeys
+      .map(({ date, startTime }) => {
+        const slot = overridden.slots.find((s) => s.date === date && s.startTime === startTime);
+        return slot ? { date, startTime, endTime: slot.endTime } : null;
+      })
+      .filter((s): s is { date: string; startTime: string; endTime: string } => s !== null);
+    const survivingSlots = overridden.slots
+      .filter((s) => {
+        const wasCancelled = target.slotKeys.some(
+          (k) => k.date === s.date && k.startTime === s.startTime,
+        );
+        if (wasCancelled) return false;
+        const eff = s.slotStatus ?? overridden.status;
+        return eff !== "rejected" && eff !== "cancelled_override";
+      })
+      .map((s) => ({ date: s.date, startTime: s.startTime, endTime: s.endTime }));
+    return [
+      sendBookingSlotOverriddenNotification({
+        to: overridden.customer.email,
+        customerName: overridden.customer.name,
+        reference: overridden.reference,
+        roomName: overriddenRoom?.name ?? room.name,
+        eventTypeName: overriddenEventType?.name ?? "—",
+        cancelledSlots,
+        survivingSlots,
+        newBookingReference: booking.reference,
+        newBookingEventTypeName: eventType.name,
+      }),
+    ];
+  });
+
+  const overrideAdminBlocks = overrideTargets
+    .map((target) => {
+      const overridden = db.bookings.find((b) => b.id === target.bookingId);
+      if (!overridden) return null;
+      const cancelledSlots = target.slotKeys
+        .map(({ date, startTime }) => {
+          const slot = overridden.slots.find((s) => s.date === date && s.startTime === startTime);
+          return slot ? { date, startTime, endTime: slot.endTime } : null;
+        })
+        .filter((s): s is { date: string; startTime: string; endTime: string } => s !== null);
+      return {
+        reference: overridden.reference,
+        customerName: overridden.customer.name,
+        customerEmail: overridden.customer.email,
+        cancelledSlots,
+      };
+    })
+    .filter((o): o is NonNullable<typeof o> => o !== null);
 
   await Promise.allSettled([
     sendBookingAcknowledgement({
@@ -255,6 +320,14 @@ export async function POST(req: Request) {
       slots: booking.slots,
       totalAmountLkr: booking.totalAmountLkr,
     }),
+    ...overrideCustomerEmails,
+    sendAdminSlotOverriddenNotification({
+      newBookingReference: booking.reference,
+      newBookingEventTypeName: eventType.name,
+      newBookingCustomerName: booking.customer.name,
+      roomName: room.name,
+      overrides: overrideAdminBlocks,
+    }),
   ]);
 
   return NextResponse.json({
@@ -263,6 +336,6 @@ export async function POST(req: Request) {
     reference: booking.reference,
     totalAmountLkr: booking.totalAmountLkr,
     breakdown,
-    overriddenBookingIds: overrideTargets,
+    overriddenBookingIds: overrideTargets.map((t) => t.bookingId),
   });
 }

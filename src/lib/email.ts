@@ -126,7 +126,9 @@ type EmailLogType =
   | "booking_status"
   | "admin_notification"
   | "unpaid_reminder_customer"
-  | "unpaid_reminder_admin_digest";
+  | "unpaid_reminder_admin_digest"
+  | "slot_overridden_customer"
+  | "slot_overridden_admin";
 
 async function sendEmail(params: {
   bookingReference: string;
@@ -415,6 +417,151 @@ export async function sendAdminRejectionNotification(params: {
   `);
 
   await sendEmail({ bookingReference: params.reference, type: "admin_notification", to: ADMIN_EMAIL, subject, html });
+}
+
+// ─── Slot auto-cancellation (override cascade) ────────────────────────────────
+
+/** Customer notification when one or more slots on their booking were
+ *  auto-cancelled because a higher-priority booking was placed over the
+ *  same window. Sent per overridden booking (different customers get
+ *  separate emails). */
+export async function sendBookingSlotOverriddenNotification(params: {
+  to: string;
+  customerName: string;
+  reference: string;
+  roomName: string;
+  eventTypeName: string;
+  cancelledSlots: SlotList;
+  survivingSlots: SlotList;
+  newBookingReference: string;
+  newBookingEventTypeName: string;
+}): Promise<void> {
+  if (!params.to) return;
+
+  const subject = `Booking Update – Slot(s) Cancelled – ${esc(params.reference)}`;
+
+  const cancelledStatuses: SlotWithStatus[] = params.cancelledSlots.map((s) => ({
+    ...s,
+    status: "cancelled_override",
+  }));
+
+  const survivingBlock = params.survivingSlots.length > 0
+    ? `<p style="margin:20px 0 8px;font-size:13px;color:#31343a;font-weight:600;">
+         These slots on the same booking are unaffected:
+       </p>
+       <ul style="margin:0 0 20px;padding-left:20px;font-size:13px;color:#31343a;">
+         ${params.survivingSlots.map((s) => `<li>${esc(s.date)} &nbsp;${esc(s.startTime)}–${esc(s.endTime)}</li>`).join("\n")}
+       </ul>`
+    : `<p style="margin:20px 0;font-size:13px;color:#c62828;background:#fff3f3;border:1px solid #f5c6c6;border-radius:4px;padding:10px 14px;">
+         All slots on this booking have been cancelled.
+       </p>`;
+
+  const html = card(`
+    <p style="margin:0 0 16px;font-size:16px;font-weight:600;color:#31343a;">Hi ${esc(params.customerName)},</p>
+    <p style="margin:0 0 20px;line-height:1.6;">
+      We're sorry — one or more slots on your booking
+      <strong>${esc(params.reference)}</strong> have been cancelled because the
+      venue has been allocated to a higher-priority event
+      (<strong>${esc(params.newBookingEventTypeName)}</strong>, ref ${esc(params.newBookingReference)})
+      that overlaps the same time. Lower-priority bookings on the same window
+      are automatically displaced when this happens.
+    </p>
+    <p style="margin:0 0 8px;font-size:13px;color:#31343a;font-weight:600;">
+      Cancelled slot${params.cancelledSlots.length === 1 ? "" : "s"}:
+    </p>
+    <div style="margin-bottom:20px;">${formatSlotsWithStatus(cancelledStatuses)}</div>
+    ${survivingBlock}
+    <table width="100%" cellpadding="0" cellspacing="0" style="background:#f7f8f9;border:1px solid #dfe3e8;border-radius:6px;padding:16px 20px;margin-bottom:20px;">
+      <tr><td style="padding:4px 0;font-size:13px;color:#6f737a;width:140px;">Reference</td><td style="padding:4px 0;font-size:13px;font-weight:700;color:#31343a;">${esc(params.reference)}</td></tr>
+      <tr><td style="padding:4px 0;font-size:13px;color:#6f737a;">Venue</td><td style="padding:4px 0;font-size:13px;color:#31343a;">${esc(params.roomName)}</td></tr>
+      <tr><td style="padding:4px 0;font-size:13px;color:#6f737a;">Event Type</td><td style="padding:4px 0;font-size:13px;color:#31343a;">${esc(params.eventTypeName)}</td></tr>
+    </table>
+    <p style="margin:0;font-size:13px;color:#6f737a;line-height:1.6;">
+      If you'd like to reschedule or have any questions, please contact the
+      bookings desk at
+      <a href="mailto:info@royalmasarena.lk" style="color:#b26c5e;">info@royalmasarena.lk</a>.
+      Quote your reference <strong>${esc(params.reference)}</strong> in any
+      correspondence.
+    </p>
+  `);
+
+  await sendEmail({
+    bookingReference: params.reference,
+    type: "slot_overridden_customer",
+    to: params.to,
+    subject,
+    html,
+  });
+}
+
+/** Admin alert sent once per cascade event, listing every booking whose slots
+ *  were auto-cancelled. Skipped silently when ADMIN_NOTIFICATION_EMAIL is
+ *  unset or no overrides occurred. */
+export async function sendAdminSlotOverriddenNotification(params: {
+  newBookingReference: string;
+  newBookingEventTypeName: string;
+  newBookingCustomerName: string;
+  roomName: string;
+  overrides: Array<{
+    reference: string;
+    customerName: string;
+    customerEmail: string;
+    cancelledSlots: SlotList;
+  }>;
+}): Promise<void> {
+  if (!ADMIN_EMAIL) return;
+  if (params.overrides.length === 0) return;
+
+  const subject = `Auto-cancellation – ${params.overrides.length} booking(s) overridden by ${esc(params.newBookingReference)}`;
+  const adminPortalUrl = process.env.NEXTAUTH_URL
+    ? `${process.env.NEXTAUTH_URL}/admin/calendar/bookings`
+    : "/admin/calendar/bookings";
+
+  const overrideBlocks = params.overrides
+    .map((o) => {
+      const statuses: SlotWithStatus[] = o.cancelledSlots.map((s) => ({
+        ...s,
+        status: "cancelled_override",
+      }));
+      return `
+        <div style="margin-bottom:16px;padding:12px 14px;background:#fff8f0;border:1px solid #f0d9b8;border-radius:6px;">
+          <p style="margin:0 0 8px;font-size:13px;color:#31343a;">
+            <strong>${esc(o.reference)}</strong> ·
+            ${esc(o.customerName)}
+            &lt;<a href="mailto:${esc(o.customerEmail)}" style="color:#b26c5e;">${esc(o.customerEmail)}</a>&gt;
+            — ${o.cancelledSlots.length} slot${o.cancelledSlots.length === 1 ? "" : "s"} cancelled
+          </p>
+          ${formatSlotsWithStatus(statuses)}
+        </div>`;
+    })
+    .join("\n");
+
+  const html = card(`
+    <p style="margin:0 0 16px;font-size:16px;font-weight:600;color:#e65100;">Auto-cancellation alert</p>
+    <p style="margin:0 0 20px;line-height:1.6;">
+      A new booking has been placed and automatically cancelled
+      ${params.overrides.length} lower-priority booking${params.overrides.length === 1 ? "" : "s"} on the same window.
+    </p>
+    <table width="100%" cellpadding="0" cellspacing="0" style="background:#f7f8f9;border:1px solid #dfe3e8;border-radius:6px;padding:16px 20px;margin-bottom:20px;">
+      <tr><td style="padding:4px 0;font-size:13px;color:#6f737a;width:160px;">New booking</td><td style="padding:4px 0;font-size:13px;font-weight:700;color:#31343a;">${esc(params.newBookingReference)}</td></tr>
+      <tr><td style="padding:4px 0;font-size:13px;color:#6f737a;">Event type</td><td style="padding:4px 0;font-size:13px;color:#31343a;">${esc(params.newBookingEventTypeName)}</td></tr>
+      <tr><td style="padding:4px 0;font-size:13px;color:#6f737a;">Customer</td><td style="padding:4px 0;font-size:13px;color:#31343a;">${esc(params.newBookingCustomerName)}</td></tr>
+      <tr><td style="padding:4px 0;font-size:13px;color:#6f737a;">Venue</td><td style="padding:4px 0;font-size:13px;color:#31343a;">${esc(params.roomName)}</td></tr>
+    </table>
+    <p style="margin:0 0 8px;font-size:13px;font-weight:600;color:#31343a;">Bookings cancelled:</p>
+    ${overrideBlocks}
+    <a href="${adminPortalUrl}" style="display:inline-block;background:#b26c5e;color:#ffffff;text-decoration:none;padding:10px 20px;border-radius:5px;font-size:14px;font-weight:600;">
+      Open Booking Queue
+    </a>
+  `);
+
+  await sendEmail({
+    bookingReference: params.newBookingReference,
+    type: "slot_overridden_admin",
+    to: ADMIN_EMAIL,
+    subject,
+    html,
+  });
 }
 
 // ─── Unpaid-booking reminders ──────────────────────────────────────────────────
