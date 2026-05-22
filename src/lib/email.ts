@@ -119,6 +119,29 @@ function card(body: string): string {
 </html>`;
 }
 
+// ─── Send pacing ───────────────────────────────────────────────────────────────
+//
+// Resend's default rate limit is 2 requests/sec. A single booking that triggers
+// the override cascade can fan out to 4+ sends (customer ack, admin new-booking,
+// per-overridden-customer notification, admin override digest) inside one
+// Lambda invocation — `Promise.allSettled` fires them in parallel and the last
+// two get 429s. Reserve a slot per send and pace at 750 ms so a 4-send burst
+// serialises to ~3 s, comfortably under 2/sec at Resend's arrival end even with
+// network jitter compressing the gaps. Module-level state, so only paces within
+// one Lambda invocation; cross-Lambda concurrency is still unguarded.
+const MIN_SEND_INTERVAL_MS = 750;
+let nextSendSlotMs = 0;
+
+async function acquireSendSlot(): Promise<void> {
+  const now = Date.now();
+  const slot = Math.max(now, nextSendSlotMs);
+  nextSendSlotMs = slot + MIN_SEND_INTERVAL_MS;
+  const wait = slot - now;
+  if (wait > 0) {
+    await new Promise((resolve) => setTimeout(resolve, wait));
+  }
+}
+
 // ─── Internal send + log ───────────────────────────────────────────────────────
 
 type EmailLogType =
@@ -144,17 +167,40 @@ async function sendEmail(params: {
     errorMessage = "RESEND_API_KEY is not configured";
     console.error(`[email] ${errorMessage}`);
   } else {
-    try {
-      await resend.emails.send({
-        from: FROM,
-        to: params.to,
-        subject: params.subject,
-        html: params.html,
-      });
-      status = "sent";
-    } catch (err) {
-      errorMessage = err instanceof Error ? err.message : String(err);
-      console.error(`[email] Failed to send "${params.subject}" to ${params.to}:`, errorMessage);
+    // Resend SDK v6 returns `{ data, error }` rather than throwing on HTTP errors.
+    // Only network failures throw. On a 429 we sleep past the rate-limit window
+    // and retry once so a transient burst (e.g. cron + booking submission landing
+    // on the same Lambda second) doesn't drop emails.
+    const MAX_ATTEMPTS = 2;
+    const RATE_LIMIT_BACKOFF_MS = 1500;
+    for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
+      try {
+        await acquireSendSlot();
+        const { error } = await resend.emails.send({
+          from: FROM,
+          to: params.to,
+          subject: params.subject,
+          html: params.html,
+        });
+        if (!error) {
+          status = "sent";
+          errorMessage = undefined;
+          break;
+        }
+        const errAny = error as { statusCode?: number; name?: string; message?: string };
+        const isRateLimit = errAny.statusCode === 429 || errAny.name === "rate_limit_exceeded";
+        errorMessage = `${errAny.name ?? "error"}: ${errAny.message ?? "unknown"}`;
+        if (!isRateLimit || attempt === MAX_ATTEMPTS) {
+          console.error(`[email] Failed to send "${params.subject}" to ${params.to}:`, errorMessage);
+          break;
+        }
+        console.warn(`[email] Rate-limited on "${params.subject}" to ${params.to}, retrying in ${RATE_LIMIT_BACKOFF_MS}ms`);
+        await new Promise((resolve) => setTimeout(resolve, RATE_LIMIT_BACKOFF_MS));
+      } catch (err) {
+        errorMessage = err instanceof Error ? err.message : String(err);
+        console.error(`[email] Network error sending "${params.subject}" to ${params.to}:`, errorMessage);
+        break;
+      }
     }
   }
 
