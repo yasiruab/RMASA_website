@@ -47,11 +47,22 @@ Key pieces:
     (`?approval=pending,tentative`, `?payment=unpaid,part_paid`);
     `?conflict=…` is single-valued (`with` / `without`).
 - `src/app/admin/calendar/[section]/page.tsx`
-  - Dynamic segment for the remaining legacy sections: `revenue`,
-    `accounts`, `rooms`, `event-types`, `pricing`, `blockouts`. `dashboard`
-    is no longer accepted (the new hub replaces it); `bookings` is no
-    longer accepted (the explicit route shadows it). Super-admin gates
-    are enforced on `accounts`, `rooms`, `event-types`, and `pricing`.
+  - Dynamic segment for the remaining legacy sections: `accounts`,
+    `rooms`, `event-types`, `pricing`, `blockouts`. `dashboard`,
+    `bookings`, `revenue`, and `schedule` are no longer accepted —
+    each has its own explicit route which Next.js prefers over this
+    dynamic segment. Super-admin gates are enforced on `accounts`,
+    `rooms`, `event-types`, and `pricing`.
+- `src/app/admin/calendar/revenue/page.tsx`
+  - Explicit route for **Revenue Insights**. Mounts
+    `<AdminRevenue />` from
+    `src/components/admin/sections/admin-revenue.tsx`.
+- `src/app/admin/calendar/schedule/page.tsx`
+  - Explicit route for the unified **Schedule** week view. Mounts
+    `<AdminSchedule />` from
+    `src/components/admin/sections/admin-schedule.tsx`. Read-only
+    half-hour grid showing all bookings across both venues coloured
+    by room, with a toggleable Venues + Status legend.
 - `src/app/admin/calendar/reports/page.tsx`
   - Standalone reports view (separate from the mega-component).
 
@@ -68,7 +79,9 @@ Key components:
   - **Per-slot price + payment status chip** on each slot row, driven by `computeSlotAllocations()` (see "Per-slot payment allocation" below).
   - **OUTSTANDING / REFUND DUE / SETTLED tile** in the detail-pane summary strip (bold gold display when the customer owes; blue when overpaid; green when balanced).
   - **Search box** matches against booking reference, customer name/email, purpose, booking ID, room name, and event type name.
-- `src/components/admin/admin-calendar-console.tsx`: legacy mega-component, still mounted for revenue / accounts / rooms / event-types / pricing / blockouts sections.
+- `src/components/admin/admin-calendar-console.tsx`: legacy mega-component, still mounted for accounts / rooms / event-types / pricing / blockouts sections (revenue, schedule, bookings, and reports have all moved to their own explicit routes).
+- `src/components/admin/sections/admin-revenue.tsx`: Revenue Insights page. Granularity + range controls, 5-KPI strip with vs-prev delta, stacked-bar trend with venue/event-type breakdown, collection-efficiency line chart, adjustments stacked bar with toggleable legends.
+- `src/components/admin/sections/admin-schedule.tsx`: unified week schedule across all venues. Half-hour grid, venue-coloured blocks with 5-tier content rendering by height, greedy lane assignment for in-day overlaps, click-through to booking detail.
 - `src/lib/admin/booking-utils.ts`: shared admin booking helpers.
   - `computeBookingEffectiveStatus()` / `isActiveBooking()` — derive effective status from per-slot overrides (a booking whose every slot is rejected is "rejected" regardless of `booking.status`).
   - `activeBookingTotalLkr()` — sum of `amountBreakdown` for non-rejected slots. Use whenever computing "what does the customer owe?"; never compare paid against `Booking.totalAmountLkr` directly — that includes amounts for slots later rejected.

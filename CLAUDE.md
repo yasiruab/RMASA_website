@@ -135,15 +135,17 @@ enforces the auth guard and exposes the session to client pages via
 **Hub** at `/admin/calendar` — server-rendered by [`src/components/admin/hub/admin-hub.tsx`](src/components/admin/hub/admin-hub.tsx).
 Composition: hero (display title + identity pill + Sign Out) → 5-tile KPI strip
 (In queue, Approved today, Active blockouts, Conflicts, Outstanding) →
-secure-access notice → section grid (01 Bookings primary card / 02 Revenue /
-04 Accounts (super-admin only) / 05 Reports, plus a 03 Configuration card
-grouping Blockouts / Rooms / Event types / Pricing) → revenue snapshot card
-(4 tiles + last-3-month stacked-bar trend + deep link) → recent-activity
-table (top 8 audit-log rows joined to bookings). All data is fetched
-server-side in `src/app/admin/calendar/page.tsx` via `readCalendarDb()` and a
-fresh audit-log query; the revenue model is the shared `buildRevenueModel()`
-applied to a 90-day window. The `[section]/page.tsx` dynamic route no longer
-accepts `"dashboard"` (the hub occupies that slot).
+secure-access notice → section grid (01 Bookings primary card / 02 Calendar /
+04 Revenue / 05 Accounts (super-admin only) / 06 Reports, plus a 03
+Configuration card grouping Blockouts / Rooms / Event types / Pricing) →
+revenue snapshot card (4 tiles + last-3-month stacked-bar trend + deep link)
+→ recent-activity table (top 8 audit-log rows joined to bookings). All data
+is fetched server-side in `src/app/admin/calendar/page.tsx` via
+`readCalendarDb()` and a fresh audit-log query; the revenue model is the
+shared `buildRevenueModel()` applied to a 90-day window. The
+`[section]/page.tsx` dynamic route no longer accepts `"dashboard"` (the hub
+occupies that slot). Section codes intentionally skip around 03 because
+Configuration is the dedicated card that bridges the two rows.
 
 **Hub KPI tiles deep-link** to filtered bookings views via URL params:
 
@@ -202,10 +204,16 @@ legacy mega-component (updateBookingStatus, batchSlotUpdates, payments POST)
 
 **History timeline** is *derived* from the booking row on the client
 (submitted = `booking.createdAt` + customer email/purpose; per-slot rejection
-= slot.rejectReason; payment events = `booking.paymentEntries`). The audit
-log table is not queried for this view — keeping the page off a separate
-API round trip. If admins need granular "who clicked what" history later, an
-admin-side audit-log query endpoint would be the right addition.
+= `slot.rejectReason` with `slotStatus="rejected"`; per-slot override
+auto-cancel = `slot.rejectReason` with `slotStatus="cancelled_override"`,
+rendered as a `slot-overridden` event with the ↪ glyph and warning tone;
+payment events = `booking.paymentEntries`). A legacy fallback surfaces a
+single "Booking cancelled — overridden by a higher-priority booking" event
+for any booking still at top-level `status="cancelled_override"` from before
+the slot-level cascade fix. The audit log table is not queried for this
+view — keeping the page off a separate API round trip. If admins need
+granular "who clicked what" history later, an admin-side audit-log query
+endpoint would be the right addition.
 
 **Status pills and payment tags** follow the mockup STATUS_META and
 PAYMENT_META palettes — solid-fill chips with the colour as background and
@@ -273,6 +281,36 @@ Legend palette: 6 chart colours declared as `--ac-chart-1` (gold) through
 [`src/styles/admin.css`](src/styles/admin.css). The top-5 segments by total
 collected get named entries; everything else collapses into one OTHER tile
 to keep the legend readable.
+
+**Schedule** at `/admin/calendar/schedule` —
+[`src/components/admin/sections/admin-schedule.tsx`](src/components/admin/sections/admin-schedule.tsx)
+(client component, mounted under
+[`src/app/admin/calendar/schedule/page.tsx`](src/app/admin/calendar/schedule/page.tsx)).
+A read-only unified week view of bookings across **all** venues on a single
+half-hour grid (same `ROW_HEIGHT = 24px` / `PX_PER_MINUTE = 0.8` math as the
+public bookings calendar). One block per booking slot, coloured by venue via
+the same `--ac-chart-*` palette (Main Arena → `--ac-gold`, Studio Room →
+`--ac-chart-2`, further rooms cycle 3-6). Overlapping bookings within a day
+tile horizontally via a greedy lane-assignment algorithm so nothing hides.
+
+Block content is rendered in 5 tiers by height: the smallest (~30 min)
+shows a colour dot + event name only; tiers 2-5 layer in chip + 2-line
+purpose, customer name, time + event type, and reference. Primary text
+falls back through `purpose → eventType.name → customerName` so legacy
+bookings (no purpose) still surface a meaningful label.
+
+Toggleable legend chips for Venues + Status. `rejected` and
+`cancelled_override` are **hidden by default** so the schedule reads as
+"what's actually happening" rather than the historical record; click a chip
+to bring them back. Click a block to jump to
+`/admin/calendar/bookings?id=<bookingId>`.
+
+Time axis convention: the horizontal line that marks a time sits at the
+**top** of the row whose label matches that time, so "06:00" reads as "the
+brighter solid line right next to this label is exactly 06:00". Hour lines
+are solid + slightly brighter (`color-mix` of `--ac-line` and
+`--ac-text-mute`); half-hour lines are dashed and muted. The label has
+`margin-top: -1px` so it visually centres on the line.
 
 **Remaining legacy sections** (`/admin/calendar/{blockouts,rooms,event-types,
 pricing,accounts}` and `/admin/calendar/reports`) still render the
@@ -402,8 +440,8 @@ each touch only the rows the route actually intends to change:
 
 | Helper | Used by | What it writes |
 |---|---|---|
-| `insertBookingWithCascade(booking, overriddenBookingIds)` | `POST /api/calendar/bookings` | Insert `Booking` + `BookingSlot[]` + `BookingAmountBreakdown[]` + `BookingOverride[]`; cascades override targets to `status=cancelled_override` in the same transaction. |
-| `updateBookingStatus(bookingId, status, rejectReason, overriddenBookingIds?)` | `PATCH /api/admin/calendar/bookings` (booking-level path) | Update one booking's `status` (+ `rejectReason` when rejected); wipes per-slot overrides on bulk status change; cascades `overriddenBookingIds` to `cancelled_override` when status=confirmed. Stamps `confirmedAt` set-once on first confirmation. |
+| `insertBookingWithCascade(booking, overrideTargets, overrideReason)` | `POST /api/calendar/bookings` | Insert `Booking` + `BookingSlot[]` + `BookingAmountBreakdown[]` + `BookingOverride[]`; cascades each target's listed `slotKeys` to `slotStatus="cancelled_override"` (+ `rejectReason=overrideReason`) — slot-level, NOT booking-level. The overridden booking's top-level `status` is untouched. |
+| `updateBookingStatus(bookingId, status, rejectReason, overrideTargets?, overrideReason?)` | `PATCH /api/admin/calendar/bookings` (booking-level path) | Update one booking's `status` (+ `rejectReason` when rejected); wipes per-slot overrides on bulk status change; when status=confirmed, cascades each `overrideTarget.slotKeys` to `slotStatus="cancelled_override"` (slot-level). Stamps `confirmedAt` set-once on first confirmation. |
 | `updateBookingSlotStatus(bookingId, slotDate, slotStartTime, slotStatus)` | `PATCH /api/admin/calendar/bookings` (legacy single-slot path) | Update one slot's status. |
 | `updateBookingSlotsBatch(bookingId, updates)` | `PATCH /api/admin/calendar/bookings` (batch path) | Apply many per-slot status updates to a single booking. |
 | `createCalendarBlock(block)` / `deleteCalendarBlock(id)` | `POST/DELETE /api/admin/calendar/blocks` | Single-row block insert/delete. |
@@ -414,6 +452,21 @@ before calling `insertBookingWithCascade` / `updateBookingStatus(confirmed, …)
 That check is not yet inside the transaction, so two simultaneous bookings on
 the same slot could still both pass and both insert. The cascade step is
 race-free; the conflict-check race is a separate (smaller) follow-up.
+
+**Override cascade is slot-level, not booking-level.** `evaluateBookingConflicts`
+returns `OverrideTarget[] = { bookingId, slotKeys: { date, startTime }[] }[]` —
+the specific slots of each lower-priority booking that overlap the candidate.
+The store helpers then run `bookingSlot.updateMany` keyed by
+`(bookingId, date, startTime)` to flip only those slots to
+`slotStatus="cancelled_override"`. Sibling slots that didn't overlap stay
+active under the booking's original `status`. The `BookingOverride` join row
+still records the per-booking relationship for audit, but a partial override
+is the normal outcome — flipping the whole `Booking.status` would silently
+kill non-conflicting slots (the bug that motivated the fix; see the
+`fix(bookings): cascade override at slot granularity` commit). The slot's
+`rejectReason` carries the cause string (e.g. `"Overridden by BK-XXXXXX
+(6 Hours)"`) and the admin booking history pane surfaces it as a
+`slot-overridden` event.
 
 `paymentEntry` writes already lived outside `updateCalendarDb` — see
 `POST /api/admin/calendar/bookings/[id]/payments` above.
@@ -576,6 +629,8 @@ Uses the **Resend** SDK. Each exported async function catches its own errors int
 | `sendBookingStatusNotification` | Called in `PATCH /api/admin/calendar/bookings` on booking-level status change to `confirmed`, `tentative`, or `rejected` |
 | `sendAdminNewBookingNotification` | Called alongside acknowledgement on new booking; skipped if `ADMIN_NOTIFICATION_EMAIL` unset |
 | `sendAdminRejectionNotification` | Called when any booking is set to `rejected` (booking-level or per-slot via Save); skipped if `ADMIN_NOTIFICATION_EMAIL` unset; includes reject reason |
+| `sendBookingSlotOverriddenNotification` | Called per overridden booking after a higher-priority cascade fires — from both `POST /api/calendar/bookings` and admin `PATCH` (confirm). Names the displacing booking + lists cancelled vs surviving slots. Skipped silently when the overridden customer's email is empty. |
+| `sendAdminSlotOverriddenNotification` | Called once per cascade event listing every overridden booking; skipped if `ADMIN_NOTIFICATION_EMAIL` unset or no overrides occurred |
 | `sendBookingUnpaidReminder` | Called per due booking from `POST /api/cron/unpaid-reminders`. Caller relies on the boolean return: `lastReminderDays` is only stamped on success so failed sends retry on the next cron run |
 | `sendAdminUnpaidDigest` | Called once per cron run that produced any reminders; skipped if `ADMIN_NOTIFICATION_EMAIL` unset or `bookings` array empty |
 

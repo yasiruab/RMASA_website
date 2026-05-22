@@ -52,7 +52,7 @@ could insert garbage — accepted in exchange for the TZ-safety benefit.
 | `Booking` | **used** | Top-level booking record + cached payment totals |
 | `BookingSlot` | **used** | Per-slot date + time + optional per-slot status override |
 | `BookingAmountBreakdown` | **used** | Per-slot amount applied at creation; immutable record of the original quote |
-| `BookingOverride` | **used** | Records which existing bookings were cascaded to `cancelled_override` when a higher-priority booking was confirmed over them |
+| `BookingOverride` | **used** | Records which existing bookings had one or more slots auto-cancelled when a higher-priority booking was confirmed over them (slot-level cascade — see `BookingSlot` detail) |
 | `PaymentEntry` | **used** | Immutable ledger — `payment` / `refund` / `waiver` / `credit_note` |
 | `CalendarBlock` | **used** | Admin-defined unavailability ranges |
 | `AuditLog` | **used** | Append-only audit trail of admin actions |
@@ -129,7 +129,10 @@ Indexes:
 One row per slot. `slotStatus` is nullable — null means "inherit
 `booking.status`". When admins approve / reject individual slots, the
 slot-level override is stored here. `rejectReason` carries the per-slot
-rejection note (separate from the booking-level `Booking.rejectReason`).
+rejection note (separate from the booking-level `Booking.rejectReason`);
+it is also reused to carry the auto-cancellation cause string for
+`slotStatus = "cancelled_override"` slots written by the higher-priority
+cascade (e.g. `"Overridden by BK-XXXXXX (6 Hours)"`).
 
 Cascade-deleted with the parent booking.
 
@@ -145,9 +148,16 @@ Cascade-deleted with the parent booking.
 ### BookingOverride
 
 When a higher-priority booking is confirmed over an existing lower-priority
-one, the older bookings get `status = cancelled_override` and a row here
-records the mapping. Lets the admin trace "why did this booking get
-cancelled?" back to the booking that displaced it.
+one, the **specific overlapping slots** on the older booking get
+`slotStatus = "cancelled_override"` (with a "Overridden by BK-XXXXXX
+(Event Type Name)" string written to `rejectReason`), and a row here records
+the per-booking mapping for audit. Sibling slots that didn't overlap stay
+active under the booking's original `status` — earlier versions of the
+cascade flipped the whole `Booking.status` to `cancelled_override`, which
+silently killed non-conflicting slots; that's no longer how it works.
+
+Lets the admin trace "why did this slot get cancelled?" back to the booking
+that displaced it.
 
 Cascade-deleted with the parent (overriding) booking.
 
