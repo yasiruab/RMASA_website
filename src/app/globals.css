@@ -102,10 +102,11 @@ main {
   padding: 0;
   background: transparent;
   border: none;
-  border-radius: 0;
+  border-radius: 10px;
+  overflow: hidden;
 }
 .ac-logo-plaque img {
-  height: 56px;
+  height: 78px;
   width: auto;
   display: block;
 }
@@ -3210,7 +3211,7 @@ a.ac-channel-card:focus-visible {
     padding: 0;
   }
   .ac-logo-plaque img {
-    height: 44px;
+    height: 60px;
   }
 
   /* Activities: force single-column + let body shrink properly so labels don't spill */
@@ -3332,7 +3333,7 @@ a.ac-channel-card:focus-visible {
     padding: 0;
   }
   .ac-logo-plaque img {
-    height: 36px;
+    height: 48px;
   }
 
   /* Recurrence row collapses to a single column */
