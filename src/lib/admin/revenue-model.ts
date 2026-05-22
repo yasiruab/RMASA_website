@@ -10,14 +10,17 @@ import type {
   ReconciliationStatus,
 } from "@/lib/calendar-types";
 import {
+  activeBookingTotalLkr,
   computeBookingEffectiveStatus,
   effectivePaidLkr,
 } from "@/lib/admin/booking-utils";
 import {
+  addDays,
   inDateRange,
   monthKey,
   monthLabel,
   startOfMonth,
+  toYmd,
   ymdToDate,
 } from "@/lib/admin/date-utils";
 
@@ -176,36 +179,17 @@ export function buildRevenueModel<B extends BookingForRevenue>(
       else weekdayRevenueLkr += item.amountLkr;
     }
 
-    const paymentFraction = booking.totalAmountLkr > 0 ? paid / booking.totalAmountLkr : 0;
-    const inRangeBreakdown = booking.amountBreakdown.filter((item) => inDateRange(item.date, startYmd, endYmd));
-
-    if (inRangeBreakdown.length > 0) {
-      for (const item of inRangeBreakdown) {
-        const bKey = monthKey(item.date);
-        const bucket = trendMap.get(bKey);
-        if (bucket) {
-          const itemPaid = Math.round(item.amountLkr * paymentFraction);
-          bucket.recognizedLkr += item.amountLkr;
-          bucket.collectedLkr += itemPaid;
-          if (outstanding > 0 && booking.reconciliationStatus !== "waived") {
-            bucket.receivableLkr += item.amountLkr - itemPaid;
-          }
-        }
-      }
-    } else {
-      const inRangeDates = booking.slots.map((s) => s.date).filter((d) => inDateRange(d, startYmd, endYmd));
-      if (inRangeDates.length > 0) {
-        const firstDate = inRangeDates.sort()[0];
-        const prorated = Math.round((booking.totalAmountLkr * inRangeDates.length) / Math.max(1, booking.slots.length));
-        const proratedPaid = Math.round(prorated * paymentFraction);
-        const bKey = monthKey(firstDate);
-        const bucket = trendMap.get(bKey);
-        if (bucket) {
-          bucket.recognizedLkr += prorated;
-          bucket.collectedLkr += proratedPaid;
-          if (outstanding > 0 && booking.reconciliationStatus !== "waived") {
-            bucket.receivableLkr += prorated - proratedPaid;
-          }
+    // Trend bucketing: attribute the full booking to its createdAt month
+    // (cohort view — matches buildRevenueInsightsModel).
+    const bookingCreatedYmd = (booking.createdAt || "").slice(0, 10);
+    if (inDateRange(bookingCreatedYmd, startYmd, endYmd)) {
+      const bKey = monthKey(bookingCreatedYmd);
+      const bucket = trendMap.get(bKey);
+      if (bucket) {
+        bucket.recognizedLkr += booking.totalAmountLkr;
+        bucket.collectedLkr += paid;
+        if (outstanding > 0 && booking.reconciliationStatus !== "waived") {
+          bucket.receivableLkr += outstanding;
         }
       }
     }
@@ -247,3 +231,400 @@ export function buildRevenueModel<B extends BookingForRevenue>(
 }
 
 export type RevenueModel = ReturnType<typeof buildRevenueModel>;
+
+// ---------------------------------------------------------------------------
+// Revenue Insights model (new redesigned page)
+// ---------------------------------------------------------------------------
+
+export type RevenueGranularity = "daily" | "weekly" | "monthly";
+
+export type RevenueInsightsRangePreset =
+  | "last_30_days"
+  | "last_60_days"
+  | "last_90_days"
+  | "calendar_year"
+  | "last_12_months"
+  | "last_24_months";
+
+export type RevenueInsightsBreakdownBy = "venue" | "event_type";
+
+export type RevenueInsightsFilters = {
+  rangePreset: RevenueInsightsRangePreset;
+  granularity: RevenueGranularity;
+  breakdownBy: RevenueInsightsBreakdownBy;
+};
+
+export type RevenuePeriodBucket = {
+  key: string;       // canonical bucket key (YYYY-MM-DD for daily/weekly, YYYY-MM for monthly)
+  label: string;     // axis label
+  invoicedLkr: number;
+  collectedLkr: number;
+  waiverLkr: number;
+  creditNoteLkr: number;
+  adjustmentsLkr: number;
+  netRevenueLkr: number;
+  collectionRatePct: number;
+  bySegmentLkr: Record<string, number>; // collected per segment (venue or event type)
+};
+
+export type RevenueInsightsTotals = {
+  invoicedLkr: number;
+  collectedLkr: number;
+  receivableLkr: number;
+  adjustmentsLkr: number;
+  waiverLkr: number;
+  creditNoteLkr: number;
+  netRevenueLkr: number;
+  collectionRatePct: number;
+};
+
+export type RevenueSegment = {
+  key: string;
+  label: string;
+  totalLkr: number;
+};
+
+export type RevenueInsightsRange = {
+  startYmd: string;
+  endYmd: string;
+  prevStartYmd: string;
+  prevEndYmd: string;
+};
+
+export type RevenueInsightsModel = {
+  filters: RevenueInsightsFilters;
+  range: RevenueInsightsRange;
+  totals: RevenueInsightsTotals;
+  prevTotals: RevenueInsightsTotals;
+  netRevenueDeltaPct: number | null;
+  buckets: RevenuePeriodBucket[];
+  segments: RevenueSegment[];
+  maxBucketStackLkr: number;
+  maxBucketAdjustmentLkr: number;
+};
+
+// --- Range + bucket helpers --------------------------------------------------
+
+export function resolveInsightsRange(
+  preset: RevenueInsightsRangePreset,
+  today: Date,
+): RevenueInsightsRange {
+  const todayYmd = toYmd(today);
+
+  let startYmd: string;
+  let endYmd: string;
+  if (preset === "last_30_days") {
+    startYmd = toYmd(addDays(today, -29));
+    endYmd = todayYmd;
+  } else if (preset === "last_60_days") {
+    startYmd = toYmd(addDays(today, -59));
+    endYmd = todayYmd;
+  } else if (preset === "last_90_days") {
+    startYmd = toYmd(addDays(today, -89));
+    endYmd = todayYmd;
+  } else if (preset === "calendar_year") {
+    const y = today.getFullYear();
+    startYmd = toYmd(new Date(y, 0, 1));
+    endYmd = toYmd(new Date(y, 11, 31));
+  } else if (preset === "last_12_months") {
+    const start = startOfMonth(today);
+    start.setMonth(start.getMonth() - 11);
+    startYmd = toYmd(start);
+    endYmd = todayYmd;
+  } else {
+    const start = startOfMonth(today);
+    start.setMonth(start.getMonth() - 23);
+    startYmd = toYmd(start);
+    endYmd = todayYmd;
+  }
+
+  const start = ymdToDate(startYmd);
+  const end = ymdToDate(endYmd);
+  const days = Math.round((end.getTime() - start.getTime()) / (1000 * 60 * 60 * 24)) + 1;
+  const prevEnd = addDays(start, -1);
+  const prevStart = addDays(prevEnd, -(days - 1));
+
+  return {
+    startYmd,
+    endYmd,
+    prevStartYmd: toYmd(prevStart),
+    prevEndYmd: toYmd(prevEnd),
+  };
+}
+
+function startOfIsoWeek(date: Date): Date {
+  const copy = new Date(date.getFullYear(), date.getMonth(), date.getDate());
+  const day = copy.getDay();
+  const diff = day === 0 ? -6 : 1 - day; // shift Sunday back, Mon=0
+  copy.setDate(copy.getDate() + diff);
+  return copy;
+}
+
+function bucketKeyFor(ymd: string, granularity: RevenueGranularity): string {
+  if (granularity === "monthly") return monthKey(ymd);
+  if (granularity === "weekly") return toYmd(startOfIsoWeek(ymdToDate(ymd)));
+  return ymd;
+}
+
+function bucketLabelFor(key: string, granularity: RevenueGranularity): string {
+  if (granularity === "monthly") return monthLabel(key);
+  const d = ymdToDate(key);
+  return d.toLocaleDateString("en-US", { month: "short", day: "numeric" });
+}
+
+function buildBucketSkeleton(
+  startYmd: string,
+  endYmd: string,
+  granularity: RevenueGranularity,
+): RevenuePeriodBucket[] {
+  const seen = new Map<string, RevenuePeriodBucket>();
+  const order: string[] = [];
+
+  const start = ymdToDate(startYmd);
+  const end = ymdToDate(endYmd);
+
+  if (granularity === "monthly") {
+    const cursor = startOfMonth(start);
+    const stop = startOfMonth(end);
+    while (cursor <= stop) {
+      const key = `${cursor.getFullYear()}-${String(cursor.getMonth() + 1).padStart(2, "0")}`;
+      if (!seen.has(key)) {
+        order.push(key);
+        seen.set(key, emptyBucket(key, bucketLabelFor(key, granularity)));
+      }
+      cursor.setMonth(cursor.getMonth() + 1);
+    }
+  } else if (granularity === "weekly") {
+    const cursor = startOfIsoWeek(start);
+    while (cursor <= end) {
+      const key = toYmd(cursor);
+      if (!seen.has(key)) {
+        order.push(key);
+        seen.set(key, emptyBucket(key, bucketLabelFor(key, granularity)));
+      }
+      cursor.setDate(cursor.getDate() + 7);
+    }
+  } else {
+    const cursor = new Date(start);
+    while (cursor <= end) {
+      const key = toYmd(cursor);
+      if (!seen.has(key)) {
+        order.push(key);
+        seen.set(key, emptyBucket(key, bucketLabelFor(key, granularity)));
+      }
+      cursor.setDate(cursor.getDate() + 1);
+    }
+  }
+
+  return order.map((k) => seen.get(k) as RevenuePeriodBucket);
+}
+
+function emptyBucket(key: string, label: string): RevenuePeriodBucket {
+  return {
+    key,
+    label,
+    invoicedLkr: 0,
+    collectedLkr: 0,
+    waiverLkr: 0,
+    creditNoteLkr: 0,
+    adjustmentsLkr: 0,
+    netRevenueLkr: 0,
+    collectionRatePct: 0,
+    bySegmentLkr: {},
+  };
+}
+
+// --- Insights model ----------------------------------------------------------
+
+// The insights model needs `date` on payment entries (for bucket attribution),
+// which BookingForRevenue's Pick<"type" | "amountLkr"> doesn't include.
+type BookingForInsights = Omit<BookingForRevenue, "paymentEntries"> & {
+  paymentEntries: Array<Pick<PaymentEntry, "type" | "amountLkr" | "date">>;
+};
+
+type SegmentLookup = { id: string; name: string };
+
+function emptyTotals(): RevenueInsightsTotals {
+  return {
+    invoicedLkr: 0,
+    collectedLkr: 0,
+    receivableLkr: 0,
+    adjustmentsLkr: 0,
+    waiverLkr: 0,
+    creditNoteLkr: 0,
+    netRevenueLkr: 0,
+    collectionRatePct: 0,
+  };
+}
+
+function aggregateBookings<B extends BookingForInsights>(
+  bookings: B[],
+  startYmd: string,
+  endYmd: string,
+  breakdownBy: RevenueInsightsBreakdownBy,
+  granularity: RevenueGranularity,
+  bucketMap: Map<string, RevenuePeriodBucket>,
+  segmentTotals: Map<string, number>,
+): RevenueInsightsTotals {
+  const totals = emptyTotals();
+
+  for (const booking of bookings) {
+    const effective = computeBookingEffectiveStatus(booking);
+
+    // Cohort attribution: everything for this booking (Invoiced + Collected +
+    // Adjustments) is bucketed by booking.createdAt. Reflects the business
+    // semantic "for month M, what was booked in M and how much have customers
+    // paid for those bookings (regardless of slot or payment date)?".
+    const bookingCreatedYmd = (booking.createdAt || "").slice(0, 10);
+    if (!inDateRange(bookingCreatedYmd, startYmd, endYmd)) continue;
+
+    const bKey = bucketKeyFor(bookingCreatedYmd, granularity);
+    let bucket = bucketMap.get(bKey);
+    if (!bucket) {
+      bucket = emptyBucket(bKey, bucketLabelFor(bKey, granularity));
+      bucketMap.set(bKey, bucket);
+    }
+    const segmentKey = breakdownBy === "venue" ? booking.roomTypeId : booking.eventTypeId;
+
+    // Invoiced: sum of active slot amounts (rejected/cancelled slots skipped).
+    if (effective === "confirmed" || effective === "tentative" || effective === "pending") {
+      let invoicedForBooking = 0;
+      for (const item of booking.amountBreakdown) {
+        const slot = booking.slots.find(
+          (s) => s.date === item.date && `${s.startTime}-${s.endTime}` === item.slot,
+        );
+        const slotEff = slot?.slotStatus ?? booking.status;
+        if (slotEff === "rejected" || slotEff === "cancelled_override") continue;
+        invoicedForBooking += item.amountLkr;
+      }
+      bucket.invoicedLkr += invoicedForBooking;
+      totals.invoicedLkr += invoicedForBooking;
+    }
+
+    // Collected / Adjustments: every payment entry on this booking, regardless
+    // of its own .date — attributed to the booking's createdAt cohort.
+    for (const entry of booking.paymentEntries) {
+      if (entry.type === "payment") {
+        bucket.collectedLkr += entry.amountLkr;
+        bucket.bySegmentLkr[segmentKey] = (bucket.bySegmentLkr[segmentKey] ?? 0) + entry.amountLkr;
+        segmentTotals.set(segmentKey, (segmentTotals.get(segmentKey) ?? 0) + entry.amountLkr);
+        totals.collectedLkr += entry.amountLkr;
+      } else if (entry.type === "refund") {
+        bucket.collectedLkr -= entry.amountLkr;
+        bucket.bySegmentLkr[segmentKey] = (bucket.bySegmentLkr[segmentKey] ?? 0) - entry.amountLkr;
+        segmentTotals.set(segmentKey, (segmentTotals.get(segmentKey) ?? 0) - entry.amountLkr);
+        totals.collectedLkr -= entry.amountLkr;
+      } else if (entry.type === "waiver") {
+        bucket.waiverLkr += entry.amountLkr;
+        bucket.adjustmentsLkr += entry.amountLkr;
+        totals.waiverLkr += entry.amountLkr;
+        totals.adjustmentsLkr += entry.amountLkr;
+      } else if (entry.type === "credit_note") {
+        bucket.creditNoteLkr += entry.amountLkr;
+        bucket.adjustmentsLkr += entry.amountLkr;
+        totals.creditNoteLkr += entry.amountLkr;
+        totals.adjustmentsLkr += entry.amountLkr;
+      }
+    }
+  }
+
+  totals.netRevenueLkr = totals.invoicedLkr - totals.adjustmentsLkr;
+  const denom = totals.invoicedLkr - totals.adjustmentsLkr;
+  totals.collectionRatePct = denom > 0 ? totals.collectedLkr / denom : 0;
+  return totals;
+}
+
+function computeReceivable<B extends BookingForInsights>(bookings: B[]): number {
+  let receivable = 0;
+  for (const booking of bookings) {
+    const effective = computeBookingEffectiveStatus(booking);
+    if (effective !== "confirmed" && effective !== "tentative" && effective !== "pending") continue;
+    const activeTotal = activeBookingTotalLkr(booking);
+    const totals = computePaymentTotals(booking.paymentEntries);
+    const amountDue = computeAmountDue(activeTotal, totals);
+    const paid = effectivePaidLkr(booking);
+    const outstanding = Math.max(0, amountDue - paid);
+    receivable += outstanding;
+  }
+  return receivable;
+}
+
+export function buildRevenueInsightsModel<B extends BookingForInsights>(
+  bookings: B[],
+  filters: RevenueInsightsFilters,
+  today: Date,
+  segmentLookup: { rooms: SegmentLookup[]; eventTypes: SegmentLookup[] },
+): RevenueInsightsModel {
+  const range = resolveInsightsRange(filters.rangePreset, today);
+
+  // Build skeleton so empty periods still render as 0-height bars
+  const skeletonBuckets = buildBucketSkeleton(range.startYmd, range.endYmd, filters.granularity);
+  const bucketMap = new Map<string, RevenuePeriodBucket>(skeletonBuckets.map((b) => [b.key, b]));
+  const segmentTotals = new Map<string, number>();
+
+  const totals = aggregateBookings(
+    bookings,
+    range.startYmd,
+    range.endYmd,
+    filters.breakdownBy,
+    filters.granularity,
+    bucketMap,
+    segmentTotals,
+  );
+
+  // Receivable is "as of today", not range-bound
+  totals.receivableLkr = computeReceivable(bookings);
+
+  // Prev-period totals (no buckets needed)
+  const prevBucketMap = new Map<string, RevenuePeriodBucket>();
+  const prevSegmentTotals = new Map<string, number>();
+  const prevTotals = aggregateBookings(
+    bookings,
+    range.prevStartYmd,
+    range.prevEndYmd,
+    filters.breakdownBy,
+    filters.granularity,
+    prevBucketMap,
+    prevSegmentTotals,
+  );
+
+  // Finalise per-bucket derived numbers
+  for (const bucket of bucketMap.values()) {
+    bucket.netRevenueLkr = bucket.invoicedLkr - bucket.adjustmentsLkr;
+    const denom = bucket.invoicedLkr - bucket.adjustmentsLkr;
+    bucket.collectionRatePct = denom > 0 ? bucket.collectedLkr / denom : 0;
+  }
+
+  const buckets = skeletonBuckets.map((b) => bucketMap.get(b.key) as RevenuePeriodBucket);
+
+  // Resolve segment names from lookup
+  const lookupMap = new Map<string, string>();
+  for (const r of segmentLookup.rooms) lookupMap.set(r.id, r.name);
+  for (const e of segmentLookup.eventTypes) lookupMap.set(e.id, e.name);
+  const segments: RevenueSegment[] = [...segmentTotals.entries()]
+    .map(([key, totalLkr]) => ({ key, label: lookupMap.get(key) ?? key, totalLkr }))
+    .sort((a, b) => b.totalLkr - a.totalLkr);
+
+  const maxBucketStackLkr = Math.max(
+    1,
+    ...buckets.map((b) => Object.values(b.bySegmentLkr).reduce((sum, v) => sum + Math.max(0, v), 0)),
+  );
+  const maxBucketAdjustmentLkr = Math.max(1, ...buckets.map((b) => b.adjustmentsLkr));
+
+  const netRevenueDeltaPct =
+    prevTotals.netRevenueLkr > 0
+      ? (totals.netRevenueLkr - prevTotals.netRevenueLkr) / prevTotals.netRevenueLkr
+      : null;
+
+  return {
+    filters,
+    range,
+    totals,
+    prevTotals,
+    netRevenueDeltaPct,
+    buckets,
+    segments,
+    maxBucketStackLkr,
+    maxBucketAdjustmentLkr,
+  };
+}

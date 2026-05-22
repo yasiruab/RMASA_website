@@ -4658,3 +4658,558 @@ button.admin-bookings-kpi-tile {
     border-top: none;
   }
 }
+
+/* ============================================================================
+   Revenue Insights — admin-revenue-* (page at /admin/calendar/revenue)
+   ============================================================================ */
+
+:root {
+  --ac-chart-1: #E8B73A;
+  --ac-chart-2: #7FB7FF;
+  --ac-chart-3: #C77BFF;
+  --ac-chart-4: #22D67C;
+  --ac-chart-5: #FF8A4A;
+  --ac-chart-6: #6B7494;
+}
+
+/* --- Hero ----------------------------------------------------------------- */
+
+.admin-section .admin-revenue-hero {
+  padding: 32px 40px 16px;
+}
+
+.admin-section .admin-revenue-hero-grid {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 24px;
+  flex-wrap: wrap;
+}
+
+.admin-section .admin-revenue-hero-titles {
+  display: flex;
+  align-items: baseline;
+  gap: 14px;
+  flex-wrap: wrap;
+}
+
+.admin-section .admin-revenue-hero-title {
+  font-size: clamp(48px, 6vw, 72px);
+  color: var(--ac-text);
+  line-height: 1;
+  margin: 0;
+}
+
+.admin-section .admin-revenue-hero-title .punct {
+  color: var(--ac-gold);
+}
+
+.admin-section .admin-revenue-hero-italic {
+  font-size: clamp(28px, 3.5vw, 40px);
+  color: var(--ac-text-dim);
+}
+
+.admin-section .admin-revenue-hero-meta {
+  color: var(--ac-text-mute);
+  font-size: 12px;
+  letter-spacing: 0.08em;
+  margin-left: 12px;
+  align-self: baseline;
+}
+
+.admin-section .admin-revenue-hero-right {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 12px;
+}
+
+.admin-section .admin-revenue-hero-identity {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  padding: 6px 14px 6px 12px;
+  background: var(--ac-card);
+  border: 1px solid var(--ac-line);
+  border-radius: 999px;
+  color: var(--ac-text);
+  font-size: 13px;
+}
+
+.admin-section .admin-revenue-hero-identity-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--ac-live);
+  box-shadow: 0 0 0 3px rgba(34, 214, 124, 0.15);
+}
+
+.admin-section .admin-revenue-hero-identity-email {
+  color: var(--ac-text);
+}
+
+.admin-section .admin-revenue-export {
+  background: var(--ac-gold);
+  color: var(--ac-ink);
+  border: none;
+  font-family: "Archivo", sans-serif;
+  font-weight: 900;
+  letter-spacing: 0.1em;
+  font-size: 12px;
+  padding: 10px 18px;
+  border-radius: 4px;
+  cursor: pointer;
+  text-transform: uppercase;
+}
+
+.admin-section .admin-revenue-export:hover {
+  background: var(--ac-gold-bright);
+}
+
+/* --- Controls row -------------------------------------------------------- */
+
+.admin-section .admin-revenue-controls {
+  padding: 16px 40px;
+  display: flex;
+  align-items: center;
+  gap: 32px;
+  flex-wrap: wrap;
+}
+
+.admin-section .admin-revenue-control-group {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.admin-section .admin-revenue-control-label {
+  color: var(--ac-text-mute);
+  font-size: 11px;
+  letter-spacing: 0.1em;
+}
+
+.admin-section .admin-revenue-segmented {
+  display: inline-flex;
+  background: var(--ac-card);
+  border: 1px solid var(--ac-line);
+  border-radius: 4px;
+  overflow: hidden;
+}
+
+.admin-section .admin-revenue-segmented-btn {
+  background: transparent;
+  border: none;
+  color: var(--ac-text-dim);
+  padding: 8px 16px;
+  font-family: "Archivo", sans-serif;
+  font-weight: 700;
+  font-size: 11px;
+  letter-spacing: 0.1em;
+  cursor: pointer;
+}
+
+.admin-section .admin-revenue-segmented-btn.is-active {
+  background: var(--ac-gold);
+  color: var(--ac-ink);
+  font-weight: 900;
+}
+
+.admin-section .admin-revenue-segmented-btn:not(.is-active):hover {
+  color: var(--ac-text);
+}
+
+.admin-section .admin-revenue-select {
+  background: var(--ac-card);
+  color: var(--ac-text);
+  border: 1px solid var(--ac-line);
+  border-radius: 4px;
+  padding: 8px 12px;
+  font-family: "Archivo", sans-serif;
+  font-weight: 700;
+  font-size: 12px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  cursor: pointer;
+  min-width: 180px;
+}
+
+.admin-section .admin-revenue-select:focus {
+  outline: 1px solid var(--ac-gold);
+  outline-offset: 1px;
+}
+
+.admin-section .admin-revenue-control-spacer {
+  flex: 1;
+}
+
+.admin-section .admin-revenue-control-count {
+  color: var(--ac-text-mute);
+  font-size: 11px;
+  letter-spacing: 0.1em;
+}
+
+/* --- KPI strip ----------------------------------------------------------- */
+
+.admin-section .admin-revenue-kpis {
+  display: grid;
+  grid-template-columns: repeat(5, 1fr);
+  gap: 1px;
+  padding: 0 40px;
+  background: var(--ac-line);
+  border-top: 1px solid var(--ac-line);
+  border-bottom: 1px solid var(--ac-line);
+  margin: 0 -40px;
+}
+
+.admin-section .admin-revenue-kpi {
+  background: var(--ac-bg);
+  padding: 18px 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.admin-section .admin-revenue-kpi-label {
+  color: var(--ac-text-mute);
+  font-size: 11px;
+  letter-spacing: 0.1em;
+  margin: 0;
+}
+
+.admin-section .admin-revenue-kpi-value {
+  font-family: "Archivo", sans-serif;
+  font-weight: 900;
+  font-size: 32px;
+  letter-spacing: -0.01em;
+  line-height: 1;
+  margin: 0;
+  color: var(--ac-text);
+}
+
+.admin-section .admin-revenue-kpi-subtitle {
+  color: var(--ac-text-mute);
+  font-size: 10px;
+  letter-spacing: 0.1em;
+  margin: 0;
+}
+
+.admin-section .admin-revenue-kpi.tone-invoiced .admin-revenue-kpi-value {
+  color: var(--ac-chart-1);
+}
+
+.admin-section .admin-revenue-kpi.tone-collected .admin-revenue-kpi-value {
+  color: var(--ac-chart-4);
+}
+
+.admin-section .admin-revenue-kpi.tone-receivable .admin-revenue-kpi-value {
+  color: var(--ac-chart-1);
+}
+
+.admin-section .admin-revenue-kpi.tone-adjustments .admin-revenue-kpi-value {
+  color: var(--ac-chart-3);
+}
+
+.admin-section .admin-revenue-kpi.tone-net .admin-revenue-kpi-value {
+  color: var(--ac-gold);
+}
+
+.admin-section .admin-revenue-kpi-subtitle.tone-positive {
+  color: var(--ac-chart-4);
+}
+
+.admin-section .admin-revenue-kpi-subtitle.tone-negative {
+  color: #FF6E6E;
+}
+
+.admin-section .admin-revenue-kpi-subtitle.tone-neutral {
+  color: var(--ac-text-mute);
+}
+
+/* --- Chart panel (shared) ------------------------------------------------ */
+
+.admin-section .admin-revenue-chart-panel {
+  padding: 32px 40px;
+}
+
+.admin-section .admin-revenue-chart-head {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 24px;
+  flex-wrap: wrap;
+  margin-bottom: 24px;
+}
+
+.admin-section .admin-revenue-chart-title {
+  font-size: 28px;
+  color: var(--ac-text);
+  margin: 0;
+  display: inline;
+}
+
+.admin-section .admin-revenue-chart-subtitle {
+  color: var(--ac-gold);
+  font-size: 12px;
+  letter-spacing: 0.08em;
+  margin-left: 8px;
+}
+
+.admin-section .admin-revenue-chart-head-right {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 6px;
+}
+
+.admin-section .admin-revenue-chart-label {
+  color: var(--ac-text-mute);
+  font-size: 11px;
+  letter-spacing: 0.1em;
+}
+
+.admin-section .admin-revenue-chart-frame {
+  background: var(--ac-card);
+  border: 1px solid var(--ac-line);
+  border-radius: 6px;
+  padding: 20px 24px;
+}
+
+.admin-section .admin-revenue-chart-frame-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 24px;
+  margin-bottom: 16px;
+  color: var(--ac-text-mute);
+  font-size: 11px;
+  letter-spacing: 0.1em;
+}
+
+.admin-section .admin-revenue-chart-frame-hint {
+  color: var(--ac-text-mute);
+}
+
+/* --- Bar chart (stacked) ------------------------------------------------- */
+
+.admin-section .admin-revenue-chart {
+  display: flex;
+  gap: 12px;
+  height: 320px;
+}
+
+.admin-section .admin-revenue-chart.admin-revenue-chart-mini {
+  height: 180px;
+}
+
+.admin-section .admin-revenue-chart-yaxis {
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  width: 72px;
+  color: var(--ac-text-mute);
+  font-size: 10px;
+  letter-spacing: 0.06em;
+  padding-bottom: 22px;
+  padding-top: 4px;
+}
+
+.admin-section .admin-revenue-chart-ytick {
+  display: block;
+  text-align: right;
+  white-space: nowrap;
+}
+
+.admin-section .admin-revenue-chart-plot {
+  flex: 1;
+  position: relative;
+}
+
+.admin-section .admin-revenue-chart-grid {
+  position: absolute;
+  inset: 4px 0 22px 0;
+  display: flex;
+  flex-direction: column-reverse;
+  justify-content: space-between;
+  pointer-events: none;
+}
+
+.admin-section .admin-revenue-chart-gridline {
+  width: 100%;
+  height: 0;
+  border-top: 1px dashed var(--ac-line);
+  opacity: 0.35;
+}
+
+.admin-section .admin-revenue-chart-bars {
+  position: absolute;
+  inset: 4px 0 22px 0;
+  display: flex;
+  align-items: flex-end;
+  gap: 8px;
+}
+
+.admin-section .admin-revenue-chart-barwrap {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  min-width: 0;
+  height: 100%;
+  position: relative;
+}
+
+.admin-section .admin-revenue-chart-bar {
+  width: 80%;
+  max-width: 60px;
+  background: transparent;
+  border-radius: 2px 2px 0 0;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column-reverse;
+  margin-top: auto;
+  transition: opacity 0.15s ease;
+}
+
+.admin-section .admin-revenue-chart-bar:hover {
+  opacity: 0.85;
+}
+
+.admin-section .admin-revenue-chart-seg {
+  width: 100%;
+  min-height: 1px;
+}
+
+.admin-section .admin-revenue-chart-xlabel {
+  position: absolute;
+  bottom: -18px;
+  color: var(--ac-text-mute);
+  font-size: 10px;
+  letter-spacing: 0.06em;
+  white-space: nowrap;
+}
+
+/* --- Legend (toggleable) ------------------------------------------------- */
+
+.admin-section .admin-revenue-legend {
+  display: flex;
+  justify-content: center;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 18px;
+  padding-top: 16px;
+  border-top: 1px solid var(--ac-line);
+}
+
+.admin-section .admin-revenue-legend-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  background: var(--ac-ink2);
+  border: 1px solid transparent;
+  border-radius: 3px;
+  padding: 6px 12px;
+  font-family: "Archivo", sans-serif;
+  font-weight: 700;
+  font-size: 11px;
+  letter-spacing: 0.1em;
+  color: var(--ac-text);
+  cursor: pointer;
+  text-transform: uppercase;
+  transition: background 0.15s ease, border-color 0.15s ease, color 0.15s ease;
+}
+
+.admin-section .admin-revenue-legend-item:hover {
+  border-color: var(--ac-gold-deep);
+}
+
+.admin-section .admin-revenue-legend-item.is-hidden {
+  background: transparent;
+  border-color: var(--ac-gold-deep);
+  color: var(--ac-text-mute);
+}
+
+.admin-section .admin-revenue-legend-item.is-hidden .admin-revenue-legend-label {
+  text-decoration: line-through;
+}
+
+.admin-section .admin-revenue-legend-item.is-hidden .admin-revenue-legend-swatch {
+  opacity: 0.35;
+  background: transparent !important;
+  border: 1px solid var(--ac-text-mute);
+}
+
+.admin-section .admin-revenue-legend-swatch {
+  width: 12px;
+  height: 12px;
+  border-radius: 2px;
+  display: inline-block;
+}
+
+/* --- Secondary row (line chart + adjustment) ----------------------------- */
+
+.admin-section .admin-revenue-secondary {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 24px;
+  padding: 0 40px 40px;
+}
+
+.admin-section .admin-revenue-line-panel,
+.admin-section .admin-revenue-adjustment-panel {
+  padding: 0;
+}
+
+.admin-section .admin-revenue-line-svg {
+  display: block;
+  width: 100%;
+  height: 240px;
+}
+
+.admin-section .admin-revenue-line-key {
+  display: inline-block;
+  width: 18px;
+  height: 3px;
+  background: var(--ac-gold);
+  border-radius: 2px;
+  margin-right: 6px;
+  vertical-align: middle;
+  transform: translateY(-1px);
+}
+
+/* --- Loading state ------------------------------------------------------- */
+
+.admin-section .admin-revenue-loading {
+  padding: 24px 40px;
+  color: var(--ac-text-mute);
+  font-size: 12px;
+  letter-spacing: 0.1em;
+}
+
+/* --- Responsive ---------------------------------------------------------- */
+
+@media (max-width: 1100px) {
+  .admin-section .admin-revenue-kpis {
+    grid-template-columns: repeat(2, 1fr);
+  }
+  .admin-section .admin-revenue-secondary {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 700px) {
+  .admin-section .admin-revenue-hero,
+  .admin-section .admin-revenue-controls,
+  .admin-section .admin-revenue-chart-panel,
+  .admin-section .admin-revenue-secondary {
+    padding-left: 16px;
+    padding-right: 16px;
+  }
+  .admin-section .admin-revenue-kpis {
+    grid-template-columns: 1fr;
+    margin: 0;
+  }
+  .admin-section .admin-revenue-chart {
+    height: 240px;
+  }
+}
+

@@ -217,8 +217,65 @@ Tones in `src/styles/admin.css`: `tone-pending` (gold), `tone-tentative`
 `tone-cancelled_override` (line grey); payment tones add `tone-part`
 (orange), `tone-overpaid` (`#7fb7ff`), `tone-waived` (ink3).
 
+**Revenue Insights** at `/admin/calendar/revenue` —
+[`src/components/admin/sections/admin-revenue.tsx`](src/components/admin/sections/admin-revenue.tsx)
+(client component, mounted under
+[`src/app/admin/calendar/revenue/page.tsx`](src/app/admin/calendar/revenue/page.tsx)).
+Composition: hero (`REVENUE.` display + `insights.` italic + identity pill +
+EXPORT CSV) → controls row (granularity segmented control DAILY / WEEKLY /
+MONTHLY + range dropdown + "SHOWING X periods") → 5-KPI strip (Invoiced /
+Collected / Receivable / Adjustments / Net Revenue with vs-prev delta) →
+**Revenue trend** panel (stacked bar of collected revenue, broken down by
+venue or event type via the BREAK DOWN BY dropdown, with a toggleable legend
+that strikes through hidden segments) → secondary row (**Collection
+efficiency** SVG line chart of collected ÷ (invoiced − adjustments), and
+**Adjustments** stacked bar of waivers + credit notes with a toggleable
+legend).
+
+Range presets: `last_30_days`, `last_60_days`, `last_90_days`, `calendar_year`
+(Jan 1 → Dec 31 of current year, includes future-empty months),
+`last_12_months`, `last_24_months`. Comparison period for Net Revenue's
+vs-prev delta is the same-length window immediately preceding the current
+range, in days.
+
+Period attribution — **cohort view by `booking.createdAt`** (used by every
+per-bucket value):
+- **Invoiced** ← sum of `amountBreakdown[].amountLkr` for active slots,
+  attributed to the bucket containing `booking.createdAt`. Rejected /
+  cancelled-override slots contribute nothing.
+- **Collected / Waiver / Credit Note** ← `PaymentEntry.amountLkr`, attributed
+  to the bucket containing the *parent booking's* `createdAt` (not the
+  PaymentEntry's own `date`). Refunds subtract from Collected.
+- **Receivable** is *not* range-bound — sum of outstanding from all
+  currently-active bookings as of today.
+- **Net Revenue** = Invoiced − Adjustments. **Collection Rate** = Collected ÷
+  (Invoiced − Adjustments).
+
+The cohort attribution reflects the business semantic "for month M, what was
+booked in M and how much have customers paid for those bookings?" — payment
+is taken at booking time, so revenue is recognized when the booking is made,
+not when the service is rendered. Both `buildRevenueModel()` (hub snapshot
+trend bar) and `buildRevenueInsightsModel()` (Insights page) use this
+attribution; behaviour is consistent across the admin panel.
+
+Implementation lives in
+[`src/lib/admin/revenue-model.ts`](src/lib/admin/revenue-model.ts) →
+`buildRevenueInsightsModel()` (a separate function from the older
+`buildRevenueModel()` used by the hub snapshot — the snapshot's data shape
+hasn't changed). The model takes `bookings + filters + today + segmentLookup`
+and returns `{ totals, prevTotals, netRevenueDeltaPct, buckets, segments,
+maxBucketStackLkr, maxBucketAdjustmentLkr }`. Bucket granularity is daily
+(YYYY-MM-DD key), weekly (ISO Monday-start, YYYY-MM-DD key), or monthly
+(YYYY-MM key).
+
+Legend palette: 6 chart colours declared as `--ac-chart-1` (gold) through
+`--ac-chart-6` (muted grey) in
+[`src/styles/admin.css`](src/styles/admin.css). The top-5 segments by total
+collected get named entries; everything else collapses into one OTHER tile
+to keep the legend readable.
+
 **Remaining legacy sections** (`/admin/calendar/{blockouts,rooms,event-types,
-pricing,accounts,revenue}` and `/admin/calendar/reports`) still render the
+pricing,accounts}` and `/admin/calendar/reports`) still render the
 mega-component
 [`src/components/admin/admin-calendar-console.tsx`](src/components/admin/admin-calendar-console.tsx)
 or the standalone reports page. They share their markup with the previous
