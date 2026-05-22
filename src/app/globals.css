@@ -833,7 +833,10 @@ main {
   padding: 56px 48px 64px;
   background-color: var(--ac-bg);
   background-size: cover;
-  background-position: center;
+  /* Per-page override via inline `--hero-bg-pos` CSS variable when the source
+     image has off-centre subjects (e.g. heads near the top edge). Defaults to
+     `center`. */
+  background-position: var(--hero-bg-pos, center);
   border-bottom: 1px solid var(--ac-line);
   position: relative;
 }
@@ -5873,8 +5876,16 @@ a.ac-channel-card:focus-visible {
 
 .event-images img {
   width: 100%;
-  height: 210px;
+  /* Taller container so the cover crop is less aggressive vertically — the
+     source photos are roughly 3:2 landscape and were losing the upper half
+     of subjects at 210px. */
+  height: 280px;
   object-fit: cover;
+  /* Anchor the visible window 25% from the top so subjects whose heads sit
+     in the upper third of the source (boxers, performers) stay in frame.
+     Per-image overrides via inline `style={{ objectPosition: "…" }}` on the
+     specific <Image>. */
+  object-position: center 25%;
   border-radius: 8px;
 }
 
