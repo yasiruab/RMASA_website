@@ -1508,70 +1508,45 @@ a.ac-channel-card:focus-visible {
   padding: 80px 48px;
   background: var(--ac-bg);
 }
-.ac-discipline-group {
-  margin-top: 48px;
-}
-.ac-discipline-group:first-of-type {
-  margin-top: 0;
-}
-.ac-discipline-group-head {
-  display: flex;
-  align-items: baseline;
-  gap: 14px;
-  margin-bottom: 18px;
-  padding-bottom: 12px;
-  border-bottom: 1px solid var(--ac-line);
-}
-.ac-discipline-group-name {
-  color: var(--ac-gold);
-  font-size: 24px;
-}
-.ac-discipline-group-count {
-  font-family: "Geist Mono", monospace;
-  font-size: 11px;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-  color: var(--ac-text-mute);
-}
 .ac-discipline-grid {
   display: grid;
   grid-template-columns: repeat(3, 1fr);
-  gap: 12px;
+  gap: 18px;
+  margin-top: 32px;
 }
 .ac-activity-card {
   display: flex;
-  align-items: stretch;
-  gap: 0;
+  flex-direction: column;
   background: var(--ac-card);
   border: 1px solid var(--ac-line);
+  border-radius: 8px;
+  overflow: hidden;
   transition: border-color 0.15s ease, transform 0.15s ease;
 }
 .ac-activity-card:hover {
   border-color: var(--ac-gold);
+  transform: translateY(-2px);
 }
-.ac-activity-tile {
-  width: 88px;
-  flex: 0 0 auto;
-  display: flex;
-  align-items: center;
-  justify-content: center;
+/* Image area: 3:2 aspect ratio container; Next.js <Image fill> stretches to
+   100%/100% inside. The aspect-ratio property is the source of truth, so
+   neither image dimensions nor a fixed height get baked in. */
+.ac-activity-image {
+  position: relative;
+  width: 100%;
+  aspect-ratio: 3 / 2;
   background: var(--ac-ink);
-  border-right: 1px solid var(--ac-line);
-  color: var(--ac-gold);
 }
-.ac-activity-tile svg {
-  width: 36px;
-  height: 36px;
+.ac-activity-image img {
+  object-fit: cover;
 }
 .ac-activity-body {
-  padding: 24px 20px;
-  flex: 1;
-  display: flex;
-  align-items: center;
+  padding: 18px 22px 22px;
 }
 .ac-activity-name {
   color: var(--ac-text);
   font-size: 22px;
+  line-height: 1.1;
+  letter-spacing: -0.01em;
 }
 
 /* ─── Activities · closing callout ────────────────────────────── */
@@ -3150,7 +3125,7 @@ a.ac-channel-card:focus-visible {
     padding-right: 20px;
   }
   .ac-discipline-grid {
-    grid-template-columns: 1fr;
+    grid-template-columns: repeat(2, 1fr);
   }
   .ac-callout-card {
     grid-template-columns: 1fr;

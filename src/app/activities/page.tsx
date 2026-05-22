@@ -1,64 +1,28 @@
-import { ComponentType, SVGProps } from "react";
+import type { CSSProperties } from "react";
+import Image from "next/image";
 import Link from "next/link";
 import { Breadcrumbs } from "@/components/breadcrumbs";
-import {
-  BadmintonIcon,
-  BoxingIcon,
-  FencingIcon,
-  GrapplingIcon,
-  GymnasticsIcon,
-  KarateIcon,
-  MeetingsIcon,
-  PerformingArtsIcon,
-  SeminarsIcon,
-  WrestlingIcon,
-  WushuIcon,
-} from "@/components/icons";
 
 type Activity = {
   label: string;
-  Icon: ComponentType<SVGProps<SVGSVGElement>>;
+  image: string;
 };
 
-type Category = {
-  key: string;
-  display: string;
-  items: Activity[];
-};
-
-const CATEGORIES: Category[] = [
-  {
-    key: "combat",
-    display: "combat.",
-    items: [
-      { label: "Boxing", Icon: BoxingIcon },
-      { label: "Wrestling", Icon: WrestlingIcon },
-      { label: "Karate", Icon: KarateIcon },
-      { label: "Wushu", Icon: WushuIcon },
-      { label: "Fencing", Icon: FencingIcon },
-      { label: "Any type of grappling sport", Icon: GrapplingIcon },
-    ],
-  },
-  {
-    key: "sport",
-    display: "sport.",
-    items: [
-      { label: "Gymnastics", Icon: GymnasticsIcon },
-      { label: "Badminton", Icon: BadmintonIcon },
-    ],
-  },
-  {
-    key: "gatherings",
-    display: "gatherings.",
-    items: [
-      { label: "Seminars", Icon: SeminarsIcon },
-      { label: "Meetings", Icon: MeetingsIcon },
-      { label: "Performing arts", Icon: PerformingArtsIcon },
-    ],
-  },
+// Order: sport/combat first, then performance, then formal gatherings.
+// Image filenames live in public/activities/ — swap a file at the same name to
+// change the photo, or append to this list (and drop a matching .webp in
+// public/activities/) to add a new activity.
+const ACTIVITIES: Activity[] = [
+  { label: "Badminton", image: "/activities/Activities-Badminton-1.webp" },
+  { label: "Fencing", image: "/activities/activities-fencing-1.webp" },
+  { label: "Gymnastics", image: "/activities/activities-gymnastics-1.webp" },
+  { label: "Martial Arts", image: "/activities/activities-martial-arts-1.webp" },
+  { label: "Concerts", image: "/activities/activities-concerts-1.webp" },
+  { label: "Fashion Shows", image: "/activities/activities-fashion-shows-1.webp" },
+  { label: "Exhibitions", image: "/activities/activities-exhibitions-1.webp" },
+  { label: "Seminars", image: "/activities/activities-seminars-1.webp" },
+  { label: "Gatherings", image: "/activities/activities-gatherings-1.webp" },
 ];
-
-const TOTAL_ACTIVITIES = CATEGORIES.reduce((sum, cat) => sum + cat.items.length, 0);
 
 export default function ActivitiesPage() {
   return (
@@ -66,7 +30,12 @@ export default function ActivitiesPage() {
       <section
         aria-label="Activities hero"
         className="ac-page-hero"
-        style={{ backgroundImage: "url(/rmasa/activities.jpg)" }}
+        style={
+          {
+            backgroundImage: "url(/rmasa/activities.jpg)",
+            "--hero-bg-pos": "center 15%",
+          } as CSSProperties
+        }
       >
         <div className="ac-page-hero-inner">
           <Breadcrumbs current="Activities" />
@@ -91,36 +60,26 @@ export default function ActivitiesPage() {
           <span className="title">
             <span className="num">01 /</span> THE DISCIPLINES.
           </span>
-          <span className="meta">
-            {CATEGORIES.length} CATEGORIES · {TOTAL_ACTIVITIES} USES
-          </span>
+          <span className="meta">{ACTIVITIES.length} USES</span>
         </div>
 
-        {CATEGORIES.map((cat) => (
-          <div className="ac-discipline-group" key={cat.key}>
-            <div className="ac-discipline-group-head">
-              <span className="ac-italic ac-discipline-group-name">{cat.display}</span>
-              <span className="ac-discipline-group-count">
-                {cat.items.length} {cat.items.length === 1 ? "ACTIVITY" : "ACTIVITIES"}
-              </span>
-            </div>
-            <div className="ac-discipline-grid">
-              {cat.items.map((item) => {
-                const { Icon } = item;
-                return (
-                  <article className="ac-activity-card" key={item.label}>
-                    <div className="ac-activity-tile" aria-hidden="true">
-                      <Icon />
-                    </div>
-                    <div className="ac-activity-body">
-                      <span className="ac-display ac-activity-name">{item.label}</span>
-                    </div>
-                  </article>
-                );
-              })}
-            </div>
-          </div>
-        ))}
+        <div className="ac-discipline-grid">
+          {ACTIVITIES.map((activity) => (
+            <article className="ac-activity-card" key={activity.label}>
+              <div className="ac-activity-image">
+                <Image
+                  alt={activity.label}
+                  fill
+                  sizes="(max-width: 600px) 100vw, (max-width: 980px) 50vw, 33vw"
+                  src={activity.image}
+                />
+              </div>
+              <div className="ac-activity-body">
+                <span className="ac-display ac-activity-name">{activity.label}</span>
+              </div>
+            </article>
+          ))}
+        </div>
       </section>
 
       <section className="ac-callout-section" aria-label="Got a different event in mind">
