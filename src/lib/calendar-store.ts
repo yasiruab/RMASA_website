@@ -78,11 +78,6 @@ export async function readCalendarDb(): Promise<CalendarDb> {
         phone: booking.customerPhone,
         purpose: booking.customerPurpose,
       },
-      recurrence: {
-        frequency: booking.recurrenceFrequency,
-        endDate: booking.recurrenceEndDate ?? undefined,
-        occurrences: booking.recurrenceOccurrences ?? undefined,
-      },
       totalAmountLkr: booking.totalAmountLkr,
       paidAmountLkr: booking.paidAmountLkr,
       amountBreakdown: booking.amountBreakdown.map((item) => ({
@@ -159,9 +154,6 @@ export async function insertBookingWithCascade(
         customerEmail: booking.customer.email,
         customerPhone: booking.customer.phone,
         customerPurpose: booking.customer.purpose,
-        recurrenceFrequency: booking.recurrence.frequency,
-        recurrenceEndDate: booking.recurrence.endDate ?? null,
-        recurrenceOccurrences: booking.recurrence.occurrences ?? null,
         totalAmountLkr: booking.totalAmountLkr,
         paidAmountLkr: booking.paidAmountLkr,
         reconciliationStatus: booking.reconciliationStatus,

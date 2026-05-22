@@ -14,7 +14,7 @@ Two distinct shapes, by intent:
 
 | Pattern | Examples | Postgres type |
 |---|---|---|
-| Business-semantic dates / times — "when does the booking happen?" | `BookingSlot.date` (`"2026-05-20"`), `BookingSlot.startTime` / `endTime` (`"07:00"`), `CalendarBlock.date`, `BookingAmountBreakdown.date` / `slot`, `Booking.recurrenceEndDate`, `PaymentEntry.date` | **`text`** (Prisma `String`) |
+| Business-semantic dates / times — "when does the booking happen?" | `BookingSlot.date` (`"2026-05-20"`), `BookingSlot.startTime` / `endTime` (`"07:00"`), `CalendarBlock.date`, `BookingAmountBreakdown.date` / `slot`, `PaymentEntry.date` | **`text`** (Prisma `String`) |
 | System event timestamps — "when did this row happen?" | `Booking.createdAt` / `updatedAt` / `confirmedAt`, `EmailLog.createdAt`, `AuditLog.createdAt`, `PaymentEntry.createdAt` | **`timestamp with time zone`** (Prisma `DateTime`) |
 
 A booking slot is "May 20, 7:00 AM **in Colombo**" — independent of any
