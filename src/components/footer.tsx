@@ -41,10 +41,10 @@ export function Footer() {
           <Link aria-label="Royal MAS Arena home" className="ac-logo-plaque" href="/">
             <Image
               alt="Royal MAS Arena"
-              height={60}
-              sizes="160px"
+              height={78}
+              sizes="(max-width: 700px) 126px, (max-width: 980px) 157px, 204px"
               src="/rmasa/royal-mas-arena-logo.png"
-              width={158}
+              width={204}
             />
           </Link>
           <p>

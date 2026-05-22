@@ -62,6 +62,9 @@ export type BookingSlot = {
   rejectReason?: string;
 };
 
+// Creation-time only — the booking payload carries this pattern in, the
+// server expands it into BookingSlot rows, and the pattern itself is not
+// persisted. Nothing on a loaded Booking reads it.
 export type Recurrence = {
   frequency: "none" | "daily" | "weekly" | "monthly";
   endDate?: string;
@@ -85,7 +88,6 @@ export type Booking = {
   cleanupDurationMinutes: number;
   slots: BookingSlot[];
   customer: BookingCustomer;
-  recurrence: Recurrence;
   totalAmountLkr: number;
   paidAmountLkr: number;
   amountBreakdown: Array<{

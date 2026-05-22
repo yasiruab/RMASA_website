@@ -20,9 +20,9 @@ const SECTION_LABELS: Record<AdminCalendarSection, string> = {
 
 // "dashboard" was replaced by the new hub at /admin/calendar.
 // "bookings" was replaced by the explicit route at /admin/calendar/bookings,
-// which Next.js automatically prefers over this dynamic segment.
+// and "revenue" by /admin/calendar/revenue — Next.js prefers those over this
+// dynamic segment.
 const allowedSections: AdminCalendarSection[] = [
-  "revenue",
   "accounts",
   "rooms",
   "event-types",

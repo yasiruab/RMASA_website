@@ -17,3 +17,6 @@ tsconfig.tsbuildinfo
 rmasa-website-design/
 rmasa-website-admin-redesign/
 
+# Legacy CSV dumps used for one-off data migration (contain customer PII)
+db-migration/
+

@@ -209,7 +209,6 @@ export async function POST(req: Request) {
       phone: customer.phone,
       purpose: customer.purpose,
     },
-    recurrence,
     totalAmountLkr: breakdown.reduce((sum, item) => sum + item.amountLkr, 0),
     paidAmountLkr: 0,
     amountBreakdown: breakdown,
