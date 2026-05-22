@@ -337,14 +337,45 @@ export async function replaceCalendarConfig(
   pricingRules: PricingRule[],
 ) {
   await prisma.$transaction(async (tx) => {
+    // PricingRule has no incoming FKs — safe to wipe and recreate.
     await tx.pricingRule.deleteMany();
-    await tx.eventType.deleteMany();
-    await tx.roomType.deleteMany();
+
+    // RoomType and EventType have `onDelete: Restrict` from Booking, so a
+    // blanket deleteMany() fails the moment any booking references any row.
+    // Use a delta-based approach: only delete rows whose IDs are absent from
+    // the payload (i.e. genuinely removed by the admin); everything else
+    // upserts in place so the FK references stay valid.
+    const payloadRoomIds = new Set(rooms.map((room) => room.id));
+    const payloadEventTypeIds = new Set(eventTypes.map((eventType) => eventType.id));
+
+    const existingEventTypeIds = (await tx.eventType.findMany({ select: { id: true } })).map(
+      (row) => row.id,
+    );
+    const eventTypeIdsToRemove = existingEventTypeIds.filter((id) => !payloadEventTypeIds.has(id));
+    if (eventTypeIdsToRemove.length > 0) {
+      await tx.eventType.deleteMany({ where: { id: { in: eventTypeIdsToRemove } } });
+    }
+
+    const existingRoomTypeIds = (await tx.roomType.findMany({ select: { id: true } })).map(
+      (row) => row.id,
+    );
+    const roomTypeIdsToRemove = existingRoomTypeIds.filter((id) => !payloadRoomIds.has(id));
+    if (roomTypeIdsToRemove.length > 0) {
+      await tx.roomType.deleteMany({ where: { id: { in: roomTypeIdsToRemove } } });
+    }
 
     for (const room of rooms) {
-      await tx.roomType.create({
-        data: {
+      await tx.roomType.upsert({
+        where: { id: room.id },
+        create: {
           id: room.id,
+          name: room.name,
+          startTime: room.workingHours.startTime,
+          endTime: room.workingHours.endTime,
+          capacity: room.capacity ?? null,
+          description: room.description ?? null,
+        },
+        update: {
           name: room.name,
           startTime: room.workingHours.startTime,
           endTime: room.workingHours.endTime,
@@ -355,9 +386,18 @@ export async function replaceCalendarConfig(
     }
 
     for (const eventType of eventTypes) {
-      await tx.eventType.create({
-        data: {
+      await tx.eventType.upsert({
+        where: { id: eventType.id },
+        create: {
           id: eventType.id,
+          name: eventType.name,
+          durationMinutes: eventType.durationMinutes,
+          cleanupDurationMinutes: eventType.cleanupDurationMinutes ?? 0,
+          maxAdvanceBookingDays: eventType.maxAdvanceBookingDays ?? 365,
+          priority: eventType.priority,
+          roomTypeId: eventType.roomTypeId ?? null,
+        },
+        update: {
           name: eventType.name,
           durationMinutes: eventType.durationMinutes,
           cleanupDurationMinutes: eventType.cleanupDurationMinutes ?? 0,
