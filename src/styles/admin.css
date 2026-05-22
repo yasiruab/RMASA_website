@@ -5213,3 +5213,566 @@ button.admin-bookings-kpi-tile {
   }
 }
 
+/* ============================================================================
+   Calendar (admin-schedule-*) — page at /admin/calendar/schedule
+   ============================================================================ */
+
+.admin-section .admin-schedule {
+  padding: 0 40px 64px;
+  color: var(--ac-text);
+}
+
+/* --- Hero ----------------------------------------------------------------- */
+
+.admin-section .admin-schedule-hero {
+  padding: 32px 0 16px;
+}
+
+.admin-section .admin-schedule-hero-grid {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 24px;
+  flex-wrap: wrap;
+}
+
+.admin-section .admin-schedule-hero-eyebrow {
+  color: var(--ac-text-mute);
+  font-size: 11px;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+}
+
+.admin-section .admin-schedule-hero-title {
+  margin: 6px 0 0;
+  font-size: clamp(40px, 6vw, 72px);
+  line-height: 0.92;
+  letter-spacing: -0.02em;
+}
+
+.admin-section .admin-schedule-hero-italic {
+  color: var(--ac-text-dim);
+}
+
+.admin-section .admin-schedule-hero-blurb {
+  margin: 12px 0 0;
+  max-width: 540px;
+  color: var(--ac-text-dim);
+  font-size: 14px;
+  line-height: 1.5;
+}
+
+.admin-section .admin-schedule-hero-side {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  align-items: flex-end;
+}
+
+.admin-section .admin-schedule-identity-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 12px;
+  background: var(--ac-ink2);
+  border: 1px solid var(--ac-line);
+  border-radius: 999px;
+  font-size: 12px;
+  letter-spacing: 0.04em;
+}
+
+.admin-section .admin-schedule-identity-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--ac-live);
+  box-shadow: 0 0 8px var(--ac-live);
+}
+
+.admin-section .admin-schedule-identity-email {
+  color: var(--ac-text);
+}
+
+.admin-section .admin-schedule-identity-role {
+  color: var(--ac-text-mute);
+  padding-left: 8px;
+  border-left: 1px solid var(--ac-line);
+  text-transform: uppercase;
+  font-family: var(--font-geist-mono), ui-monospace, monospace;
+  font-size: 11px;
+}
+
+/* --- Controls (week nav) -------------------------------------------------- */
+
+.admin-section .admin-schedule-controls {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 16px 0;
+  border-top: 1px solid var(--ac-line);
+  border-bottom: 1px solid var(--ac-line);
+  flex-wrap: wrap;
+}
+
+.admin-section .admin-schedule-week-nav {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.admin-section .admin-schedule-nav-btn {
+  padding: 8px 14px;
+  background: var(--ac-card);
+  color: var(--ac-text);
+  border: 1px solid var(--ac-line);
+  border-radius: 6px;
+  font-family: var(--font-geist-mono), ui-monospace, monospace;
+  font-size: 11px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  cursor: pointer;
+  transition: background-color 0.15s, border-color 0.15s, color 0.15s;
+}
+
+.admin-section .admin-schedule-nav-btn:hover {
+  background: var(--ac-ink2);
+  border-color: var(--ac-gold-deep);
+  color: var(--ac-gold-bright);
+}
+
+.admin-section .admin-schedule-nav-btn.is-today {
+  background: var(--ac-gold);
+  color: var(--ac-ink);
+  border-color: var(--ac-gold);
+}
+
+.admin-section .admin-schedule-week-label {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 14px;
+  color: var(--ac-text);
+  font-size: 14px;
+  letter-spacing: 0.04em;
+}
+
+.admin-section .admin-schedule-week-count {
+  color: var(--ac-text-mute);
+  font-family: var(--font-geist-mono), ui-monospace, monospace;
+  font-size: 11px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+
+/* --- Legend --------------------------------------------------------------- */
+
+.admin-section .admin-schedule-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 24px;
+  padding: 18px 0;
+}
+
+.admin-section .admin-schedule-legend-group {
+  display: inline-flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.admin-section .admin-schedule-legend-label {
+  color: var(--ac-text-mute);
+  font-size: 11px;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+}
+
+.admin-section .admin-schedule-legend-chips {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.admin-section .admin-schedule-legend-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 12px;
+  background: var(--ac-card);
+  color: var(--ac-text);
+  border: 1px solid var(--ac-line);
+  border-radius: 999px;
+  font-family: var(--font-geist-mono), ui-monospace, monospace;
+  font-size: 11px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  cursor: pointer;
+  transition: background-color 0.15s, color 0.15s, border-color 0.15s, opacity 0.15s;
+}
+
+.admin-section .admin-schedule-legend-chip .admin-schedule-legend-swatch {
+  width: 10px;
+  height: 10px;
+  border-radius: 3px;
+  background: var(--chip-color, var(--ac-text-dim));
+}
+
+.admin-section .admin-schedule-legend-chip.is-status.tone-pending .admin-schedule-legend-swatch {
+  background: var(--ac-gold);
+}
+.admin-section .admin-schedule-legend-chip.is-status.tone-tentative .admin-schedule-legend-swatch {
+  background: #c77bff;
+}
+.admin-section .admin-schedule-legend-chip.is-status.tone-confirmed .admin-schedule-legend-swatch {
+  background: var(--ac-live);
+}
+.admin-section .admin-schedule-legend-chip.is-status.tone-rejected .admin-schedule-legend-swatch {
+  background: #ff6c6c;
+}
+.admin-section .admin-schedule-legend-chip.is-status.tone-cancelled_override .admin-schedule-legend-swatch {
+  background: var(--ac-text-mute);
+}
+
+.admin-section .admin-schedule-legend-chip:hover {
+  border-color: var(--ac-gold-deep);
+}
+
+.admin-section .admin-schedule-legend-chip.is-hidden {
+  opacity: 0.4;
+  text-decoration: line-through;
+  text-decoration-color: var(--ac-text-mute);
+}
+
+.admin-section .admin-schedule-legend-chip.is-hidden .admin-schedule-legend-swatch {
+  opacity: 0.5;
+}
+
+/* --- Grid ---------------------------------------------------------------- */
+
+.admin-section .admin-schedule-grid-wrap {
+  margin-top: 12px;
+}
+
+.admin-section .admin-schedule-grid {
+  border: 1px solid var(--ac-line);
+  border-radius: 8px;
+  background: var(--ac-card);
+  overflow: hidden;
+}
+
+.admin-section .admin-schedule-grid-head {
+  display: grid;
+  grid-template-columns: 72px repeat(7, 1fr);
+  background: var(--ac-ink2);
+  border-bottom: 1px solid var(--ac-line);
+}
+
+.admin-section .admin-schedule-grid-time-head {
+  padding: 10px 8px;
+  color: var(--ac-text-mute);
+  font-size: 11px;
+  letter-spacing: 0.16em;
+  text-align: right;
+  border-right: 1px solid var(--ac-line);
+}
+
+.admin-section .admin-schedule-grid-day-head {
+  padding: 10px 12px;
+  border-right: 1px solid var(--ac-line);
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.admin-section .admin-schedule-grid-day-head:last-child {
+  border-right: none;
+}
+
+.admin-section .admin-schedule-grid-day-head.is-today {
+  background: rgba(232, 183, 58, 0.08);
+}
+
+.admin-section .admin-schedule-grid-day-head .admin-schedule-day-name {
+  color: var(--ac-text-mute);
+  font-size: 11px;
+  letter-spacing: 0.16em;
+}
+
+.admin-section .admin-schedule-grid-day-head.is-today .admin-schedule-day-name {
+  color: var(--ac-gold);
+}
+
+.admin-section .admin-schedule-grid-day-head .admin-schedule-day-date {
+  color: var(--ac-text);
+  font-family: var(--font-archivo), "Archivo", sans-serif;
+  font-weight: 600;
+  font-size: 14px;
+}
+
+.admin-section .admin-schedule-grid-body {
+  position: relative;
+}
+
+.admin-section .admin-schedule-grid-row {
+  display: grid;
+  grid-template-columns: 72px repeat(7, 1fr);
+  height: var(--row-h, 24px);
+}
+
+/* The horizontal line that marks a time sits at the TOP of the row whose
+   label matches that time — so "06:00" reads as "the line right next to
+   this label is exactly 06:00". Hour lines are solid + slightly brighter;
+   half-hour lines are dashed and muted. */
+.admin-section .admin-schedule-grid-row.is-hour {
+  border-top: 1px solid color-mix(in srgb, var(--ac-line) 70%, var(--ac-text-mute));
+}
+
+.admin-section .admin-schedule-grid-row.is-half {
+  border-top: 1px dashed rgba(31, 51, 96, 0.55);
+}
+
+.admin-section .admin-schedule-grid-row:first-child {
+  border-top: none;
+}
+
+.admin-section .admin-schedule-grid-time-cell {
+  padding: 0 8px;
+  display: flex;
+  align-items: flex-start;
+  justify-content: flex-end;
+  border-right: 1px solid var(--ac-line);
+  color: var(--ac-text);
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  /* Pull the label up by 1px so it visually centres on the hour line that
+     sits at the top of this row, rather than hanging just below it. */
+  margin-top: -1px;
+}
+
+.admin-section .admin-schedule-grid-cell {
+  border-right: 1px solid rgba(31, 51, 96, 0.4);
+}
+
+.admin-section .admin-schedule-grid-cell:last-child {
+  border-right: none;
+}
+
+/* Blocks layer — absolutely positioned over the grid body, offset by the
+   time column width so day-blocks align with their respective day columns. */
+.admin-section .admin-schedule-grid-blocks {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 72px;
+  right: 0;
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  pointer-events: none;
+}
+
+.admin-section .admin-schedule-day-blocks {
+  position: relative;
+}
+
+.admin-section .admin-schedule-block {
+  position: absolute;
+  background: color-mix(in srgb, var(--block-color) 18%, var(--ac-ink2));
+  border-left: 3px solid var(--block-color);
+  border-radius: 4px;
+  padding: 3px 6px;
+  color: var(--ac-text);
+  font-size: 11px;
+  line-height: 1.25;
+  overflow: hidden;
+  pointer-events: auto;
+  text-decoration: none;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  cursor: pointer;
+  transition: transform 0.1s ease-out, box-shadow 0.15s ease-out, background-color 0.15s;
+}
+
+.admin-section .admin-schedule-block:hover {
+  background: color-mix(in srgb, var(--block-color) 32%, var(--ac-ink2));
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.35);
+  z-index: 2;
+}
+
+.admin-section .admin-schedule-block.is-inactive {
+  opacity: 0.55;
+  filter: saturate(0.7);
+}
+
+.admin-section .admin-schedule-block.is-tier-1 {
+  padding: 2px 6px;
+  gap: 0;
+  justify-content: center;
+}
+
+.admin-section .admin-schedule-block-head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+
+.admin-section .admin-schedule-block-chip {
+  flex: 0 0 auto;
+  padding: 1px 4px;
+  border-radius: 2px;
+  background: var(--block-color);
+  color: var(--ac-ink);
+  font-family: var(--font-geist-mono), ui-monospace, monospace;
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+.admin-section .admin-schedule-block.tone-rejected .admin-schedule-block-chip {
+  background: #ff6c6c;
+  color: #fff;
+}
+
+.admin-section .admin-schedule-block.tone-cancelled_override .admin-schedule-block-chip {
+  background: var(--ac-text-mute);
+  color: var(--ac-ink);
+}
+
+/* Primary content row — always rendered, holds the event/purpose name. At
+   tier 1 (compact) it sits inline with a small status dot; at tiers 2+ it
+   wraps to two lines and the chip lives on its own row above. */
+.admin-section .admin-schedule-block-primary {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  min-width: 0;
+  color: var(--ac-text);
+}
+
+.admin-section .admin-schedule-block-dot {
+  flex: 0 0 auto;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--block-color);
+}
+
+.admin-section .admin-schedule-block.tone-rejected .admin-schedule-block-dot {
+  background: #ff6c6c;
+}
+
+.admin-section .admin-schedule-block.tone-cancelled_override .admin-schedule-block-dot {
+  background: var(--ac-text-mute);
+}
+
+.admin-section .admin-schedule-block-primary-text {
+  flex: 1 1 auto;
+  min-width: 0;
+  font-weight: 600;
+  font-size: 11px;
+  line-height: 1.2;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* At tier 2+ the block has room for two clamped lines of primary text. */
+.admin-section .admin-schedule-block.is-tier-2 .admin-schedule-block-primary-text,
+.admin-section .admin-schedule-block.is-tier-3 .admin-schedule-block-primary-text,
+.admin-section .admin-schedule-block.is-tier-4 .admin-schedule-block-primary-text,
+.admin-section .admin-schedule-block.is-tier-5 .admin-schedule-block-primary-text {
+  font-size: 12px;
+  white-space: normal;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.admin-section .admin-schedule-block-customer {
+  color: var(--ac-text-dim);
+  font-size: 10px;
+  line-height: 1.25;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.admin-section .admin-schedule-block-meta,
+.admin-section .admin-schedule-block-ref {
+  color: var(--ac-text-mute);
+  font-family: var(--font-geist-mono), ui-monospace, monospace;
+  font-size: 9px;
+  letter-spacing: 0.06em;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.admin-section .admin-schedule-block-ref {
+  margin-top: auto;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+
+/* --- Loading / empty / error --------------------------------------------- */
+
+.admin-section .admin-schedule-loading,
+.admin-section .admin-schedule-empty {
+  margin-top: 24px;
+  padding: 32px;
+  text-align: center;
+  color: var(--ac-text-mute);
+  border: 1px dashed var(--ac-line);
+  border-radius: 8px;
+  font-size: 11px;
+  letter-spacing: 0.16em;
+}
+
+.admin-section .admin-schedule-error {
+  margin-top: 16px;
+  padding: 12px 16px;
+  border: 1px solid #ff6c6c;
+  border-radius: 6px;
+  color: #ff8a8a;
+  background: rgba(255, 108, 108, 0.08);
+  font-size: 12px;
+  letter-spacing: 0.04em;
+}
+
+/* --- Responsive ---------------------------------------------------------- */
+
+@media (max-width: 980px) {
+  .admin-section .admin-schedule {
+    padding: 0 16px 48px;
+  }
+  .admin-section .admin-schedule-grid-head,
+  .admin-section .admin-schedule-grid-row {
+    grid-template-columns: 56px repeat(7, minmax(80px, 1fr));
+  }
+  .admin-section .admin-schedule-grid-blocks {
+    left: 56px;
+  }
+  .admin-section .admin-schedule-grid-wrap {
+    overflow-x: auto;
+  }
+  .admin-section .admin-schedule-grid {
+    min-width: 720px;
+  }
+}
+
+@media (max-width: 700px) {
+  .admin-section .admin-schedule-hero-side {
+    align-items: flex-start;
+  }
+  .admin-section .admin-schedule-controls {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+}
+

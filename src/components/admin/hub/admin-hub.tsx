@@ -307,6 +307,15 @@ function SectionGrid({
     },
     {
       code: "02",
+      name: "Calendar",
+      href: "/admin/calendar/schedule",
+      stat: "Week view · both venues",
+      hot: false,
+      primary: false,
+      desc: "Unified week schedule across Main Arena and Studio Room. Purpose visible in every slot, color-coded by venue, with a toggleable legend.",
+    },
+    {
+      code: "04",
       name: "Revenue",
       href: "/admin/calendar/revenue",
       stat: "Insights · last 90 days",
@@ -317,7 +326,7 @@ function SectionGrid({
     ...(isSuperAdmin
       ? [
           {
-            code: "04",
+            code: "05",
             name: "Accounts",
             href: "/admin/calendar/accounts",
             stat: "Desk staff & roles",
@@ -328,7 +337,7 @@ function SectionGrid({
         ]
       : []),
     {
-      code: "05",
+      code: "06",
       name: "Reports",
       href: "/admin/calendar/reports",
       stat: "Slot-level ledger",
