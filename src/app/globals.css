@@ -1742,17 +1742,27 @@ a.ac-channel-card:focus-visible {
   color: var(--ac-text-dim);
 }
 .ac-bookings-room-stats {
-  display: grid;
-  grid-template-columns: repeat(3, 1fr);
-  gap: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
   margin-top: 24px;
   padding-top: 20px;
   border-top: 1px solid var(--ac-line);
+  /* Left-align everything: parent .ac-bookings-room-card uses text-align:center
+     by default on a <button>, which forces flex children's intrinsic axis to
+     centre and breaks the stacked label/value alignment. */
+  text-align: left;
 }
 .ac-bookings-room-stat {
   display: flex;
   flex-direction: column;
   gap: 4px;
+}
+.ac-bookings-room-stat.is-capacity {
+  flex-direction: row;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
 }
 .ac-bookings-room-stat .label {
   font-family: "Geist Mono", monospace;
@@ -1769,6 +1779,69 @@ a.ac-channel-card:focus-visible {
 }
 .ac-bookings-room-card.is-selected .ac-bookings-room-stat .value {
   color: var(--ac-text);
+}
+
+/* ── Pricing list (per-event-type rows replacing the old HOURLY/DAY tiles) ─ */
+.ac-bookings-room-pricing {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.ac-bookings-room-pricing-head {
+  font-family: "Geist Mono", monospace;
+  font-size: 9px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--ac-text-mute);
+}
+.ac-bookings-room-price-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.ac-bookings-room-price-row {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding-bottom: 6px;
+  border-bottom: 1px dashed rgba(31, 51, 96, 0.6);
+}
+.ac-bookings-room-price-row:last-child {
+  border-bottom: none;
+  padding-bottom: 0;
+}
+.ac-bookings-room-price-line {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+}
+.ac-bookings-room-price-name {
+  color: var(--ac-text-dim);
+  font-size: 13px;
+  letter-spacing: 0.01em;
+}
+.ac-bookings-room-card.is-selected .ac-bookings-room-price-name {
+  color: var(--ac-text);
+}
+.ac-bookings-room-price-amount {
+  font-family: "Archivo", sans-serif;
+  font-weight: 700;
+  font-size: 14px;
+  color: var(--ac-text-dim);
+  white-space: nowrap;
+}
+.ac-bookings-room-card.is-selected .ac-bookings-room-price-amount {
+  color: var(--ac-gold-bright);
+}
+.ac-bookings-room-price-ac {
+  font-family: "Geist Mono", monospace;
+  font-size: 10px;
+  color: var(--ac-text-mute);
+  letter-spacing: 0.04em;
 }
 
 .ac-bookings-config-row {

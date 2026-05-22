@@ -114,15 +114,6 @@ function currency(value: number) {
   return new Intl.NumberFormat("en-LK").format(value);
 }
 
-function formatLkrK(value: number | null): string {
-  if (value === null || !Number.isFinite(value)) return "—";
-  if (value >= 1000) {
-    const k = value / 1000;
-    return `LKR ${k < 10 ? k.toFixed(1) : Math.round(k).toString()}K`;
-  }
-  return `LKR ${Math.round(value)}`;
-}
-
 function venueTagPrefix(index: number): string {
   return `VENUE ${String(index + 1).padStart(2, "0")}`;
 }
@@ -132,65 +123,50 @@ function formatCapacity(capacity: number | undefined): string {
   return new Intl.NumberFormat("en-LK").format(capacity);
 }
 
-function getRoomHourlyRate(
-  rules: PricingRule[],
-  eventTypes: EventType[],
-  roomId: string,
-): number | null {
-  const candidates = rules
-    .filter(
-      (r) =>
-        r.roomTypeId === roomId &&
-        r.acMode === "without_ac" &&
-        (r.dayType === "weekday" || r.dayType === "any"),
-    )
-    .map((r) => {
-      const et = eventTypes.find((e) => e.id === r.eventTypeId);
-      if (!et || et.durationMinutes <= 0) return null;
-      return (r.amountLkr * 60) / et.durationMinutes;
-    })
-    .filter((v): v is number => v !== null);
-  return candidates.length ? Math.min(...candidates) : null;
-}
+type RoomPricingRow = {
+  key: string;
+  eventName: string;
+  amountLkr: number;
+  acPremiumLkr: number | null;
+};
 
-// The "full day" event type for a room is whichever event type the admin has
-// configured with the longest durationMinutes and has pricing rules for the room.
-function getFullDayEventTypeId(
+// All without_ac pricing options for a room, one row per pricing rule, sorted
+// shortest-to-longest by the event type's durationMinutes. AC variants ride
+// along as an inline premium suffix. Drives the public room card's pricing
+// list — see CLAUDE.md "Public Bookings Page: Room Cards, Recurrence, Terms".
+function getRoomPricingRows(
   rules: PricingRule[],
   eventTypes: EventType[],
   roomId: string,
-): string | null {
-  const eligibleIds = new Set(
-    rules
-      .filter(
+): RoomPricingRow[] {
+  const eventTypeIndex = new Map(eventTypes.map((et) => [et.id, et]));
+  const nonAcRules = rules.filter(
+    (r) => r.roomTypeId === roomId && r.acMode === "without_ac",
+  );
+
+  return nonAcRules
+    .map((rule) => {
+      const eventType = eventTypeIndex.get(rule.eventTypeId);
+      if (!eventType) return null;
+      const acRule = rules.find(
         (r) =>
           r.roomTypeId === roomId &&
-          (r.dayType === "weekday" || r.dayType === "any"),
-      )
-      .map((r) => r.eventTypeId),
-  );
-  const eligible = eventTypes.filter((e) => eligibleIds.has(e.id));
-  if (eligible.length === 0) return null;
-  return eligible.reduce((longest, et) =>
-    et.durationMinutes > longest.durationMinutes ? et : longest,
-  ).id;
-}
-
-function getRoomDayRate(
-  rules: PricingRule[],
-  eventTypes: EventType[],
-  roomId: string,
-): number | null {
-  const fullDayId = getFullDayEventTypeId(rules, eventTypes, roomId);
-  if (!fullDayId) return null;
-  const rule = rules.find(
-    (r) =>
-      r.roomTypeId === roomId &&
-      r.eventTypeId === fullDayId &&
-      r.acMode === "without_ac" &&
-      (r.dayType === "weekday" || r.dayType === "any"),
-  );
-  return rule?.amountLkr ?? null;
+          r.eventTypeId === rule.eventTypeId &&
+          r.acMode === "with_ac" &&
+          r.dayType === rule.dayType,
+      );
+      const premium = acRule ? acRule.amountLkr - rule.amountLkr : null;
+      return {
+        key: rule.id,
+        eventName: eventType.name,
+        amountLkr: rule.amountLkr,
+        acPremiumLkr: premium !== null && premium > 0 ? premium : null,
+        _sortDuration: eventType.durationMinutes,
+      };
+    })
+    .filter((row): row is RoomPricingRow & { _sortDuration: number } => row !== null)
+    .sort((a, b) => a._sortDuration - b._sortDuration)
+    .map(({ _sortDuration: _, ...row }) => row);
 }
 
 // A/C premium = price difference for the *currently selected* event type.
@@ -996,8 +972,7 @@ export function BookingCalendarFlow() {
         <div className="ac-bookings-room-grid">
           {rooms.map((room, idx) => {
             const selected = room.id === roomTypeId;
-            const hourly = getRoomHourlyRate(pricingRules, eventTypes, room.id);
-            const dayRate = getRoomDayRate(pricingRules, eventTypes, room.id);
+            const pricingRows = getRoomPricingRows(pricingRules, eventTypes, room.id);
             return (
               <button
                 aria-pressed={selected}
@@ -1023,18 +998,32 @@ export function BookingCalendarFlow() {
                   ) : null}
                 </div>
                 <div className="ac-bookings-room-stats">
-                  <div className="ac-bookings-room-stat">
+                  <div className="ac-bookings-room-stat is-capacity">
                     <span className="label">CAPACITY</span>
                     <span className="value">{formatCapacity(room.capacity)}</span>
                   </div>
-                  <div className="ac-bookings-room-stat">
-                    <span className="label">HOURLY</span>
-                    <span className="value">{formatLkrK(hourly)}</span>
-                  </div>
-                  <div className="ac-bookings-room-stat">
-                    <span className="label">DAY RATE</span>
-                    <span className="value">{formatLkrK(dayRate)}</span>
-                  </div>
+                  {pricingRows.length > 0 ? (
+                    <div className="ac-bookings-room-pricing">
+                      <span className="ac-bookings-room-pricing-head">PRICING</span>
+                      <ul className="ac-bookings-room-price-list">
+                        {pricingRows.map((row) => (
+                          <li className="ac-bookings-room-price-row" key={row.key}>
+                            <div className="ac-bookings-room-price-line">
+                              <span className="ac-bookings-room-price-name">{row.eventName}</span>
+                              <span className="ac-bookings-room-price-amount">
+                                LKR {currency(row.amountLkr)}
+                              </span>
+                            </div>
+                            {row.acPremiumLkr !== null ? (
+                              <span className="ac-bookings-room-price-ac">
+                                + LKR {currency(row.acPremiumLkr)} with A/C
+                              </span>
+                            ) : null}
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
+                  ) : null}
                 </div>
               </button>
             );

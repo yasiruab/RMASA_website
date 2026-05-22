@@ -684,8 +684,7 @@ These caps are independent of Turnstile — both run on every request. A bot tha
 The public bookings page (`booking-calendar-flow.tsx`) drives all room-card data from the admin portal — **never hardcode** capacity, description, or pricing in the component:
 
 - **CAPACITY** and **description** come from `RoomType.capacity` / `RoomType.description` (admin-editable in Room Types editor)
-- **HOURLY** = min `amountLkr * 60 / durationMinutes` across all event types for the room (weekday or any, without_ac), derived via `getRoomHourlyRate()`
-- **DAY RATE** = `amountLkr` of the event type with the longest `durationMinutes` for the room (weekday or any, without_ac), via `getRoomDayRate()` → `getFullDayEventTypeId()`
+- **PRICING list** — one row per non-AC `PricingRule` for the room, sorted shortest-to-longest by the event type's `durationMinutes`. Each row shows the event type name + the full LKR amount (no compact-K formatting). When a matching `with_ac` rule exists for the same event type + dayType, a sub-line shows `+ LKR X with A/C`. Derived via `getRoomPricingRows()`. Replaces the prior HOURLY + DAY RATE tiles, which surfaced misleading numbers — HOURLY pro-rated every event type down to a per-hour-equivalent and picked the minimum (a discounted Full Day could win, undercutting the published 1 Hour rate), and DAY RATE silently rounded 13,500 → 14K.
 - **WITH A/C sub** = `+LKR X` where X = `with_ac.amountLkr - without_ac.amountLkr` for the currently selected event type, via `getAcPremiumForEventType()`
 - **VENUE 01 / 02** tag is derived from sort order of the `rooms` array, not from any DB field
 
