@@ -32,7 +32,7 @@ export default function ActivitiesPage() {
         className="ac-page-hero"
         style={
           {
-            backgroundImage: "url(/rmasa/activities.jpg)",
+            backgroundImage: "url(/rmasa-hero-banners/rmasa-hero-banners-activities.webp)",
             "--hero-bg-pos": "center 15%",
           } as CSSProperties
         }

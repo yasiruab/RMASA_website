@@ -24,10 +24,10 @@ export default function EventsPage() {
             alt="Opening ceremony"
             height={210}
             sizes="(max-width: 980px) 94vw, 46vw"
-            src="/rmasa/about.jpg"
+            src="/events/rmasa-opening-ceromony-1.webp"
             width={420}
           />
-          <Image alt="Audience" height={210} sizes="(max-width: 980px) 94vw, 46vw" src="/rmasa/activities.jpg" width={420} />
+          <Image alt="Audience" height={210} sizes="(max-width: 980px) 94vw, 46vw" src="/events/rmasa-opening-ceromony-2.webp" width={420} />
         </div>
       </article>
     </section>

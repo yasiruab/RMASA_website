@@ -13,28 +13,28 @@ type Slide = {
 
 const SLIDES: Slide[] = [
   {
-    src: "/rmasa/slider-1.jpg",
+    src: "/home-sliders/home-slider-1.webp",
     eyebrow: "TOURNAMENT-GRADE",
     title: "The arena,",
     italic: "made for you.",
     sub: "Boxing, wrestling, gymnastics, fencing — built for crowds of 1,000.",
   },
   {
-    src: "/rmasa/slider-2.jpg",
+    src: "/home-sliders/home-slider-2.webp",
     eyebrow: "WORLD-CLASS",
     title: "A pit for",
     italic: "gymnastics.",
     sub: "Sri Lanka’s first purpose-built indoor gymnastics venue.",
   },
   {
-    src: "/rmasa/slider-3.jpg",
+    src: "/home-sliders/home-slider-4.webp",
     eyebrow: "RETRACTABLE",
     title: "Seating for",
     italic: "one thousand.",
     sub: "Fully retractable, configurable for any event format.",
   },
   {
-    src: "/rmasa/slider-4.jpg",
+    src: "/home-sliders/home-slider-3.webp",
     eyebrow: "TRAINING ROOM",
     title: "A studio,",
     italic: "for rehearsals.",

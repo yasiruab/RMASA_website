@@ -32,7 +32,7 @@ export default function FacilitiesPage() {
       <section
         aria-label="Facilities hero"
         className="ac-page-hero"
-        style={{ backgroundImage: "url(/rmasa/facilities.jpg)" }}
+        style={{ backgroundImage: "url(/rmasa-hero-banners/rmasa-hero-banners-facilities.webp)" }}
       >
         <div className="ac-page-hero-inner">
           <Breadcrumbs current="Facilities" />
@@ -62,7 +62,7 @@ export default function FacilitiesPage() {
         <div className="ac-facility-grid">
           <div
             className="ac-facility-media"
-            style={{ backgroundImage: "url(/rmasa/slider-2.jpg)" }}
+            style={{ backgroundImage: "url(/home-sliders/home-slider-2.webp)" }}
             aria-hidden="true"
           >
             <span className="ac-facility-badge">● CONFIG · CONCERT MODE</span>
@@ -123,7 +123,7 @@ export default function FacilitiesPage() {
           </div>
           <div
             className="ac-facility-media"
-            style={{ backgroundImage: "url(/rmasa/slider-4.jpg)" }}
+            style={{ backgroundImage: "url(/home-sliders/home-slider-3.webp)" }}
             aria-hidden="true"
           />
         </div>

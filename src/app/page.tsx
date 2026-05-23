@@ -12,7 +12,7 @@ type Chapter = {
 
 const CHAPTERS: Chapter[] = [
   {
-    image: "/rmasa/about.jpg",
+    image: "/rmasa-hero-banners/rmasa-hero-banners-about.webp",
     tag: "CHAPTER ONE",
     title: "About",
     italic: "the arena.",
@@ -20,7 +20,7 @@ const CHAPTERS: Chapter[] = [
     body: "A versatile indoor venue with retractable seating, modern amenities, and event-ready infrastructure.",
   },
   {
-    image: "/rmasa/activities.jpg",
+    image: "/rmasa-hero-banners/rmasa-hero-banners-activities.webp",
     tag: "CHAPTER TWO",
     title: "Activities",
     italic: "we host.",
@@ -28,7 +28,7 @@ const CHAPTERS: Chapter[] = [
     body: "Boxing, fencing, gymnastics, karate, wushu, wrestling — plus seminars, meetings and performing arts.",
   },
   {
-    image: "/rmasa/facilities.jpg",
+    image: "/rmasa-hero-banners/rmasa-hero-banners-facilities.webp",
     tag: "CHAPTER THREE",
     title: "Facilities",
     italic: "on offer.",

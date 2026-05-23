@@ -6,7 +6,7 @@ type TimelineEntry = { year: string; title: string; body: string; current?: bool
 const FACTS: Fact[] = [
   { value: "1,000", label: "PERSON CAPACITY", sub: "fully retractable seating", gold: true },
   { value: "2,000", label: "SQ FT TRAINING", sub: "A/C studio + mirrored wall" },
-  { value: "LKR 150M", label: "CONSTRUCTION COST", sub: "donated by MAS founders" },
+  { value: "LKR 150M", label: "INVESTMENT", sub: "donated by MAS founders" },
   { value: "2016", label: "YEAR OPENED", sub: "inaugurated 28 March" },
 ];
 
@@ -44,7 +44,7 @@ export default function AboutPage() {
       <section
         aria-label="About hero"
         className="ac-page-hero"
-        style={{ backgroundImage: "url(/rmasa/about.jpg)" }}
+        style={{ backgroundImage: "url(/rmasa-hero-banners/rmasa-hero-banners-about.webp)" }}
       >
         <div className="ac-page-hero-inner">
           <Breadcrumbs current="About" />
@@ -55,10 +55,10 @@ export default function AboutPage() {
             </span>
           </div>
           <div className="ac-page-hero-italic">
-            <span className="ac-italic">a versatile floor.</span>
+            <span className="ac-italic">the purpose built indoor arena.</span>
           </div>
           <p className="ac-page-hero-lede">
-            A purpose-built indoor arena on Rajakeeya Mawatha — designed to nurture young athletes
+            A purpose-built indoor arena on Rajakeeya Mawatha, designed to nurture young athletes
             and host events at every scale.
           </p>
         </div>
