@@ -133,7 +133,7 @@ export function Nav() {
             height={78}
             priority
             sizes="(max-width: 700px) 126px, (max-width: 980px) 157px, 204px"
-            src="/rmasa/royal-mas-arena-logo.png"
+            src="/logos/royal-mas-arena-logo.png"
             width={204}
           />
         </Link>

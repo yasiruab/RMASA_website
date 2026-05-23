@@ -43,7 +43,7 @@ export function Footer() {
               alt="Royal MAS Arena"
               height={78}
               sizes="(max-width: 700px) 126px, (max-width: 980px) 157px, 204px"
-              src="/rmasa/royal-mas-arena-logo.png"
+              src="/logos/royal-mas-arena-logo.png"
               width={204}
             />
           </Link>
@@ -103,15 +103,7 @@ export function Footer() {
                 Facebook
               </a>
             </li>
-            <li>
-              <a
-                href="https://www.instagram.com/"
-                rel="noopener noreferrer"
-                target="_blank"
-              >
-                Instagram
-              </a>
-            </li>
+            
           </ul>
         </div>
       </div>
