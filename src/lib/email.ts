@@ -151,7 +151,8 @@ type EmailLogType =
   | "unpaid_reminder_customer"
   | "unpaid_reminder_admin_digest"
   | "slot_overridden_customer"
-  | "slot_overridden_admin";
+  | "slot_overridden_admin"
+  | "contact_enquiry";
 
 async function sendEmail(params: {
   bookingReference: string;
@@ -159,6 +160,7 @@ async function sendEmail(params: {
   to: string;
   subject: string;
   html: string;
+  replyTo?: string;
 }): Promise<boolean> {
   let status: "sent" | "failed" = "failed";
   let errorMessage: string | undefined;
@@ -181,6 +183,7 @@ async function sendEmail(params: {
           to: params.to,
           subject: params.subject,
           html: params.html,
+          ...(params.replyTo ? { replyTo: params.replyTo } : {}),
         });
         if (!error) {
           status = "sent";
@@ -738,5 +741,43 @@ export async function sendAdminUnpaidDigest(params: {
     to: ADMIN_EMAIL,
     subject,
     html,
+  });
+}
+
+// ─── Contact form enquiry ──────────────────────────────────────────────────────
+
+export async function sendContactEnquiry(params: {
+  name: string;
+  email: string;
+  phone: string;
+  message: string;
+}): Promise<boolean> {
+  if (!ADMIN_EMAIL) return false;
+
+  const subject = `Contact enquiry from ${params.name}`;
+  const messageHtml = esc(params.message).replaceAll("\n", "<br/>");
+  const html = card(`
+    <p style="margin:0 0 16px;font-size:16px;font-weight:600;color:#31343a;">New contact enquiry</p>
+    <table width="100%" cellpadding="0" cellspacing="0" style="border-collapse:collapse;margin-bottom:20px;">
+      <tr><td style="padding:6px 0;font-size:13px;color:#6f737a;width:80px;">Name</td><td style="padding:6px 0;font-size:13px;color:#31343a;">${esc(params.name)}</td></tr>
+      <tr><td style="padding:6px 0;font-size:13px;color:#6f737a;">Email</td><td style="padding:6px 0;font-size:13px;color:#31343a;"><a href="mailto:${esc(params.email)}" style="color:#b26c5e;text-decoration:none;">${esc(params.email)}</a></td></tr>
+      <tr><td style="padding:6px 0;font-size:13px;color:#6f737a;">Phone</td><td style="padding:6px 0;font-size:13px;color:#31343a;">${esc(params.phone)}</td></tr>
+    </table>
+    <p style="margin:0 0 8px;font-size:13px;color:#6f737a;">Message</p>
+    <div style="background:#f7f8f9;border:1px solid #dfe3e8;border-radius:5px;padding:14px;font-size:14px;line-height:1.6;color:#31343a;">
+      ${messageHtml}
+    </div>
+    <p style="margin:20px 0 0;font-size:12px;color:#6f737a;">
+      Reply directly to this email to respond to the customer.
+    </p>
+  `);
+
+  return sendEmail({
+    bookingReference: "CONTACT",
+    type: "contact_enquiry",
+    to: ADMIN_EMAIL,
+    subject,
+    html,
+    replyTo: params.email,
   });
 }

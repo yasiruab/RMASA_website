@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { sendContactEnquiry } from "@/lib/email";
 
 type ContactPayload = {
   name?: string;
@@ -62,35 +63,35 @@ export async function POST(req: Request) {
     return NextResponse.json({ message: "Please provide a valid email address." }, { status: 400 });
   }
 
-  const webhookUrl = process.env.CONTACT_WEBHOOK_URL;
+  const emailSent = await sendContactEnquiry({ name, email, phone, message });
 
-  if (!webhookUrl) {
-    console.log("[contact-enquiry]", { name, phone, email, message, consent, receivedAt: new Date().toISOString() });
-    return NextResponse.json({ message: "Enquiry captured in development mode." }, { status: 200 });
+  const webhookUrl = process.env.CONTACT_WEBHOOK_URL ?? process.env._AMPLIFY_CONTACT_WEBHOOK_URL;
+  let webhookOk = true;
+  if (webhookUrl) {
+    try {
+      const response = await fetch(webhookUrl, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          source: "rmasa-website",
+          name,
+          phone,
+          email,
+          message,
+          consent,
+          receivedAt: new Date().toISOString(),
+        }),
+        cache: "no-store",
+      });
+      webhookOk = response.ok;
+    } catch {
+      webhookOk = false;
+    }
   }
 
-  try {
-    const response = await fetch(webhookUrl, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        source: "rmasa-website",
-        name,
-        phone,
-        email,
-        message,
-        consent,
-        receivedAt: new Date().toISOString(),
-      }),
-      cache: "no-store",
-    });
-
-    if (!response.ok) {
-      return NextResponse.json({ message: "Enquiry service is unavailable." }, { status: 502 });
-    }
-
-    return NextResponse.json({ message: "Enquiry sent successfully." }, { status: 200 });
-  } catch {
+  if (!emailSent && !webhookOk) {
     return NextResponse.json({ message: "Failed to send enquiry." }, { status: 502 });
   }
+
+  return NextResponse.json({ message: "Enquiry sent successfully." }, { status: 200 });
 }

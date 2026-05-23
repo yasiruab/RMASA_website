@@ -553,7 +553,7 @@ X-Frame-Options, X-Content-Type-Options, Referrer-Policy, and Permissions-Policy
 | `img-src` | `'self'`, `data:`, `*.clarity.ms` | Local imagery + data URIs (icons) + Clarity pixel beacons |
 | `style-src` | `'self' 'unsafe-inline'`, `fonts.googleapis.com` | Google Fonts CSS; `'unsafe-inline'` for inline `style="…"` attributes Next/React produces |
 | `font-src` | `'self'`, `fonts.gstatic.com` | Google Fonts files |
-| `frame-src` | `challenges.cloudflare.com` | Turnstile widget iframe |
+| `frame-src` | `challenges.cloudflare.com`, `www.google.com` | Turnstile widget iframe; Google Maps embed on `/contact` |
 | `frame-ancestors` | `'none'` | Modern duplicate of `X-Frame-Options: DENY` |
 | `form-action` | `'self'` | Forms only submit to same origin |
 | `base-uri` | `'none'` | Block injected `<base>` |
@@ -621,7 +621,7 @@ And handle the `null` case inside the function body.
 
 ## Transactional Email (`src/lib/email.ts`)
 
-Uses the **Resend** SDK. Each exported async function catches its own errors internally so they never throw, and returns a `boolean` (`true` on successful dispatch, `false` if the API errored or `RESEND_API_KEY` is missing). **Always `await` them** (or `Promise.allSettled` for parallel sends) before returning from a route handler — see the "Fire-and-forget (`void`) does not work in Lambda" gotcha above.
+Uses the **Resend** SDK (v6 — note: returns `{ data, error }` instead of throwing for HTTP errors; the wrapper in `sendEmail()` handles both shapes). Each exported async function catches its own errors internally so they never throw, and returns a `boolean` (`true` on successful dispatch, `false` if the API errored or `RESEND_API_KEY` is missing). **Always `await` them** (or `Promise.allSettled` for parallel sends) before returning from a route handler — see the "Fire-and-forget (`void`) does not work in Lambda" gotcha above. Parallel sends are automatically paced inside one Lambda invocation; see "Rate-limit pacing" below.
 
 | Function | Trigger |
 |---|---|
@@ -633,8 +633,31 @@ Uses the **Resend** SDK. Each exported async function catches its own errors int
 | `sendAdminSlotOverriddenNotification` | Called once per cascade event listing every overridden booking; skipped if `ADMIN_NOTIFICATION_EMAIL` unset or no overrides occurred |
 | `sendBookingUnpaidReminder` | Called per due booking from `POST /api/cron/unpaid-reminders`. Caller relies on the boolean return: `lastReminderDays` is only stamped on success so failed sends retry on the next cron run |
 | `sendAdminUnpaidDigest` | Called once per cron run that produced any reminders; skipped if `ADMIN_NOTIFICATION_EMAIL` unset or `bookings` array empty |
+| `sendContactEnquiry` | Called from `POST /api/contact` with the submitted name / email / phone / message. Goes to `ADMIN_NOTIFICATION_EMAIL` with `replyTo` set to the customer's address so a direct Reply hits the enquirer. Skipped silently if `ADMIN_NOTIFICATION_EMAIL` unset. |
 
 Every send attempt writes a row to `EmailLog` (status `sent` or `failed`). Email failures never propagate to the API response.
+
+**Rate-limit pacing + retry** (`acquireSendSlot()` + `sendEmail()` retry loop in
+[`src/lib/email.ts`](src/lib/email.ts)): Resend's default limit is 2 req/sec.
+The override cascade can fan out to 4+ sends in one Lambda invocation, which
+firing in parallel via `Promise.allSettled` blew past the limit. Two things
+keep this in check:
+
+1. **Module-level send-slot reservation**. Every `sendEmail()` call reserves
+   the next free slot from a shared `nextSendSlotMs` cursor and sleeps until
+   that slot's time arrives. Spacing is `MIN_SEND_INTERVAL_MS = 750`. A 4-send
+   burst serialises to ~3 s — under 2/sec on Resend's arrival end even when
+   network jitter compresses gaps. State is module-level, so it only paces
+   within one Lambda; cross-Lambda concurrent sends are still unguarded.
+2. **Self-heal on 429**. Resend SDK v6 returns `{ data, error }` rather than
+   throwing on HTTP errors, so the old `try/catch`-only path silently logged
+   429s as `status: "sent"` and the email was actually dropped. `sendEmail()`
+   now destructures the response, detects rate-limit errors
+   (`statusCode === 429` or `name === "rate_limit_exceeded"`), sleeps
+   `RATE_LIMIT_BACKOFF_MS = 1500` past the rolling window, and retries once.
+   Non-rate-limit returned errors and thrown network errors fail immediately
+   (no retry — typically permanent). Worst-case latency for one rate-limited
+   send in a 4-email burst: `(750 × 3) + 1500 ≈ 3.75 s`.
 
 **HTML escaping is mandatory for every user- and admin-supplied interpolation.** The
 file's `esc()` helper HTML-encodes `& < > " '`. Wrap every `${params.customerName}`,
