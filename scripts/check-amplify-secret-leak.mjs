@@ -15,6 +15,7 @@ const allowed = new Set([
   "src/lib/email.ts",
   "src/lib/turnstile.ts",
   "src/app/api/cron/unpaid-reminders/route.ts",
+  "src/app/api/contact/route.ts",
   "scripts/check-amplify-secret-leak.mjs",
 ]);
 const skipDirs = new Set(["node_modules", ".next", "dist", "out", ".git"]);
