@@ -21,8 +21,17 @@ import {
   toMinutes,
   toDayType,
 } from "@/lib/calendar-core";
-import { insertBookingWithCascade, readCalendarDb } from "@/lib/calendar-store";
-import { AcMode, Booking, BookingSlot, DayType, Recurrence } from "@/lib/calendar-types";
+import { insertBookingWithCascade } from "@/lib/calendar-store";
+import { prisma } from "@/lib/prisma";
+import {
+  AcMode,
+  Booking,
+  BookingSlot,
+  CalendarDb,
+  DayType,
+  Recurrence,
+  RoomType,
+} from "@/lib/calendar-types";
 import { verifyTurnstileToken } from "@/lib/turnstile";
 
 type BookingPayload = {
@@ -122,12 +131,39 @@ export async function POST(req: Request) {
     );
   }
 
-  const db = await readCalendarDb();
-  const room = db.rooms.find((item) => item.id === roomTypeId);
-  const eventType = db.eventTypes.find((item) => item.id === eventTypeId);
-  if (!room || !eventType) {
+  // ─── Scoped config load ───────────────────────────────────────────────
+  // Only the candidate's room + event type + the matching pricing rules.
+  // Everything else (other rooms, other event types' priorities) is loaded
+  // on demand below from the booking dataset.
+  const [roomRow, eventTypeRow, pricingRuleRows] = await prisma.$transaction([
+    prisma.roomType.findUnique({ where: { id: roomTypeId } }),
+    prisma.eventType.findUnique({ where: { id: eventTypeId } }),
+    prisma.pricingRule.findMany({
+      where: { roomTypeId, eventTypeId, acMode },
+    }),
+  ]);
+
+  if (!roomRow || !eventTypeRow) {
     return NextResponse.json({ message: "Invalid room or event type." }, { status: 400 });
   }
+
+  const room: RoomType = {
+    id: roomRow.id,
+    name: roomRow.name,
+    workingHours: { startTime: roomRow.startTime, endTime: roomRow.endTime },
+    capacity: roomRow.capacity ?? undefined,
+    description: roomRow.description ?? undefined,
+  };
+  const eventType = {
+    id: eventTypeRow.id,
+    name: eventTypeRow.name,
+    durationMinutes: eventTypeRow.durationMinutes,
+    cleanupDurationMinutes: eventTypeRow.cleanupDurationMinutes,
+    maxAdvanceBookingDays: eventTypeRow.maxAdvanceBookingDays,
+    priority: eventTypeRow.priority,
+    roomTypeId: eventTypeRow.roomTypeId ?? undefined,
+  };
+
   if (!isEventTypeAllowedForRoom(eventType, roomTypeId)) {
     return NextResponse.json({ message: "Selected event type is not available for this room." }, { status: 400 });
   }
@@ -177,10 +213,28 @@ export async function POST(req: Request) {
     );
   }
 
+  // ─── Pricing breakdown ────────────────────────────────────────────────
+  // findPrice() consults pricingRules filtered by (room, event, ac, dayType).
+  // Build a tiny CalendarDb-shape with just the loaded rules.
+  const pricingDb = {
+    rooms: [room],
+    eventTypes: [eventType],
+    pricingRules: pricingRuleRows.map((rule) => ({
+      id: rule.id,
+      roomTypeId: rule.roomTypeId,
+      eventTypeId: rule.eventTypeId,
+      acMode: rule.acMode as AcMode,
+      dayType: rule.dayType as DayType,
+      amountLkr: rule.amountLkr,
+    })),
+    bookings: [],
+    blocks: [],
+  } as unknown as CalendarDb;
+
   let breakdown: Array<{ date: string; slot: string; amountLkr: number; dayType: DayType }>;
   try {
     breakdown = expandedSlots.map((slot) => {
-      const rule = findPrice(db, roomTypeId, eventTypeId, acMode, slot.date);
+      const rule = findPrice(pricingDb, roomTypeId, eventTypeId, acMode, slot.date);
       if (!rule) {
         throw new Error(`No pricing rule for ${room.name} / ${eventType.name} / ${acMode}.`);
       }
@@ -225,7 +279,126 @@ export async function POST(req: Request) {
     overriddenBookingIds: [],
   };
 
-  const { conflicts, overrideTargets } = evaluateBookingConflicts(db, booking);
+  // ─── Scoped conflict scan ────────────────────────────────────────────
+  // Load only active bookings (same room) with at least one slot on a
+  // candidate date, plus blocks in the same window. Then load the priorities
+  // of event types referenced by those bookings so findEventType() works
+  // inside evaluateBookingConflicts.
+  const candidateDates = Array.from(new Set(expandedSlots.map((s) => s.date)));
+  const [conflictSlotRows, blockRows] = await prisma.$transaction([
+    prisma.bookingSlot.findMany({
+      where: {
+        date: { in: candidateDates },
+        booking: {
+          roomTypeId,
+          status: { in: ["pending", "confirmed", "tentative"] },
+        },
+      },
+      include: {
+        booking: {
+          select: {
+            id: true,
+            reference: true,
+            roomTypeId: true,
+            eventTypeId: true,
+            status: true,
+            cleanupDurationMinutes: true,
+            customerName: true,
+            customerEmail: true,
+          },
+        },
+      },
+    }),
+    prisma.calendarBlock.findMany({
+      where: { roomTypeId, date: { in: candidateDates } },
+    }),
+  ]);
+
+  // Reassemble booking snapshots from the slot rows.
+  type ConflictBooking = {
+    id: string;
+    reference: string;
+    roomTypeId: string;
+    eventTypeId: string;
+    status: Booking["status"];
+    cleanupDurationMinutes: number;
+    customer: { name: string; email: string };
+    slots: BookingSlot[];
+  };
+  const conflictBookingsById = new Map<string, ConflictBooking>();
+  for (const row of conflictSlotRows) {
+    const b = row.booking;
+    let entry = conflictBookingsById.get(b.id);
+    if (!entry) {
+      entry = {
+        id: b.id,
+        reference: b.reference,
+        roomTypeId: b.roomTypeId,
+        eventTypeId: b.eventTypeId,
+        status: b.status,
+        cleanupDurationMinutes: b.cleanupDurationMinutes,
+        customer: { name: b.customerName, email: b.customerEmail },
+        slots: [],
+      };
+      conflictBookingsById.set(b.id, entry);
+    }
+    entry.slots.push({
+      date: row.date,
+      startTime: row.startTime,
+      endTime: row.endTime,
+      slotStatus: row.slotStatus ?? undefined,
+      rejectReason: row.rejectReason ?? undefined,
+    });
+  }
+
+  // Event-type priorities for the bookings we loaded — needed by the
+  // priority compare inside evaluateBookingConflicts.
+  const referencedEventTypeIds = Array.from(
+    new Set(Array.from(conflictBookingsById.values()).map((b) => b.eventTypeId)),
+  );
+  const eventTypeRows = referencedEventTypeIds.length
+    ? await prisma.eventType.findMany({
+        where: { id: { in: referencedEventTypeIds } },
+        select: {
+          id: true,
+          name: true,
+          durationMinutes: true,
+          cleanupDurationMinutes: true,
+          maxAdvanceBookingDays: true,
+          priority: true,
+          roomTypeId: true,
+        },
+      })
+    : [];
+
+  const conflictDb = {
+    rooms: [room],
+    eventTypes: [
+      eventType,
+      ...eventTypeRows.map((et) => ({
+        id: et.id,
+        name: et.name,
+        durationMinutes: et.durationMinutes,
+        cleanupDurationMinutes: et.cleanupDurationMinutes,
+        maxAdvanceBookingDays: et.maxAdvanceBookingDays,
+        priority: et.priority,
+        roomTypeId: et.roomTypeId ?? undefined,
+      })),
+    ],
+    pricingRules: [],
+    bookings: Array.from(conflictBookingsById.values()),
+    blocks: blockRows.map((block) => ({
+      id: block.id,
+      roomTypeId: block.roomTypeId,
+      date: block.date,
+      startTime: block.startTime,
+      endTime: block.endTime,
+      reason: block.reason,
+      createdAt: block.createdAt.toISOString(),
+    })),
+  } as unknown as CalendarDb;
+
+  const { conflicts, overrideTargets } = evaluateBookingConflicts(conflictDb, booking);
   if (conflicts.length > 0) {
     return NextResponse.json(
       {
@@ -241,22 +414,49 @@ export async function POST(req: Request) {
   const overrideReason = `Overridden by ${booking.reference} (${eventType.name})`;
   await insertBookingWithCascade(booking, overrideTargets, overrideReason);
 
-  // Per-overridden-customer notifications + a single admin alert, derived
-  // from the override targets the cascade just applied. db.bookings is the
-  // pre-cascade snapshot so it still carries the overridden bookings' customer
-  // + slot details. Fired alongside the new-booking emails.
+  // Per-overridden-customer notifications + a single admin alert. We already
+  // have the overridden bookings' customer info in conflictBookingsById from
+  // the scoped scan above (no extra DB round-trip needed). For surviving slot
+  // info we look up each overridden booking's full slot list — they may have
+  // slots on dates outside the candidate window that should still be listed
+  // in the "surviving" set.
+  const overriddenBookingIds = overrideTargets.map((t) => t.bookingId);
+  const overriddenFullSlots = overriddenBookingIds.length
+    ? await prisma.bookingSlot.findMany({
+        where: { bookingId: { in: overriddenBookingIds } },
+        select: {
+          bookingId: true,
+          date: true,
+          startTime: true,
+          endTime: true,
+          slotStatus: true,
+        },
+      })
+    : [];
+  const overriddenEventTypeIds = Array.from(
+    new Set(
+      overriddenBookingIds
+        .map((id) => conflictBookingsById.get(id)?.eventTypeId)
+        .filter((x): x is string => Boolean(x)),
+    ),
+  );
+  const overriddenEventTypeNames = new Map(
+    eventTypeRows
+      .filter((et) => overriddenEventTypeIds.includes(et.id))
+      .map((et) => [et.id, et.name]),
+  );
+
   const overrideCustomerEmails = overrideTargets.flatMap((target) => {
-    const overridden = db.bookings.find((b) => b.id === target.bookingId);
+    const overridden = conflictBookingsById.get(target.bookingId);
     if (!overridden) return [];
-    const overriddenRoom = db.rooms.find((r) => r.id === overridden.roomTypeId);
-    const overriddenEventType = db.eventTypes.find((et) => et.id === overridden.eventTypeId);
     const cancelledSlots = target.slotKeys
       .map(({ date, startTime }) => {
         const slot = overridden.slots.find((s) => s.date === date && s.startTime === startTime);
         return slot ? { date, startTime, endTime: slot.endTime } : null;
       })
       .filter((s): s is { date: string; startTime: string; endTime: string } => s !== null);
-    const survivingSlots = overridden.slots
+    const survivingSlots = overriddenFullSlots
+      .filter((s) => s.bookingId === target.bookingId)
       .filter((s) => {
         const wasCancelled = target.slotKeys.some(
           (k) => k.date === s.date && k.startTime === s.startTime,
@@ -271,8 +471,8 @@ export async function POST(req: Request) {
         to: overridden.customer.email,
         customerName: overridden.customer.name,
         reference: overridden.reference,
-        roomName: overriddenRoom?.name ?? room.name,
-        eventTypeName: overriddenEventType?.name ?? "—",
+        roomName: room.name,
+        eventTypeName: overriddenEventTypeNames.get(overridden.eventTypeId) ?? "—",
         cancelledSlots,
         survivingSlots,
         newBookingReference: booking.reference,
@@ -283,7 +483,7 @@ export async function POST(req: Request) {
 
   const overrideAdminBlocks = overrideTargets
     .map((target) => {
-      const overridden = db.bookings.find((b) => b.id === target.bookingId);
+      const overridden = conflictBookingsById.get(target.bookingId);
       if (!overridden) return null;
       const cancelledSlots = target.slotKeys
         .map(({ date, startTime }) => {

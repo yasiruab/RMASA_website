@@ -3,6 +3,13 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Breadcrumbs } from "@/components/breadcrumbs";
 import { TurnstileWidget } from "@/components/calendar/turnstile-widget";
+import { getSlotAvailabilities } from "@/lib/calendar-core";
+import type {
+  Booking as ApiBooking,
+  CalendarBlock as ApiCalendarBlock,
+  CalendarDb,
+  RoomType as ApiRoomType,
+} from "@/lib/calendar-types";
 
 const TURNSTILE_SITE_KEY = process.env.NEXT_PUBLIC_TURNSTILE_SITE_KEY ?? "";
 
@@ -318,6 +325,27 @@ export function BookingCalendarFlow() {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [customer, setCustomer] = useState({ name: "", email: "", phone: "", purpose: "" });
   const [availabilityRefreshKey, setAvailabilityRefreshKey] = useState(0);
+  // Cached 2-week conflict snapshot fetched from /api/calendar/week-snapshot.
+  // Switching room / event type / AC mode re-derives weekSlots from this
+  // cache without a network round-trip; only navigating to a different week
+  // window triggers a fresh fetch.
+  const [snapshot, setSnapshot] = useState<{
+    from: string;
+    to: string;
+    bookings: Array<
+      Pick<
+        ApiBooking,
+        | "id"
+        | "roomTypeId"
+        | "eventTypeId"
+        | "status"
+        | "cleanupDurationMinutes"
+        | "slots"
+      >
+    >;
+    blocks: ApiCalendarBlock[];
+  } | null>(null);
+  const [snapshotLoading, setSnapshotLoading] = useState(false);
   const [selectedDayDate, setSelectedDayDate] = useState<string>("");
   const [isConfigLoading, setIsConfigLoading] = useState(true);
   const [configError, setConfigError] = useState<"timeout" | "failed" | null>(null);
@@ -401,42 +429,62 @@ export function BookingCalendarFlow() {
 
   const retryConfig = useCallback(() => setConfigAttempt((n) => n + 1), []);
 
-  /* ─── Availability fetch ─────────────────────────────────────── */
+  /* ─── 2-week conflict snapshot fetch ─────────────────────────── */
+  // Loads the visible week + next week from /api/calendar/week-snapshot.
+  // The response contains all bookings + blocks in the window across every
+  // room — slot positions for the active (room, event, AC) selection are
+  // derived client-side in the next effect, so switching configuration is
+  // instant.
   useEffect(() => {
-    if (!roomTypeId || !eventTypeId || weekDates.length === 0) return;
+    if (weekDates.length === 0) return;
+    const from = weekDates[0];
+    const to = addDaysYmd(weekDates[weekDates.length - 1], 7);
+
+    // Cache hit — no fetch needed when refreshKey didn't change.
+    if (snapshot && snapshot.from === from && snapshot.to === to && availabilityRefreshKey === 0) {
+      return;
+    }
 
     let cancelled = false;
     const controller = new AbortController();
-
-    // Bug 3: drop stale slots immediately so a click can't pick up the previous
-    // event type's duration while the new availability is in flight.
+    setSnapshotLoading(true);
     setWeekSlots({});
 
     void (async () => {
       try {
-        const responses = await Promise.all(
-          weekDates.map(async (date) => {
-            const query = new URLSearchParams({ roomTypeId, eventTypeId, date });
-            const res = await fetch(`/api/calendar/availability?${query.toString()}`, {
-              signal: controller.signal,
-            });
-            const data = (await res.json()) as { slots?: Slot[]; message?: string };
-            return { date, ok: res.ok, data };
-          }),
-        );
-
+        const query = new URLSearchParams({ from, to });
+        const res = await fetch(`/api/calendar/week-snapshot?${query.toString()}`, {
+          cache: "no-store",
+          signal: controller.signal,
+        });
+        const data = (await res.json()) as {
+          from?: string;
+          to?: string;
+          bookings?: typeof snapshot extends infer S
+            ? S extends { bookings: infer B } ? B : never
+            : never;
+          blocks?: ApiCalendarBlock[];
+          message?: string;
+        };
         if (cancelled) return;
-
-        const next: Record<string, Slot[]> = {};
-        const failed = responses.find((item) => !item.ok);
-        for (const response of responses) next[response.date] = response.data.slots ?? [];
-
-        setWeekSlots(next);
-        setErrorMessage(failed ? failed.data.message ?? "Failed to load week availability." : "");
+        if (!res.ok) {
+          setErrorMessage(data.message ?? "Failed to load week availability.");
+          setSnapshotLoading(false);
+          return;
+        }
+        setSnapshot({
+          from,
+          to,
+          bookings: data.bookings ?? [],
+          blocks: data.blocks ?? [],
+        });
+        setErrorMessage("");
+        setSnapshotLoading(false);
       } catch (err) {
         if (cancelled) return;
         if (err instanceof DOMException && err.name === "AbortError") return;
         setErrorMessage("Failed to load week availability.");
+        setSnapshotLoading(false);
       }
     })();
 
@@ -444,7 +492,55 @@ export function BookingCalendarFlow() {
       cancelled = true;
       controller.abort();
     };
-  }, [roomTypeId, eventTypeId, weekDates, availabilityRefreshKey]);
+    // weekDates intentionally drives the window; availabilityRefreshKey forces
+    // a refetch after a successful booking. snapshot is referenced for the
+    // cache-hit early return only.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [weekDates, availabilityRefreshKey]);
+
+  /* ─── Client-side slot derivation ────────────────────────────── */
+  // Re-derive weekSlots whenever the snapshot or the active (room, event)
+  // selection changes. No network call.
+  useEffect(() => {
+    if (!roomTypeId || !eventTypeId || weekDates.length === 0 || !snapshot) {
+      return;
+    }
+    const room = rooms.find((r) => r.id === roomTypeId);
+    const eventType = eventTypes.find((et) => et.id === eventTypeId);
+    if (!room || !eventType) return;
+
+    // Minimal CalendarDb satisfying getSlotAvailabilities + getSlotStatus:
+    // they read db.blocks, db.bookings, and db.eventTypes (for the priority
+    // compare when a candidate would overlap a cleanup window of a
+    // lower-priority booking). Pricing rules + the rooms array are not used
+    // for availability.
+    const fakeDb = {
+      rooms: [],
+      eventTypes,
+      pricingRules: [],
+      bookings: snapshot.bookings,
+      blocks: snapshot.blocks,
+    } as unknown as CalendarDb;
+
+    const apiRoom: ApiRoomType = {
+      id: room.id,
+      name: room.name,
+      workingHours: room.workingHours,
+    };
+
+    const next: Record<string, Slot[]> = {};
+    for (const date of weekDates) {
+      const result = getSlotAvailabilities(
+        fakeDb,
+        apiRoom,
+        date,
+        eventType.durationMinutes,
+        eventType.priority,
+      );
+      next[date] = result as Slot[];
+    }
+    setWeekSlots(next);
+  }, [snapshot, roomTypeId, eventTypeId, weekDates, rooms, eventTypes]);
 
   /* ─── Derived state ──────────────────────────────────────────── */
   const allowedEventTypes = useMemo(
