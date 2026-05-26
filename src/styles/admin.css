@@ -3091,6 +3091,61 @@ button.admin-bookings-kpi-tile {
   font-size: 13px;
 }
 
+.admin-bookings-queue-pager {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 12px 16px;
+  border-top: 1px solid var(--ac-line);
+  background: var(--ac-ink2);
+  flex-wrap: wrap;
+}
+
+.admin-bookings-queue-pager-range {
+  font-size: 11px;
+  color: var(--ac-text-mute);
+  letter-spacing: 0.08em;
+}
+
+.admin-bookings-queue-pager-controls {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.admin-bookings-queue-pager-page {
+  font-size: 11px;
+  color: var(--ac-text-dim);
+  letter-spacing: 0.08em;
+  min-width: 80px;
+  text-align: center;
+}
+
+.admin-bookings-queue-pager-btn {
+  font-family: "Archivo", sans-serif;
+  font-weight: 700;
+  font-size: 11px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  padding: 6px 12px;
+  border: 1px solid var(--ac-line);
+  background: var(--ac-card);
+  color: var(--ac-text);
+  cursor: pointer;
+  transition: border-color 120ms ease, color 120ms ease;
+}
+
+.admin-bookings-queue-pager-btn:hover:not(:disabled) {
+  border-color: var(--ac-gold);
+  color: var(--ac-gold);
+}
+
+.admin-bookings-queue-pager-btn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
 .admin-bookings-queue-row {
   width: 100%;
   display: block;

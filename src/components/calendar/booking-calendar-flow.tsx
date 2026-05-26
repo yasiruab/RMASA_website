@@ -345,7 +345,6 @@ export function BookingCalendarFlow() {
     >;
     blocks: ApiCalendarBlock[];
   } | null>(null);
-  const [snapshotLoading, setSnapshotLoading] = useState(false);
   const [selectedDayDate, setSelectedDayDate] = useState<string>("");
   const [isConfigLoading, setIsConfigLoading] = useState(true);
   const [configError, setConfigError] = useState<"timeout" | "failed" | null>(null);
@@ -447,7 +446,6 @@ export function BookingCalendarFlow() {
 
     let cancelled = false;
     const controller = new AbortController();
-    setSnapshotLoading(true);
     setWeekSlots({});
 
     void (async () => {
@@ -469,7 +467,6 @@ export function BookingCalendarFlow() {
         if (cancelled) return;
         if (!res.ok) {
           setErrorMessage(data.message ?? "Failed to load week availability.");
-          setSnapshotLoading(false);
           return;
         }
         setSnapshot({
@@ -479,12 +476,10 @@ export function BookingCalendarFlow() {
           blocks: data.blocks ?? [],
         });
         setErrorMessage("");
-        setSnapshotLoading(false);
       } catch (err) {
         if (cancelled) return;
         if (err instanceof DOMException && err.name === "AbortError") return;
         setErrorMessage("Failed to load week availability.");
-        setSnapshotLoading(false);
       }
     })();
 

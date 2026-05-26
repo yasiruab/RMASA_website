@@ -208,36 +208,6 @@ function paymentLabel(tone: ReturnType<typeof paymentTone>) {
   }
 }
 
-/* Pair-overlap conflict detector — mirrors the public conflict logic used
- * elsewhere in the codebase. Returns a Map<bookingId, otherBookingId[]>. */
-function buildConflictMap(bookings: Booking[]): Map<string, string[]> {
-  const map = new Map<string, string[]>();
-  const active = bookings.filter(isActiveBooking);
-  for (let i = 0; i < active.length; i += 1) {
-    for (let j = i + 1; j < active.length; j += 1) {
-      const a = active[i];
-      const b = active[j];
-      if (a.roomTypeId !== b.roomTypeId) continue;
-      const overlap = a.slots.some((sa) => {
-        if ((sa.slotStatus ?? a.status) === "rejected") return false;
-        if ((sa.slotStatus ?? a.status) === "cancelled_override") return false;
-        return b.slots.some((sb) => {
-          if ((sb.slotStatus ?? b.status) === "rejected") return false;
-          if ((sb.slotStatus ?? b.status) === "cancelled_override") return false;
-          return sa.date === sb.date && sa.startTime < sb.endTime && sb.startTime < sa.endTime;
-        });
-      });
-      if (overlap) {
-        if (!map.has(a.id)) map.set(a.id, []);
-        if (!map.has(b.id)) map.set(b.id, []);
-        map.get(a.id)!.push(b.id);
-        map.get(b.id)!.push(a.id);
-      }
-    }
-  }
-  return map;
-}
-
 type HistoryEvent = {
   t: string;
   who: string;
@@ -395,24 +365,86 @@ export function AdminBookings() {
   });
   const [ledgerError, setLedgerError] = useState("");
 
-  /* ── Initial load ────────────────────────────────────────────────────── */
+  /* ── Server pagination state ─────────────────────────────────────────── */
+  // bookings holds only the current page. Filters + page changes drive a
+  // fresh fetch via /api/admin/calendar/bookings?page&pageSize&approval=...
+  // KPIs, conflict pairs, and total count come from that same response so
+  // they stay accurate across pages.
+  const [page, setPage] = useState(1);
+  const PAGE_SIZE = 20;
+  const [total, setTotal] = useState(0);
+  const [kpisFromServer, setKpisFromServer] = useState<{
+    pending: number;
+    tentative: number;
+    approvedToday: number;
+    rejectedToday: number;
+    confirmRate: number;
+    outstanding: number;
+    conflicts: number;
+  } | null>(null);
+  const [conflictMapFromServer, setConflictMapFromServer] = useState<Map<string, string[]>>(
+    new Map(),
+  );
+  // Lazy-fetched full detail for selectedId when it's not in the current
+  // page (e.g. after the user changes filter/page).
+  const [selectedDetail, setSelectedDetail] = useState<Booking | null>(null);
+  const refreshTokenRef = useRef(0);
+
+  // Debounce search input so each keystroke doesn't fire a request.
+  const [debouncedQuery, setDebouncedQuery] = useState(query);
+  useEffect(() => {
+    const t = setTimeout(() => setDebouncedQuery(query), 250);
+    return () => clearTimeout(t);
+  }, [query]);
+
+  // Reset to page 1 whenever any filter changes.
+  useEffect(() => {
+    setPage(1);
+  }, [approvalFilter, paymentFilter, conflictFilter, debouncedQuery, sort]);
+
+  /* ── Server fetch ────────────────────────────────────────────────────── */
   const refresh = useCallback(async () => {
-    const [bookingRes, configRes] = await Promise.all([
-      fetch("/api/admin/calendar/bookings", { cache: "no-store" }),
-      fetch("/api/admin/calendar/config", { cache: "no-store" }),
-    ]);
-    const bd = await safeJson<{ bookings?: Booking[] }>(bookingRes);
-    const cd = await safeJson<{ rooms?: RoomType[]; eventTypes?: EventType[] }>(configRes);
-    if (bd.bookings) setBookings(bd.bookings);
-    if (cd.rooms) setRooms(cd.rooms);
-    if (cd.eventTypes)
-      setEventTypes(cd.eventTypes.map((et) => ({
-        ...et,
-        cleanupDurationMinutes: et.cleanupDurationMinutes ?? 0,
-        maxAdvanceBookingDays: et.maxAdvanceBookingDays ?? 365,
-      })));
+    const params = new URLSearchParams();
+    params.set("page", String(page));
+    params.set("pageSize", String(PAGE_SIZE));
+    if (approvalFilter.size > 0) params.set("approval", [...approvalFilter].join(","));
+    if (paymentFilter.size > 0) params.set("payment", [...paymentFilter].join(","));
+    if (conflictFilter !== "all") params.set("conflict", conflictFilter);
+    if (debouncedQuery.trim()) params.set("q", debouncedQuery.trim());
+    params.set("sort", sort);
+
+    const token = ++refreshTokenRef.current;
+    const res = await fetch(`/api/admin/calendar/bookings?${params.toString()}`, {
+      cache: "no-store",
+    });
+    // Drop stale responses if a newer fetch has started.
+    if (token !== refreshTokenRef.current) return;
+    const data = await safeJson<{
+      bookings?: Booking[];
+      total?: number;
+      kpis?: typeof kpisFromServer;
+      conflictPairs?: Record<string, string[]>;
+      rooms?: RoomType[];
+      eventTypes?: EventType[];
+    }>(res);
+    if (data.bookings) setBookings(data.bookings);
+    if (typeof data.total === "number") setTotal(data.total);
+    if (data.kpis) setKpisFromServer(data.kpis);
+    if (data.conflictPairs) {
+      setConflictMapFromServer(new Map(Object.entries(data.conflictPairs)));
+    }
+    if (data.rooms) setRooms(data.rooms);
+    if (data.eventTypes) {
+      setEventTypes(
+        data.eventTypes.map((et) => ({
+          ...et,
+          cleanupDurationMinutes: et.cleanupDurationMinutes ?? 0,
+          maxAdvanceBookingDays: et.maxAdvanceBookingDays ?? 365,
+        })),
+      );
+    }
     setLoading(false);
-  }, []);
+  }, [page, approvalFilter, paymentFilter, conflictFilter, debouncedQuery, sort]);
 
   useEffect(() => {
     void refresh();
@@ -443,58 +475,12 @@ export function AdminBookings() {
   const roomNameMap = useMemo(() => Object.fromEntries(rooms.map((r) => [r.id, r.name])), [rooms]);
   const eventNameMap = useMemo(() => Object.fromEntries(eventTypes.map((e) => [e.id, e.name])), [eventTypes]);
 
-  const conflictMap = useMemo(() => buildConflictMap(bookings), [bookings]);
+  // The server returns the canonical conflict map; the buildConflictMap()
+  // helper stays in the file for type compatibility, but isn't called.
+  const conflictMap = conflictMapFromServer;
 
-  const filteredBookings = useMemo(() => {
-    const q = query.trim().toLowerCase();
-    return bookings
-      .filter((b) => {
-        // Search
-        if (q) {
-          const roomName = (roomNameMap[b.roomTypeId] ?? "").toLowerCase();
-          const eventName = (eventNameMap[b.eventTypeId] ?? "").toLowerCase();
-          const hit =
-            b.reference.toLowerCase().includes(q) ||
-            b.customer.name.toLowerCase().includes(q) ||
-            b.customer.email.toLowerCase().includes(q) ||
-            b.customer.purpose.toLowerCase().includes(q) ||
-            b.id.toLowerCase().includes(q) ||
-            roomName.includes(q) ||
-            eventName.includes(q);
-          if (!hit) return false;
-        }
-        // Approval — empty set means "all"
-        if (approvalFilter.size > 0) {
-          const eff = computeBookingEffectiveStatus(b) as ApprovalValue;
-          if (!approvalFilter.has(eff)) return false;
-        }
-        // Payment — empty set means "all". Fully-rejected bookings with no
-        // payments are filtered out: they owe nothing, so they don't belong
-        // in any payment bucket. Bookings with payments still surface via
-        // "overpaid" (refund due) when applicable.
-        if (paymentFilter.size > 0) {
-          if (!isActiveBooking(b) && effectivePaidLkr(b) === 0) return false;
-          const tone = paymentTone(b);
-          const toneToValue: Record<string, PaymentValue | undefined> = {
-            unpaid: "unpaid",
-            part: "part_paid",
-            paid: "paid",
-            overpaid: "overpaid",
-          };
-          const v = toneToValue[tone];
-          if (!v || !paymentFilter.has(v)) return false;
-        }
-        // Conflict
-        if (conflictFilter === "with" && !conflictMap.has(b.id)) return false;
-        if (conflictFilter === "without" && conflictMap.has(b.id)) return false;
-        return true;
-      })
-      .sort((a, b) => {
-        const at = new Date(a.createdAt).getTime();
-        const bt = new Date(b.createdAt).getTime();
-        return sort === "newest" ? bt - at : at - bt;
-      });
-  }, [bookings, query, approvalFilter, paymentFilter, conflictFilter, conflictMap, sort, roomNameMap, eventNameMap]);
+  // Server already filtered + sorted + paginated; just surface the page.
+  const filteredBookings = bookings;
 
   /* Pick a default booking on the desktop pane when none selected */
   useEffect(() => {
@@ -503,11 +489,46 @@ export function AdminBookings() {
     }
   }, [selectedId, filteredBookings, selectBooking]);
 
-  const selected = useMemo(() => bookings.find((b) => b.id === selectedId) ?? null, [bookings, selectedId]);
+  // Lazy-fetch the selected booking when it's not in the current page —
+  // happens after the user changes filter/page while a booking is selected,
+  // or after refresh() promotes the selected booking to a different page
+  // (e.g. pending → confirmed).
+  useEffect(() => {
+    if (!selectedId) {
+      setSelectedDetail(null);
+      return;
+    }
+    if (bookings.some((b) => b.id === selectedId)) {
+      setSelectedDetail(null);
+      return;
+    }
+    let cancelled = false;
+    void (async () => {
+      const res = await fetch(`/api/admin/calendar/bookings/${selectedId}`, {
+        cache: "no-store",
+      });
+      const data = await safeJson<{ booking?: Booking }>(res);
+      if (cancelled) return;
+      if (data.booking) setSelectedDetail(data.booking);
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [selectedId, bookings]);
+
+  const selected = useMemo(
+    () =>
+      bookings.find((b) => b.id === selectedId) ??
+      (selectedDetail && selectedDetail.id === selectedId ? selectedDetail : null),
+    [bookings, selectedId, selectedDetail],
+  );
 
   const bookingsWithStaged = useMemo(() => {
-    if (stagedSlotChanges.size === 0) return bookings;
-    return bookings.map((b) => {
+    const source: Booking[] = selected && !bookings.some((b) => b.id === selected.id)
+      ? [...bookings, selected]
+      : bookings;
+    if (stagedSlotChanges.size === 0) return source;
+    return source.map((b) => {
       const staged = stagedSlotChanges.get(b.id);
       if (!staged || staged.length === 0) return b;
       return {
@@ -523,40 +544,22 @@ export function AdminBookings() {
         }),
       };
     });
-  }, [bookings, stagedSlotChanges]);
+  }, [bookings, selected, stagedSlotChanges]);
 
   /* ── KPIs (header strip) ─────────────────────────────────────────────── */
-  const kpis = useMemo(() => {
-    const pending = bookings.filter((b) => computeBookingEffectiveStatus(b) === "pending").length;
-    const tentative = bookings.filter((b) => computeBookingEffectiveStatus(b) === "tentative").length;
-    const today = todayYmd();
-    const approvedToday = bookings.filter((b) => {
-      if (computeBookingEffectiveStatus(b) !== "confirmed") return false;
-      return b.confirmedAt?.slice(0, 10) === today;
-    }).length;
-    const rejectedToday = bookings.filter((b) => {
-      if (computeBookingEffectiveStatus(b) !== "rejected") return false;
-      return b.createdAt.slice(0, 10) === today;
-    }).length;
+  // Comes from the server response so the numbers reflect the whole
+  // database, not just the current page.
+  const kpis = kpisFromServer ?? {
+    pending: 0,
+    tentative: 0,
+    approvedToday: 0,
+    rejectedToday: 0,
+    confirmRate: 0,
+    outstanding: 0,
+    conflicts: 0,
+  };
 
-    // last 30-day confirm rate
-    const last30 = new Date();
-    last30.setDate(last30.getDate() - 30);
-    const last30Cut = last30.toISOString();
-    const recentDecided = bookings.filter((b) => b.createdAt > last30Cut && (computeBookingEffectiveStatus(b) === "confirmed" || computeBookingEffectiveStatus(b) === "rejected"));
-    const recentConfirmed = recentDecided.filter((b) => computeBookingEffectiveStatus(b) === "confirmed").length;
-    const confirmRate = recentDecided.length === 0 ? 0 : Math.round((recentConfirmed / recentDecided.length) * 100);
-
-    let outstanding = 0;
-    for (const b of bookings) {
-      if (!isActiveBooking(b)) continue;
-      const totals = computePaymentTotals(b.paymentEntries);
-      const due = computeAmountDue(activeBookingTotalLkr(b), totals);
-      outstanding += Math.max(0, due - effectivePaidLkr(b));
-    }
-
-    return { pending, tentative, approvedToday, rejectedToday, confirmRate, outstanding, conflicts: conflictMap.size };
-  }, [bookings, conflictMap]);
+  const pageCount = Math.max(1, Math.ceil(total / PAGE_SIZE));
 
   /* ── Mutations (call existing /api/admin/calendar/* endpoints) ───────── */
   const setBookingError = useCallback((id: string, msg: string | null) => {
@@ -734,6 +737,11 @@ export function AdminBookings() {
           conflictMap={conflictMap}
           eventNameMap={eventNameMap}
           now={now}
+          page={page}
+          pageCount={pageCount}
+          total={total}
+          pageSize={PAGE_SIZE}
+          onPageChange={setPage}
         />
 
         <DetailPanel
@@ -1075,6 +1083,11 @@ function QueuePanel({
   conflictMap,
   eventNameMap,
   now,
+  page,
+  pageCount,
+  total,
+  pageSize,
+  onPageChange,
 }: {
   bookings: Booking[];
   selectedId: string | null;
@@ -1092,7 +1105,14 @@ function QueuePanel({
   conflictMap: Map<string, string[]>;
   eventNameMap: Record<string, string>;
   now: Date;
+  page: number;
+  pageCount: number;
+  total: number;
+  pageSize: number;
+  onPageChange: (next: number) => void;
 }) {
+  const rangeStart = total === 0 ? 0 : (page - 1) * pageSize + 1;
+  const rangeEnd = Math.min(total, page * pageSize);
   return (
     <aside className="admin-bookings-queue">
       <div className="admin-bookings-queue-head">
@@ -1153,6 +1173,37 @@ function QueuePanel({
           ))
         )}
       </div>
+
+      {total > 0 ? (
+        <div className="admin-bookings-queue-pager">
+          <span className="ac-mono admin-bookings-queue-pager-range">
+            {rangeStart}–{rangeEnd} of {total}
+          </span>
+          <div className="admin-bookings-queue-pager-controls">
+            <button
+              type="button"
+              className="admin-bookings-queue-pager-btn"
+              onClick={() => onPageChange(Math.max(1, page - 1))}
+              disabled={page <= 1}
+              aria-label="Previous page"
+            >
+              ‹ Prev
+            </button>
+            <span className="ac-mono admin-bookings-queue-pager-page">
+              Page {page} of {pageCount}
+            </span>
+            <button
+              type="button"
+              className="admin-bookings-queue-pager-btn"
+              onClick={() => onPageChange(Math.min(pageCount, page + 1))}
+              disabled={page >= pageCount}
+              aria-label="Next page"
+            >
+              Next ›
+            </button>
+          </div>
+        </div>
+      ) : null}
     </aside>
   );
 }
