@@ -302,6 +302,17 @@ function expandRecurrencePreview(
   return results;
 }
 
+// Mirrors the customer-input caps enforced server-side in
+// /api/calendar/bookings (see CLAUDE.md "Public Booking Endpoint: Input Caps").
+// Kept in sync so client validation matches what the server will accept.
+// Phone: optional leading '+' then 10–15 digits (10-digit local or
+// 11–15-digit international with country code).
+const PHONE_PATTERN = /^\+?\d{10,15}$/;
+const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+const MAX_NAME_LEN = 100;
+const MAX_EMAIL_LEN = 254;
+const MAX_PURPOSE_LEN = 1000;
+
 /* ─── Main component ───────────────────────────────────────────── */
 
 export function BookingCalendarFlow() {
@@ -354,6 +365,15 @@ export function BookingCalendarFlow() {
   const [turnstileToken, setTurnstileToken] = useState<string | null>(null);
   const [turnstileResetKey, setTurnstileResetKey] = useState(0);
   const turnstileRequired = TURNSTILE_SITE_KEY.length > 0;
+  // Keys of recurrence-generated slots the customer has manually removed from
+  // the receipt list. Filtered out of recurrenceExpandedSlots so removing an
+  // AUTO row in the receipt also drops it from the calendar grid + total.
+  const [excludedRecurrenceKeys, setExcludedRecurrenceKeys] = useState<Set<string>>(
+    () => new Set(),
+  );
+  // Once the customer has tried to submit (or clicked the disabled button), we
+  // start flagging empty/invalid fields inline. Avoids shouting on first paint.
+  const [hasInteractedSubmit, setHasInteractedSubmit] = useState(false);
 
   const weekDates = useMemo(
     () => Array.from({ length: 7 }, (_, i) => formatDate(addDays(weekStartDate, i))),
@@ -585,7 +605,14 @@ export function BookingCalendarFlow() {
     setFrequency("none");
     setRecurrenceEndDate("");
     setOccurrences("");
+    setExcludedRecurrenceKeys(new Set());
   }, [roomTypeId, eventTypeId, acMode]);
+
+  // Stale exclusions would silently drop newly-valid slots, so reset whenever
+  // the recurrence shape itself changes (frequency / limit / base selection).
+  useEffect(() => {
+    setExcludedRecurrenceKeys(new Set());
+  }, [frequency, recurrenceEndDate, occurrences, selectedSlots]);
 
   const activeRoom = useMemo(() => rooms.find((r) => r.id === roomTypeId), [rooms, roomTypeId]);
 
@@ -684,8 +711,11 @@ export function BookingCalendarFlow() {
       occurrences,
     );
     const selectedKeys = new Set(selectedSlots.map((slot) => slotKey(slot)));
-    return expanded.filter((slot) => !selectedKeys.has(slotKey(slot)));
-  }, [selectedSlots, frequency, recurrenceEndDate, occurrences]);
+    return expanded.filter(
+      (slot) =>
+        !selectedKeys.has(slotKey(slot)) && !excludedRecurrenceKeys.has(slotKey(slot)),
+    );
+  }, [selectedSlots, frequency, recurrenceEndDate, occurrences, excludedRecurrenceKeys]);
 
   const recurrencePreviewSlots = useMemo(
     () => recurrenceExpandedSlots.filter((slot) => weekDates.includes(slot.date)),
@@ -821,6 +851,128 @@ export function BookingCalendarFlow() {
 
   const total = pricingPreview.reduce((sum, item) => sum + item.amountLkr, 0);
 
+  // Per-field validation. Same predicates the blockers panel surfaces, exposed
+  // separately so the form labels can paint individual fields red. Mirrors the
+  // server-side caps in /api/calendar/bookings — keep the constants aligned.
+  const fieldErrors = useMemo(() => {
+    const name = customer.name.trim();
+    const email = customer.email.trim();
+    const phone = customer.phone.trim();
+    const purpose = customer.purpose.trim();
+    return {
+      name:
+        name.length === 0
+          ? "Required"
+          : name.length > MAX_NAME_LEN
+            ? `Max ${MAX_NAME_LEN} characters`
+            : null,
+      email:
+        email.length === 0
+          ? "Required"
+          : !EMAIL_PATTERN.test(email)
+            ? "Enter a valid email"
+            : email.length > MAX_EMAIL_LEN
+              ? `Max ${MAX_EMAIL_LEN} characters`
+              : null,
+      phone:
+        phone.length === 0
+          ? "Required"
+          : !PHONE_PATTERN.test(phone)
+            ? "10–15 digits (optional leading +)"
+            : null,
+      purpose:
+        purpose.length === 0
+          ? "Required"
+          : purpose.length > MAX_PURPOSE_LEN
+            ? `Max ${MAX_PURPOSE_LEN} characters`
+            : null,
+    };
+  }, [customer]);
+
+  // Every reason the SUBMIT button is gated, in priority order. Empty list ⇒
+  // button enabled. Renders both in the receipt panel AND as the source of
+  // truth for the button's `disabled` expression below.
+  const submitBlockers = useMemo(() => {
+    const items: { id: string; label: string }[] = [];
+    if (selectedSlots.length === 0) {
+      items.push({ id: "no-slots", label: "Pick at least one slot on the calendar." });
+    }
+    if (fieldErrors.name) {
+      items.push({ id: "name", label: "Enter your full name." });
+    }
+    if (fieldErrors.email) {
+      items.push({
+        id: "email",
+        label:
+          fieldErrors.email === "Required"
+            ? "Enter your email address."
+            : "Enter a valid email address.",
+      });
+    }
+    if (fieldErrors.phone) {
+      items.push({
+        id: "phone",
+        label:
+          fieldErrors.phone === "Required"
+            ? "Enter a contact number."
+            : "Contact number must be 10–15 digits (optional leading +).",
+      });
+    }
+    if (fieldErrors.purpose) {
+      items.push({ id: "purpose", label: "Tell us the purpose of the booking." });
+    }
+    if (frequency !== "none") {
+      const hasEndDate = recurrenceEndDate.trim().length > 0;
+      const hasOccurrences = occurrences.trim().length > 0;
+      if (!hasEndDate && !hasOccurrences) {
+        items.push({
+          id: "recurrence-limit",
+          label: "Set an End Date or Number of Recurrences.",
+        });
+      } else if (hasEndDate && hasOccurrences) {
+        items.push({
+          id: "recurrence-limit",
+          label: "Use only one recurrence limit (End Date or Occurrences).",
+        });
+      }
+    }
+    if (frequency !== "none" && recurrenceConflictSlots.length > 0) {
+      items.push({
+        id: "recurrence-conflicts",
+        label: `${recurrenceConflictSlots.length} recurring slot${
+          recurrenceConflictSlots.length === 1 ? "" : "s"
+        } conflict with existing bookings — remove or adjust them in the list.`,
+      });
+    }
+    const missingPriceCount = pricingPreview.filter((p) => p.missingPrice).length;
+    if (missingPriceCount > 0) {
+      items.push({
+        id: "missing-price",
+        label: `${missingPriceCount} slot${
+          missingPriceCount === 1 ? "" : "s"
+        } have no published rate — remove them or pick a different date.`,
+      });
+    }
+    if (!termsAccepted) {
+      items.push({ id: "terms", label: "Accept the booking terms." });
+    }
+    if (turnstileRequired && !turnstileToken) {
+      items.push({ id: "turnstile", label: "Complete the human-check." });
+    }
+    return items;
+  }, [
+    selectedSlots,
+    fieldErrors,
+    frequency,
+    recurrenceEndDate,
+    occurrences,
+    recurrenceConflictSlots,
+    pricingPreview,
+    termsAccepted,
+    turnstileRequired,
+    turnstileToken,
+  ]);
+
   function resetForm() {
     setSelectedSlots([]);
     setCustomer({ name: "", email: "", phone: "", purpose: "" });
@@ -833,9 +985,12 @@ export function BookingCalendarFlow() {
     setTermsAccepted(false);
     setTurnstileToken(null);
     setTurnstileResetKey((k) => k + 1);
+    setExcludedRecurrenceKeys(new Set());
+    setHasInteractedSubmit(false);
   }
 
   async function submitBooking() {
+    setHasInteractedSubmit(true);
     if (!roomTypeId || !eventTypeId || selectedSlots.length === 0) {
       setErrorMessage("Select room, event type, and at least one slot.");
       return;
@@ -1294,8 +1449,10 @@ export function BookingCalendarFlow() {
 
         {frequency !== "none" && recurrenceConflictSlots.length > 0 ? (
           <p className="form-message error ac-bookings-recurrence-warning" role="alert">
-            Recurrence warning: {recurrenceConflictSlots.length} slot(s) conflict with existing
-            classes/bookings in this view.
+            {recurrenceConflictSlots.length} recurring slot
+            {recurrenceConflictSlots.length === 1 ? "" : "s"} conflict with existing
+            bookings — remove them from the receipt or adjust the recurrence to enable
+            Submit.
           </p>
         ) : null}
 
@@ -1747,43 +1904,76 @@ export function BookingCalendarFlow() {
             <div className="ac-bookings-particulars">
               <span className="ac-bookings-config-eyebrow">YOUR PARTICULARS</span>
               <div className="ac-bookings-field-grid">
-                <label>
+                <label
+                  className={
+                    hasInteractedSubmit && fieldErrors.name ? "is-invalid" : undefined
+                  }
+                >
                   <span className="ac-bookings-field-label">FULL NAME</span>
                   <input
                     onChange={(e) => setCustomer((p) => ({ ...p, name: e.target.value }))}
                     type="text"
                     value={customer.name}
                   />
+                  {hasInteractedSubmit && fieldErrors.name ? (
+                    <span className="field-hint">{fieldErrors.name}</span>
+                  ) : null}
                 </label>
-                <label>
+                <label
+                  className={
+                    hasInteractedSubmit && fieldErrors.phone ? "is-invalid" : undefined
+                  }
+                >
                   <span className="ac-bookings-field-label">CONTACT NUMBER</span>
                   <input
                     onChange={(e) => setCustomer((p) => ({ ...p, phone: e.target.value }))}
                     type="tel"
                     value={customer.phone}
                   />
+                  {hasInteractedSubmit && fieldErrors.phone ? (
+                    <span className="field-hint">{fieldErrors.phone}</span>
+                  ) : null}
                 </label>
               </div>
-              <label>
+              <label
+                className={
+                  hasInteractedSubmit && fieldErrors.email ? "is-invalid" : undefined
+                }
+              >
                 <span className="ac-bookings-field-label">EMAIL</span>
                 <input
                   onChange={(e) => setCustomer((p) => ({ ...p, email: e.target.value }))}
                   type="email"
                   value={customer.email}
                 />
+                {hasInteractedSubmit && fieldErrors.email ? (
+                  <span className="field-hint">{fieldErrors.email}</span>
+                ) : null}
               </label>
-              <label>
+              <label
+                className={
+                  hasInteractedSubmit && fieldErrors.purpose ? "is-invalid" : undefined
+                }
+              >
                 <span className="ac-bookings-field-label">PURPOSE OF BOOKING</span>
                 <textarea
                   onChange={(e) => setCustomer((p) => ({ ...p, purpose: e.target.value }))}
                   rows={4}
                   value={customer.purpose}
                 />
+                {hasInteractedSubmit && fieldErrors.purpose ? (
+                  <span className="field-hint">{fieldErrors.purpose}</span>
+                ) : null}
               </label>
             </div>
 
             {/* Terms */}
-            <div className="ac-bookings-terms">
+            <div
+              className={
+                "ac-bookings-terms" +
+                (hasInteractedSubmit && !termsAccepted ? " is-invalid" : "")
+              }
+            >
               <label className="ac-bookings-terms-label">
                 <input
                   checked={termsAccepted}
@@ -1872,40 +2062,67 @@ export function BookingCalendarFlow() {
                   Pick at least one slot on the calendar to start.
                 </p>
               ) : (
-                pricingPreview.map((entry, i) => (
-                  <div className="ac-bookings-receipt-row" key={`${entry.date}-${entry.startTime}`}>
-                    <div className="ac-bookings-receipt-row-left">
-                      <span className="num">
-                        <span className="num-badge">{i + 1}</span> BOOKING {i + 1}
-                      </span>
-                      <div className="when">
-                        {ymdToDate(entry.date).toLocaleDateString("en-US", {
-                          weekday: "short",
-                          month: "short",
-                          day: "numeric",
-                        })}
+                pricingPreview.map((entry, i) => {
+                  const key = slotKey(entry);
+                  const hasConflict =
+                    !entry.isBase && recurrenceConflictKeys.has(key);
+                  const hasNoRate = entry.missingPrice;
+                  const rowClass =
+                    "ac-bookings-receipt-row" +
+                    (hasConflict ? " is-conflict" : "") +
+                    (hasNoRate ? " is-unpriced" : "");
+                  return (
+                    <div className={rowClass} key={`${entry.date}-${entry.startTime}`}>
+                      <div className="ac-bookings-receipt-row-left">
+                        <span className="num">
+                          <span className="num-badge">{i + 1}</span> BOOKING {i + 1}
+                        </span>
+                        <div className="when">
+                          {ymdToDate(entry.date).toLocaleDateString("en-US", {
+                            weekday: "short",
+                            month: "short",
+                            day: "numeric",
+                          })}
+                        </div>
+                        <div className="time">
+                          {entry.startTime} — {entry.endTime}{" "}
+                          {entry.isBase ? null : <span className="auto">AUTO</span>}
+                        </div>
                       </div>
-                      <div className="time">
-                        {entry.startTime} — {entry.endTime}{" "}
-                        {entry.isBase ? null : <span className="auto">AUTO</span>}
-                      </div>
-                    </div>
-                    <div className="ac-bookings-receipt-row-right">
-                      <span className="price">
-                        {entry.missingPrice ? "—" : `LKR ${currency(entry.amountLkr)}`}
-                      </span>
-                      {entry.isBase ? (
+                      <div className="ac-bookings-receipt-row-right">
+                        {hasConflict ? (
+                          <span className="ac-bookings-receipt-row-tag is-conflict">
+                            CONFLICT
+                          </span>
+                        ) : hasNoRate ? (
+                          <span className="ac-bookings-receipt-row-tag is-unpriced">
+                            NO RATE
+                          </span>
+                        ) : null}
+                        <span className="price">
+                          {entry.missingPrice ? "—" : `LKR ${currency(entry.amountLkr)}`}
+                        </span>
                         <button
                           className="remove"
-                          onClick={() => toggleSelectionForCell(entry.date, entry.startTime)}
+                          onClick={() => {
+                            if (entry.isBase) {
+                              toggleSelectionForCell(entry.date, entry.startTime);
+                            } else {
+                              setExcludedRecurrenceKeys((prev) => {
+                                const next = new Set(prev);
+                                next.add(key);
+                                return next;
+                              });
+                            }
+                          }}
                           type="button"
                         >
                           REMOVE
                         </button>
-                      ) : null}
+                      </div>
                     </div>
-                  </div>
-                ))
+                  );
+                })
               )}
             </div>
 
@@ -1932,17 +2149,38 @@ export function BookingCalendarFlow() {
               </div>
             ) : null}
 
-            <div className="ac-bookings-receipt-actions">
+            {submitBlockers.length > 0 ? (
+              <div
+                className="ac-bookings-receipt-blockers"
+                role="alert"
+                onMouseDownCapture={() => setHasInteractedSubmit(true)}
+              >
+                <div className="ac-bookings-receipt-blockers-title">
+                  FIX TO SUBMIT · {submitBlockers.length}{" "}
+                  {submitBlockers.length === 1 ? "ITEM" : "ITEMS"}
+                </div>
+                <ul>
+                  {submitBlockers.map((b) => (
+                    <li key={b.id}>
+                      <span aria-hidden="true" className="bullet">
+                        ↑
+                      </span>{" "}
+                      {b.label}
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            ) : null}
+
+            <div
+              className="ac-bookings-receipt-actions"
+              onMouseDownCapture={() => {
+                if (submitBlockers.length > 0) setHasInteractedSubmit(true);
+              }}
+            >
               <button
                 className="ac-btn-primary"
-                disabled={
-                  isSubmitting ||
-                  selectedSlots.length === 0 ||
-                  !termsAccepted ||
-                  (turnstileRequired && !turnstileToken) ||
-                  (frequency !== "none" && recurrenceConflictSlots.length > 0) ||
-                  pricingPreview.some((item) => item.missingPrice)
-                }
+                disabled={isSubmitting || submitBlockers.length > 0}
                 onClick={submitBooking}
                 type="button"
               >

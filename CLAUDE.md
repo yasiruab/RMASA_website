@@ -794,7 +794,7 @@ The Amplify `CRON_SECRET` is wired with the `_AMPLIFY_*` pattern in [`next.confi
 |---|---|---|
 | `customer.name` | 100 chars | — |
 | `customer.email` | 254 chars (RFC 5321 path max) | also passes `isEmail` |
-| `customer.phone` | 16 chars | `PHONE_PATTERN = /^[0-9+]{1,16}$/` (digits + `+` only) |
+| `customer.phone` | 10–16 chars | `PHONE_PATTERN = /^\+?\d{10,15}$/` (optional leading `+`, then 10–15 digits) |
 | `customer.purpose` | 1000 chars | — |
 
 These caps are independent of Turnstile — both run on every request. A bot that somehow bypasses Turnstile still can't dump a 10 MB customer name.
@@ -826,6 +826,54 @@ The public bookings page (`booking-calendar-flow.tsx`) drives all room-card data
 **Recurrence preview**: `expandRecurrencePreview()` returns `[]` until the admin has set either an End Date or Occurrences. Choosing Daily/Weekly/Monthly with no limit does **not** paint recurrence blocks on the calendar.
 
 **Booking terms**: a real `<input type="checkbox">` (default unchecked) gates the Submit button. The full General Guidelines list is embedded inline in a `<details>` expander — not linked to the privacy policy.
+
+### Submit-button gating: blockers panel + per-row removal
+
+A disabled `<button>` doesn't fire `onClick`, so silently graying out the
+SUBMIT button leaves the customer with no idea what to fix. The button is
+now gated by a single `submitBlockers` memo in
+[booking-calendar-flow.tsx](src/components/calendar/booking-calendar-flow.tsx)
+that returns one `{ id, label }` per unmet condition, in priority order:
+
+1. No slot selected
+2. Empty / over-length name
+3. Empty / invalid / over-length email
+4. Empty / non-matching phone (mirrors server `PHONE_PATTERN` — 10–15 digits, optional leading `+`)
+5. Empty / over-length purpose
+6. Recurrence active but neither End Date nor Occurrences set (or both)
+7. One or more recurring (AUTO) slots conflict with existing bookings
+8. One or more slots have no published rate (`missingPrice`)
+9. Terms checkbox unchecked
+10. Turnstile required but no token
+
+The list is **the single source of truth** — the SUBMIT button's `disabled`
+expression is just `isSubmitting || submitBlockers.length > 0`. If you add
+a new gate, add it to `submitBlockers` so the customer-visible "FIX TO
+SUBMIT" panel stays accurate.
+
+**Per-row removal in the receipt list** — every receipt row (base AND
+recurrence-AUTO) carries a REMOVE button. Base rows route through the
+existing `toggleSelectionForCell` (which also drops the booking's entire
+recurrence chain). AUTO rows add their `slotKey` to a new
+`excludedRecurrenceKeys: Set<string>` state, which
+`recurrenceExpandedSlots` filters against — so removing an AUTO row from
+the list also drops the recurrence-preview block from the calendar grid
+in the same render. The exclusion set is cleared on config change (room /
+event / AC), on any change to `frequency / recurrenceEndDate / occurrences
+/ selectedSlots` (so a fresh recurrence pattern doesn't silently lose a
+stale-excluded slot), and inside `resetForm()`. Conflicting AUTO rows are
+visually flagged with a red `CONFLICT` chip + left border; unpriced rows
+with an amber `NO RATE` chip — but they're never auto-removed, since the
+customer should choose.
+
+**Field-level invalid markers** — `fieldErrors` (a sibling memo) returns
+per-field error strings (`"Required"`, `"Enter a valid email"`,
+`"10–15 digits (optional leading +)"`, etc.). The four particulars
+`<label>`s and the terms `<div>` add `is-invalid` modifier classes once
+the customer has tried to submit (`hasInteractedSubmit` flag — flipped
+true inside `submitBooking()` AND on `onMouseDownCapture` of the SUBMIT
+button's wrapper, so clicking a disabled button still triggers the inline
+flags). Avoids shouting at the customer on first paint.
 
 ### Selection / availability safety patterns
 

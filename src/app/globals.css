@@ -2893,6 +2893,99 @@ a.ac-channel-card:focus-visible {
   background: rgba(255, 91, 102, 0.08);
 }
 
+/* Receipt row variants — conflicting recurrence slot or no rate available. */
+.ac-bookings-receipt-row.is-conflict {
+  border-left: 3px solid var(--ac-danger);
+  padding-left: 10px;
+  background: rgba(255, 91, 102, 0.05);
+}
+.ac-bookings-receipt-row.is-unpriced {
+  border-left: 3px solid var(--ac-gold);
+  padding-left: 10px;
+  background: rgba(232, 183, 58, 0.05);
+}
+.ac-bookings-receipt-row-tag {
+  display: inline-block;
+  padding: 3px 8px;
+  font-family: "Geist Mono", monospace;
+  font-size: 9px;
+  letter-spacing: 0.12em;
+  font-weight: 700;
+  text-transform: uppercase;
+  border-radius: 2px;
+}
+.ac-bookings-receipt-row-tag.is-conflict {
+  background: var(--ac-danger);
+  color: #ffffff;
+}
+.ac-bookings-receipt-row-tag.is-unpriced {
+  background: var(--ac-gold);
+  color: var(--ac-ink);
+}
+
+/* Blockers panel — lists every reason SUBMIT is disabled. */
+.ac-bookings-receipt-blockers {
+  margin: 0 22px 0;
+  padding: 14px 16px;
+  background: rgba(255, 91, 102, 0.08);
+  border: 1px solid var(--ac-danger);
+  border-left: 3px solid var(--ac-danger);
+}
+.ac-bookings-receipt-blockers-title {
+  font-family: "Geist Mono", monospace;
+  font-size: 10px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--ac-danger);
+  font-weight: 700;
+  margin-bottom: 8px;
+}
+.ac-bookings-receipt-blockers ul {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: grid;
+  gap: 6px;
+}
+.ac-bookings-receipt-blockers li {
+  font-family: "Space Grotesk", sans-serif;
+  font-size: 13px;
+  line-height: 1.4;
+  color: var(--ac-text);
+  padding-left: 18px;
+  position: relative;
+}
+.ac-bookings-receipt-blockers li .bullet {
+  position: absolute;
+  left: 0;
+  top: 0;
+  color: var(--ac-danger);
+  font-weight: 700;
+}
+
+/* Field-level invalid state on the particulars form. */
+.ac-bookings-particulars label.is-invalid input,
+.ac-bookings-particulars label.is-invalid textarea {
+  border-color: var(--ac-danger);
+}
+.ac-bookings-particulars label.is-invalid .ac-bookings-field-label {
+  color: var(--ac-danger);
+}
+.ac-bookings-particulars .field-hint {
+  font-family: "Geist Mono", monospace;
+  font-size: 10px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--ac-danger);
+}
+
+/* Terms block invalid state. */
+.ac-bookings-terms.is-invalid {
+  border-color: var(--ac-danger);
+  border-left-color: var(--ac-danger);
+  background: rgba(255, 91, 102, 0.05);
+}
+
 /* ─── Footer ──────────────────────────────────────────────────── */
 
 .ac-footer {

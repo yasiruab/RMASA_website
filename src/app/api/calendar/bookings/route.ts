@@ -60,7 +60,10 @@ const MAX_NAME_LEN = 100;
 const MAX_EMAIL_LEN = 254; // RFC 5321 path max
 const MAX_PHONE_LEN = 16;
 const MAX_PURPOSE_LEN = 1000;
-const PHONE_PATTERN = /^[0-9+]{1,16}$/;
+// Optional leading '+' (country prefix), then 10–15 digits.
+// 10-digit minimum ensures we capture a usable contact number (e.g. local
+// 077XXXXXXX or international +94XXXXXXXXX); upper bound matches MAX_PHONE_LEN.
+const PHONE_PATTERN = /^\+?\d{10,15}$/;
 
 function generateBookingReference(): string {
   return "BK-" + randomBytes(3).toString("hex").toUpperCase();
@@ -104,7 +107,9 @@ export async function POST(req: Request) {
   }
   if (!PHONE_PATTERN.test(customer.phone) || customer.phone.length > MAX_PHONE_LEN) {
     return NextResponse.json(
-      { message: `Phone must be ${MAX_PHONE_LEN} characters or fewer and contain only digits and '+'.` },
+      {
+        message: `Phone must be 10–${MAX_PHONE_LEN} characters: digits only, with an optional leading '+'.`,
+      },
       { status: 400 },
     );
   }
