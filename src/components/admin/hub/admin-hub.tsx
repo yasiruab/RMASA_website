@@ -1,14 +1,7 @@
 import Link from "next/link";
 import { AdminBreadcrumbs } from "@/components/admin/admin-breadcrumbs";
 import { AdminLogoutButton } from "@/components/admin/admin-logout-button";
-import {
-  activeBookingTotalLkr,
-  computeBookingEffectiveStatus,
-  isActiveBooking,
-} from "@/lib/admin/booking-utils";
 import type { RevenueModel } from "@/lib/admin/revenue-model";
-import type { Booking, CalendarBlock } from "@/lib/calendar-types";
-import { computeAmountDue, computePaymentTotals } from "@/lib/payments";
 
 export type HubActivity = {
   id: string;
@@ -20,13 +13,30 @@ export type HubActivity = {
   meta: Record<string, unknown> | null;
 };
 
+export type HubKpis = {
+  pending: number;
+  tentative: number;
+  approvedToday: number;
+  activeBlocks: number;
+  outstandingLkr: number;
+  conflictCount: number;
+};
+
+// Minimal lookup shape for RecentActivity — only fields the row UI needs.
+export type ActivityBookingLookup = {
+  id: string;
+  reference: string;
+  customerName: string;
+  customerPurpose: string;
+};
+
 type Props = {
   email: string;
   isSuperAdmin: boolean;
-  bookings: Booking[];
-  blocks: CalendarBlock[];
+  kpis: HubKpis;
   revenue: RevenueModel;
   activity: HubActivity[];
+  activityBookings: ActivityBookingLookup[];
 };
 
 const LKR = new Intl.NumberFormat("en-LK", { maximumFractionDigits: 0 });
@@ -86,48 +96,11 @@ function actionDisplay(action: string, meta: Record<string, unknown> | null) {
   return known;
 }
 
-export function AdminHub({ email, isSuperAdmin, bookings, blocks, revenue, activity }: Props) {
+export function AdminHub({ email, isSuperAdmin, kpis, revenue, activity, activityBookings }: Props) {
   const now = new Date();
 
-  // KPI counts
-  const pending = bookings.filter((b) => computeBookingEffectiveStatus(b) === "pending").length;
-  const tentative = bookings.filter((b) => computeBookingEffectiveStatus(b) === "tentative").length;
-
-  const todayYmd = now.toISOString().slice(0, 10);
-  const approvedToday = bookings.filter((b) => {
-    if (computeBookingEffectiveStatus(b) !== "confirmed") return false;
-    if (!b.confirmedAt) return false;
-    return b.confirmedAt.slice(0, 10) === todayYmd;
-  }).length;
-
-  const startOfWeek = (d: Date) => {
-    const day = d.getDay();
-    const diff = (day === 0 ? -6 : 1) - day;
-    const s = new Date(d);
-    s.setDate(d.getDate() + diff);
-    s.setHours(0, 0, 0, 0);
-    return s;
-  };
-  const weekStart = startOfWeek(now);
-  const weekEnd = new Date(weekStart);
-  weekEnd.setDate(weekStart.getDate() + 7);
-  const weekStartYmd = weekStart.toISOString().slice(0, 10);
-  const weekEndYmd = weekEnd.toISOString().slice(0, 10);
-  const activeBlocks = blocks.filter((b) => b.date >= weekStartYmd && b.date < weekEndYmd).length;
-
-  // Outstanding across all active bookings. Uses active-slot total so
-  // partially-rejected bookings only count their non-rejected slot amounts.
-  let outstandingLkr = 0;
-  for (const b of bookings) {
-    if (!isActiveBooking(b)) continue;
-    const totals = computePaymentTotals(b.paymentEntries);
-    const due = computeAmountDue(activeBookingTotalLkr(b), totals);
-    const outstanding = Math.max(0, due - b.paidAmountLkr);
-    outstandingLkr += outstanding;
-  }
-
-  // Conflicts — simple heuristic: bookings with effective status "pending" or "tentative" sharing date/room/time
-  const conflictBookingIds = computeConflictIds(bookings);
+  // KPIs come pre-computed from the server — see src/app/admin/calendar/page.tsx.
+  const { pending, tentative, approvedToday, activeBlocks, outstandingLkr, conflictCount } = kpis;
 
   const dateString = now.toLocaleDateString("en-GB", {
     day: "2-digit",
@@ -193,9 +166,9 @@ export function AdminHub({ email, isSuperAdmin, bookings, blocks, revenue, activ
         />
         <KpiTile
           label="Conflicts"
-          value={String(conflictBookingIds.size)}
+          value={String(conflictCount)}
           sub="requires reconciliation"
-          hot={conflictBookingIds.size > 0}
+          hot={conflictCount > 0}
           href="/admin/calendar/bookings?conflict=with"
         />
         <KpiTile
@@ -221,34 +194,9 @@ export function AdminHub({ email, isSuperAdmin, bookings, blocks, revenue, activ
 
       <RevenueSnapshot revenue={revenue} />
 
-      <RecentActivity activity={activity} bookings={bookings} now={now} />
+      <RecentActivity activity={activity} activityBookings={activityBookings} now={now} />
     </div>
   );
-}
-
-function computeConflictIds(bookings: Booking[]): Set<string> {
-  // Same simple definition the queue tab uses: any two active bookings on the
-  // same room+date+time window. We don't import the full conflict detector
-  // here — pending/tentative overlap with confirmed is the actionable signal.
-  const conflicts = new Set<string>();
-  const active = bookings.filter(isActiveBooking);
-  for (let i = 0; i < active.length; i += 1) {
-    for (let j = i + 1; j < active.length; j += 1) {
-      const a = active[i];
-      const b = active[j];
-      if (a.roomTypeId !== b.roomTypeId) continue;
-      const overlap = a.slots.some((sa) =>
-        b.slots.some(
-          (sb) => sa.date === sb.date && sa.startTime < sb.endTime && sb.startTime < sa.endTime,
-        ),
-      );
-      if (overlap) {
-        conflicts.add(a.id);
-        conflicts.add(b.id);
-      }
-    }
-  }
-  return conflicts;
 }
 
 function KpiTile({
@@ -527,8 +475,8 @@ function RevenueSnapshot({ revenue }: { revenue: RevenueModel }) {
   );
 }
 
-function RecentActivity({ activity, bookings, now }: { activity: HubActivity[]; bookings: Booking[]; now: Date }) {
-  const bookingIndex = new Map(bookings.map((b) => [b.id, b]));
+function RecentActivity({ activity, activityBookings, now }: { activity: HubActivity[]; activityBookings: ActivityBookingLookup[]; now: Date }) {
+  const bookingIndex = new Map(activityBookings.map((b) => [b.id, b]));
   return (
     <section className="admin-hub-activity">
       <SubHeading title="Recent activity" meta="Admin + system events" accent={`· ${activity.length} latest`} />
@@ -562,7 +510,7 @@ function RecentActivity({ activity, bookings, now }: { activity: HubActivity[]; 
                 <div>
                   <div className="admin-hub-activity-subject">
                     <span className="admin-hub-activity-ref">{booking?.reference ?? ev.resourceId ?? "—"}</span>
-                    {booking ? <> · {booking.customer.purpose || booking.customer.name}</> : null}
+                    {booking ? <> · {booking.customerPurpose || booking.customerName}</> : null}
                   </div>
                   {note ? <div className="admin-hub-activity-note">{note}</div> : null}
                 </div>

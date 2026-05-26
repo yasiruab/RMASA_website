@@ -6,8 +6,8 @@ import { isValidDate, isValidTime } from "@/lib/calendar-core";
 import {
   createCalendarBlock,
   deleteCalendarBlock,
-  readCalendarDb,
 } from "@/lib/calendar-store";
+import { prisma } from "@/lib/prisma";
 
 type BlockPayload = {
   id?: string;
@@ -22,10 +22,29 @@ export async function GET() {
   const auth = await requireAdmin();
   if ("response" in auth) return auth.response;
 
-  const db = await readCalendarDb();
+  // Scoped: blocks + rooms only. The legacy readCalendarDb() pulled every
+  // booking and payment entry alongside.
+  const [blockRows, roomRows] = await prisma.$transaction([
+    prisma.calendarBlock.findMany(),
+    prisma.roomType.findMany(),
+  ]);
   return NextResponse.json({
-    blocks: db.blocks,
-    rooms: db.rooms,
+    blocks: blockRows.map((b) => ({
+      id: b.id,
+      roomTypeId: b.roomTypeId,
+      date: b.date,
+      startTime: b.startTime,
+      endTime: b.endTime,
+      reason: b.reason,
+      createdAt: b.createdAt.toISOString(),
+    })),
+    rooms: roomRows.map((r) => ({
+      id: r.id,
+      name: r.name,
+      workingHours: { startTime: r.startTime, endTime: r.endTime },
+      capacity: r.capacity ?? undefined,
+      description: r.description ?? undefined,
+    })),
   });
 }
 

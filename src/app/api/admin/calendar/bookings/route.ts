@@ -15,6 +15,7 @@ import {
   updateBookingSlotsBatch,
   updateBookingStatus,
 } from "@/lib/calendar-store";
+import { buildConflictPairs } from "@/lib/admin/conflict-detector";
 import { prisma } from "@/lib/prisma";
 import {
   AcMode,
@@ -119,54 +120,6 @@ function toBooking(row: BookingRowFromDb): Booking {
   };
 }
 
-/** Pair-overlap conflict detector matching the client-side logic in
- *  admin-bookings.tsx. Returns the set of bookingIds that overlap at least
- *  one other active booking on the same room. Called from the GET handler
- *  with a minimal projection of active bookings — no payment data needed. */
-function buildConflictPairs(
-  bookings: Array<{
-    id: string;
-    roomTypeId: string;
-    status: BookingStatus;
-    slots: Array<{ date: string; startTime: string; endTime: string; slotStatus: string | null }>;
-  }>,
-): Map<string, string[]> {
-  const pairs = new Map<string, string[]>();
-  const active = bookings.filter((b) => {
-    if (b.slots.length === 0) return ["pending", "confirmed", "tentative"].includes(b.status);
-    const effectives = b.slots.map((s) => s.slotStatus ?? b.status);
-    const live = effectives.filter((s) => s !== "rejected" && s !== "cancelled_override");
-    if (live.length === 0) return false;
-    if (live.every((s) => s === live[0])) {
-      return (["pending", "confirmed", "tentative"] as string[]).includes(live[0]);
-    }
-    return (["pending", "confirmed", "tentative"] as string[]).includes(b.status);
-  });
-  for (let i = 0; i < active.length; i += 1) {
-    for (let j = i + 1; j < active.length; j += 1) {
-      const a = active[i];
-      const b = active[j];
-      if (a.roomTypeId !== b.roomTypeId) continue;
-      const overlap = a.slots.some((sa) => {
-        if ((sa.slotStatus ?? a.status) === "rejected") return false;
-        if ((sa.slotStatus ?? a.status) === "cancelled_override") return false;
-        return b.slots.some((sb) => {
-          if ((sb.slotStatus ?? b.status) === "rejected") return false;
-          if ((sb.slotStatus ?? b.status) === "cancelled_override") return false;
-          return sa.date === sb.date && sa.startTime < sb.endTime && sb.startTime < sa.endTime;
-        });
-      });
-      if (overlap) {
-        if (!pairs.has(a.id)) pairs.set(a.id, []);
-        if (!pairs.has(b.id)) pairs.set(b.id, []);
-        pairs.get(a.id)!.push(b.id);
-        pairs.get(b.id)!.push(a.id);
-      }
-    }
-  }
-  return pairs;
-}
-
 type Kpis = {
   pending: number;
   tentative: number;
@@ -186,8 +139,52 @@ export async function GET(req: Request) {
 
   // ─── Legacy mode (no ?page) ────────────────────────────────────────────
   // Preserves the current response shape for callers that haven't migrated
-  // (admin-calendar-console.tsx, admin-revenue.tsx, admin-schedule.tsx).
+  // (admin-calendar-console.tsx, admin-revenue.tsx). Supports an optional
+  // ?fromDate=&toDate= window used by the admin-schedule week view — when
+  // both are present, only bookings with at least one slot inside the
+  // window are returned, which is hundreds-of-rows lighter than the full
+  // table scan.
   if (pageParam === null) {
+    const fromDate = searchParams.get("fromDate") ?? "";
+    const toDate = searchParams.get("toDate") ?? "";
+    const isWindowScoped =
+      /^\d{4}-\d{2}-\d{2}$/.test(fromDate) && /^\d{4}-\d{2}-\d{2}$/.test(toDate) && fromDate <= toDate;
+
+    if (isWindowScoped) {
+      const [bookingRows, roomRows, eventTypeRows] = await prisma.$transaction([
+        prisma.booking.findMany({
+          where: { slots: { some: { date: { gte: fromDate, lte: toDate } } } },
+          include: {
+            slots: true,
+            amountBreakdown: true,
+            paymentEntries: { orderBy: { createdAt: "asc" } },
+            overriddenTargets: true,
+          },
+        }),
+        prisma.roomType.findMany(),
+        prisma.eventType.findMany(),
+      ]);
+      return NextResponse.json({
+        bookings: bookingRows.map(toBooking),
+        rooms: roomRows.map((r) => ({
+          id: r.id,
+          name: r.name,
+          workingHours: { startTime: r.startTime, endTime: r.endTime },
+          capacity: r.capacity ?? undefined,
+          description: r.description ?? undefined,
+        })),
+        eventTypes: eventTypeRows.map((e) => ({
+          id: e.id,
+          name: e.name,
+          durationMinutes: e.durationMinutes,
+          cleanupDurationMinutes: e.cleanupDurationMinutes,
+          maxAdvanceBookingDays: e.maxAdvanceBookingDays,
+          priority: e.priority,
+          roomTypeId: e.roomTypeId ?? undefined,
+        })),
+      });
+    }
+
     const db = await readCalendarDb();
     return NextResponse.json({
       bookings: db.bookings,

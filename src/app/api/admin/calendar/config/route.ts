@@ -1,8 +1,9 @@
 import { NextResponse } from "next/server";
 import { logAuditEvent } from "@/lib/audit";
 import { requireAdmin, requireSuperAdmin } from "@/lib/auth-guards";
-import { readCalendarDb, replaceCalendarConfig } from "@/lib/calendar-store";
+import { replaceCalendarConfig } from "@/lib/calendar-store";
 import { EventType, PricingRule, RoomType } from "@/lib/calendar-types";
+import { prisma } from "@/lib/prisma";
 
 export const dynamic = "force-dynamic";
 
@@ -16,11 +17,38 @@ export async function GET() {
   const auth = await requireAdmin();
   if ("response" in auth) return auth.response;
 
-  const db = await readCalendarDb();
+  // Scoped: three config tables only. The legacy readCalendarDb() pulled
+  // every booking and payment entry alongside.
+  const [rooms, eventTypes, pricingRules] = await prisma.$transaction([
+    prisma.roomType.findMany(),
+    prisma.eventType.findMany(),
+    prisma.pricingRule.findMany(),
+  ]);
   return NextResponse.json({
-    rooms: db.rooms,
-    eventTypes: db.eventTypes,
-    pricingRules: db.pricingRules,
+    rooms: rooms.map((r) => ({
+      id: r.id,
+      name: r.name,
+      workingHours: { startTime: r.startTime, endTime: r.endTime },
+      capacity: r.capacity ?? undefined,
+      description: r.description ?? undefined,
+    })),
+    eventTypes: eventTypes.map((e) => ({
+      id: e.id,
+      name: e.name,
+      durationMinutes: e.durationMinutes,
+      cleanupDurationMinutes: e.cleanupDurationMinutes,
+      maxAdvanceBookingDays: e.maxAdvanceBookingDays,
+      priority: e.priority,
+      roomTypeId: e.roomTypeId ?? undefined,
+    })),
+    pricingRules: pricingRules.map((rule) => ({
+      id: rule.id,
+      roomTypeId: rule.roomTypeId,
+      eventTypeId: rule.eventTypeId,
+      acMode: rule.acMode,
+      dayType: rule.dayType,
+      amountLkr: rule.amountLkr,
+    })),
   });
 }
 

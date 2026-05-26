@@ -182,13 +182,30 @@ export function AdminSchedule() {
     () => new Set(["rejected", "cancelled_override"]),
   );
 
-  /* ── Data fetch ───────────────────────────────────────────────────────── */
+  /* ── Derived: week dates + working hour window ─────────────────────────── */
+
+  const weekDates = useMemo(
+    () => Array.from({ length: 7 }, (_, i) => fmtYmd(addDays(weekStartDate, i))),
+    [weekStartDate],
+  );
+
+  /* ── Data fetch (scoped to the visible week) ──────────────────────────── */
+  // /api/admin/calendar/bookings supports ?fromDate&toDate — when both are
+  // present, only bookings with at least one slot inside that window come
+  // back. Switching weeks refetches the new window.
   useEffect(() => {
+    if (weekDates.length === 0) return;
     let cancelled = false;
     void (async () => {
       setIsLoading(true);
       try {
-        const res = await fetch("/api/admin/calendar/bookings", { cache: "no-store" });
+        const params = new URLSearchParams({
+          fromDate: weekDates[0],
+          toDate: weekDates[weekDates.length - 1],
+        });
+        const res = await fetch(`/api/admin/calendar/bookings?${params.toString()}`, {
+          cache: "no-store",
+        });
         if (cancelled) return;
         if (!res.ok) throw new Error("Failed to load schedule data.");
         const data = await safeJson<{
@@ -211,14 +228,7 @@ export function AdminSchedule() {
     return () => {
       cancelled = true;
     };
-  }, []);
-
-  /* ── Derived: week dates + working hour window ─────────────────────────── */
-
-  const weekDates = useMemo(
-    () => Array.from({ length: 7 }, (_, i) => fmtYmd(addDays(weekStartDate, i))),
-    [weekStartDate],
-  );
+  }, [weekDates]);
 
   const todayYmd = useMemo(() => fmtYmd(new Date()), []);
 
