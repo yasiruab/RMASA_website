@@ -1,3 +1,20 @@
+# Coding standards
+
+- Follow clean‑code principles: small functions, meaningful names, single responsibility.
+- Prefer straightforward, readable code over clever or “tricky” solutions.
+- Avoid code duplication; extract shared logic into helpers when possible.
+- Respect existing style and formatting in the project (line length, indentation, naming).
+- Write tests for behavior changes and pass all existing tests.
+
+# Commenting standards
+
+- Add comments for intent, assumptions, edge cases, and non‑trivial business logic.
+- Do not comment obvious code; lean on clear naming instead.
+- Update or remove comments when changing the code.
+- For complex functions, add a short comment at the top explaining what it does and why.
+
+
+
 # RMASA Website — Developer Notes
 
 ## Tech Stack
@@ -431,6 +448,46 @@ Auth: `requireAdmin()`
 This endpoint writes directly to Prisma (not through `updateCalendarDb`) and atomically updates the booking's cached `paidAmountLkr` + `reconciliationStatus`.
 
 ### Data access pattern (`calendar-store.ts`)
+
+**Default rule: never call `readCalendarDb()` in new code.** It pulls every
+booking joined to every payment entry / amount breakdown / override / slot,
+plus rooms / event types / pricing rules / blocks. Neon is billed on
+egress, so this single helper was the largest driver of bandwidth growth
+in the project. Every route handler should compose targeted Prisma queries
+keyed to what it actually needs — the existing routes are the worked
+examples (see "Bandwidth-aware query patterns" below).
+
+`readCalendarDb()` itself still exists because one legacy caller hasn't
+been migrated yet:
+- The legacy mode of `GET /api/admin/calendar/bookings` (when called
+  without `?page` and without `?fromDate&toDate`) — kept alive for
+  `admin-calendar-console.tsx` (mega-component serving blockouts / rooms /
+  event-types / pricing / accounts sections) and
+  `admin-revenue.tsx` (range-filtered revenue insights). Both are
+  admin-only, low-traffic pages.
+
+When `admin-calendar-console.tsx` is finally decomposed into per-section
+components (the same migration that produced
+[`admin-bookings.tsx`](src/components/admin/sections/admin-bookings.tsx),
+[`admin-revenue.tsx`](src/components/admin/sections/admin-revenue.tsx),
+[`admin-schedule.tsx`](src/components/admin/sections/admin-schedule.tsx)),
+the legacy mode + `readCalendarDb` can be deleted.
+
+#### Bandwidth-aware query patterns
+
+| What | Where | Pattern |
+|---|---|---|
+| Public availability for a 2-week window | [`/api/calendar/week-snapshot`](src/app/api/calendar/week-snapshot/route.ts) | `bookingSlot.findMany({ where: { date: { gte, lte }, booking: { status: active } }, include: { booking: { select: { roomTypeId, eventTypeId, status, cleanupDurationMinutes } } } })` + `calendarBlock.findMany({ where: { date: { gte, lte } } })`. Client derives slot positions per (room, event, AC) via `getSlotAvailabilities()` — no server round-trip on config switch. |
+| Public booking conflict check at submit | [`/api/calendar/bookings`](src/app/api/calendar/bookings/route.ts) POST | Scoped to candidate's `(roomTypeId, candidateDates)` set. Loads referenced event types separately for priority compare. |
+| Admin bookings list | [`/api/admin/calendar/bookings`](src/app/api/admin/calendar/bookings/route.ts) GET (`?page=N`) | Real SQL `skip` / `take` / `count`. KPIs via 6 parallel `prisma.booking.count()` calls on indexed predicates + 1 `$queryRaw` aggregate for outstanding (joins waiver/credit_note sums). Conflict scan loads active bookings with slot positions only. |
+| Admin single booking detail | [`/api/admin/calendar/bookings/[id]`](src/app/api/admin/calendar/bookings/[id]/route.ts) GET | `prisma.booking.findUnique({ where: { id }, include: { slots, amountBreakdown, paymentEntries, overriddenTargets } })`. Called when the selected row isn't in the current page. |
+| Admin booking PATCH | Same file | `prisma.booking.findUnique` for the target + scoped conflict scan keyed on `(roomTypeId, candidateDates)` for the confirm path. No full DB read. |
+| Admin schedule (week view) | [`/api/admin/calendar/bookings`](src/app/api/admin/calendar/bookings/route.ts) GET (`?fromDate&toDate`) | Returns only bookings with at least one slot inside the window. |
+| Admin hub KPIs | [`src/app/admin/calendar/page.tsx`](src/app/admin/calendar/page.tsx) | 6 parallel `count()` queries on indexed predicates + 1 `$queryRaw` aggregate for outstanding. RecentActivity booking lookup limited to the ids referenced by the audit log (max 8 rows). |
+| Admin reports CSV | [`/api/admin/calendar/reports`](src/app/api/admin/calendar/reports/route.ts) | `prisma.booking.findMany({ where: { slots: { some: { date: { gte, lte } } } } })` — pushes date filter into SQL. |
+| Conflict pair detection (shared) | [`src/lib/admin/conflict-detector.ts`](src/lib/admin/conflict-detector.ts) | `buildConflictPairs()` takes a minimal `{ id, roomTypeId, status, slots }` projection — no payment data needed. Used by both the admin bookings route + hub page. |
+
+#### Write helpers
 
 `updateCalendarDb` was removed. The old read-mutate-wipe-and-recreate helper
 silently produced last-writer-wins races when two admins acted on stale
