@@ -72,9 +72,11 @@ const nextConfig: NextConfig = {
         ],
       },
       {
-        // Immutable static imagery under /public/. These files are content-stable
-        // (replaced only by deploy); a one-year immutable cache eliminates the
-        // 1.3 MB of repeat-visit re-downloads PSI flagged.
+        // Immutable static imagery under /public/. NOTE: on AWS Amplify Hosting,
+        // CloudFront overrides these headers for /public/ paths and falls back
+        // to a 5 s TTL — see `customHeaders` in amplify.yml, which is the
+        // authoritative cache config in production. The rule below is a fallback
+        // for non-Amplify environments (Vercel, self-host).
         source: "/:dir(home-sliders|rmasa-hero-banners|logos|activities|events)/:path*",
         headers: [
           { key: "Cache-Control", value: "public, max-age=31536000, immutable" },

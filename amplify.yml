@@ -17,3 +17,28 @@ frontend:
     paths:
       - .next/cache/**/*
       - .npm/**/*
+  customHeaders:
+    # Amplify CloudFront overrides Next.js's headers() for static /public/
+    # assets and falls back to a 5 s TTL. These rules pin immutable hero
+    # imagery to a one-year cache so return visitors stop re-downloading
+    # ~1.3 MB on every page load.
+    - pattern: '/home-sliders/**'
+      headers:
+        - key: 'Cache-Control'
+          value: 'public, max-age=31536000, immutable'
+    - pattern: '/rmasa-hero-banners/**'
+      headers:
+        - key: 'Cache-Control'
+          value: 'public, max-age=31536000, immutable'
+    - pattern: '/logos/**'
+      headers:
+        - key: 'Cache-Control'
+          value: 'public, max-age=31536000, immutable'
+    - pattern: '/activities/**'
+      headers:
+        - key: 'Cache-Control'
+          value: 'public, max-age=31536000, immutable'
+    - pattern: '/events/**'
+      headers:
+        - key: 'Cache-Control'
+          value: 'public, max-age=31536000, immutable'
