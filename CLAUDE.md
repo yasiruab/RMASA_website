@@ -109,7 +109,7 @@ Palette tokens live in `:root` of `src/app/globals.css` with the `--ac-*` prefix
 | `--ac-card` | `#0E1F4A` | card backgrounds |
 | `--ac-text` | `#E9ECF4` | body text |
 | `--ac-text-dim` | `#9CA6BF` | secondary text |
-| `--ac-text-mute` | `#6B7494` | tertiary / mono meta |
+| `--ac-text-mute` | `#8E99B5` | tertiary / mono meta (brightened from `#6B7494` for WCAG AA 4.5:1 on every navy surface) |
 | `--ac-gold` | `#E8B73A` | brand accent |
 | `--ac-gold-bright` | `#FFC83D` | hover state |
 | `--ac-gold-deep` | `#B8870A` | underlines |
