@@ -71,6 +71,15 @@ const nextConfig: NextConfig = {
           { key: "Content-Security-Policy", value: CSP_DIRECTIVES },
         ],
       },
+      {
+        // Immutable static imagery under /public/. These files are content-stable
+        // (replaced only by deploy); a one-year immutable cache eliminates the
+        // 1.3 MB of repeat-visit re-downloads PSI flagged.
+        source: "/:dir(home-sliders|rmasa-hero-banners|logos|activities|events)/:path*",
+        headers: [
+          { key: "Cache-Control", value: "public, max-age=31536000, immutable" },
+        ],
+      },
     ];
   },
 };

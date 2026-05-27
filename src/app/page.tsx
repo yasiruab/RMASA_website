@@ -84,6 +84,14 @@ const ROOMS: RoomCard[] = [
 export default function HomePage() {
   return (
     <>
+      {/* LCP element — preload first slide so the browser fetches it during HTML parse
+          instead of waiting for CSS to resolve the .ac-hero-slide background-image. */}
+      <link
+        rel="preload"
+        as="image"
+        href="/home-sliders/home-slider-1.webp"
+        fetchPriority="high"
+      />
       <HeroSlider />
 
       <section className="ac-intro" aria-label="Introduction">

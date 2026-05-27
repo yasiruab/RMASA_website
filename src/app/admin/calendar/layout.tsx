@@ -3,6 +3,9 @@ import { redirect } from "next/navigation";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { AdminSessionProvider } from "@/components/admin/admin-session-context";
+// Admin-only stylesheet — scoped to /admin/calendar/* so its ~130 KB of admin
+// selectors don't ship on every public page (PSI flagged 99% unused).
+import "../../../styles/admin.css";
 
 export default async function AdminCalendarLayout({ children }: { children: ReactNode }) {
   const session = await getServerSession(authOptions);
