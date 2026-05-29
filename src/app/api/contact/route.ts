@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { sendContactEnquiry } from "@/lib/email";
+import { verifyTurnstileToken } from "@/lib/turnstile";
 
 type ContactPayload = {
   name?: string;
@@ -7,6 +8,7 @@ type ContactPayload = {
   email?: string;
   message?: string;
   consent?: boolean;
+  turnstileToken?: string;
 };
 
 function isEmail(value: string) {
@@ -28,6 +30,19 @@ export async function POST(req: Request) {
     payload = (await req.json()) as ContactPayload;
   } catch {
     return NextResponse.json({ message: "Invalid request body." }, { status: 400 });
+  }
+
+  const remoteIp =
+    req.headers.get("x-forwarded-for")?.split(",")[0]?.trim() ??
+    req.headers.get("x-real-ip") ??
+    undefined;
+
+  const turnstile = await verifyTurnstileToken(payload.turnstileToken, remoteIp);
+  if (!turnstile.success) {
+    return NextResponse.json(
+      { message: "Bot verification failed. Please try again." },
+      { status: 400 },
+    );
   }
 
   const name = String(payload.name ?? "").trim();
