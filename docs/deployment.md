@@ -34,6 +34,20 @@ build:     npx prisma generate
 artifact:  .next/**
 ```
 
+### Static-asset caching (`customHeaders`)
+
+Amplify CloudFront serves `/public/` static files (hero/banner imagery) with
+its own default `Cache-Control: max-age=5` and **ignores** the `headers()`
+rules in `next.config.ts` for those paths. To pin them to a one-year immutable
+cache, `amplify.yml` carries a `customHeaders` block matching
+`/home-sliders/**`, `/rmasa-hero-banners/**`, `/logos/**`, `/activities/**`,
+`/events/**`. This is the authoritative cache config for static assets — the
+`next.config.ts` rule is a no-op fallback for non-Amplify hosts. Verify after
+deploy: `curl -I <url>/home-sliders/home-slider-1.webp` should report
+`cache-control: public, max-age=31536000, immutable`. (Next's own
+`/_next/static/` assets are already content-hashed and cached for a year
+automatically.)
+
 ### Database
 
 Aurora PostgreSQL Serverless v2 cluster in ap-southeast-1. Prisma connects using `DATABASE_URL`
