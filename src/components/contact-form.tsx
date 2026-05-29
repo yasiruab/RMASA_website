@@ -1,6 +1,9 @@
 "use client";
 
 import { FormEvent, useMemo, useState } from "react";
+import { TurnstileWidget } from "./calendar/turnstile-widget";
+
+const TURNSTILE_SITE_KEY = process.env.NEXT_PUBLIC_TURNSTILE_SITE_KEY ?? "";
 
 type FormStatus = "idle" | "submitting" | "success" | "error";
 
@@ -58,6 +61,8 @@ function buildErrors(values: ContactFormValues) {
 export function ContactForm({ initialMessage = "" }: ContactFormProps) {
   const [status, setStatus] = useState<FormStatus>("idle");
   const [message, setMessage] = useState("");
+  const [turnstileToken, setTurnstileToken] = useState<string | null>(null);
+  const [resetKey, setResetKey] = useState(0);
   const [values, setValues] = useState<ContactFormValues>({
     name: "",
     phone: "",
@@ -94,6 +99,8 @@ export function ContactForm({ initialMessage = "" }: ContactFormProps) {
     }
 
     setStatus("submitting");
+    // Rotate the single-use CF token before each attempt
+    setResetKey((k) => k + 1);
 
     const payload = {
       name: values.name.trim(),
@@ -101,6 +108,7 @@ export function ContactForm({ initialMessage = "" }: ContactFormProps) {
       email: values.email.trim(),
       message: values.message.trim(),
       consent: values.consent,
+      turnstileToken: turnstileToken ?? undefined,
     };
 
     try {
@@ -239,7 +247,17 @@ export function ContactForm({ initialMessage = "" }: ContactFormProps) {
           {errors.consent}
         </p>
       ) : null}
-      <button className="btn btn-primary" disabled={status === "submitting"} type="submit">
+      <TurnstileWidget
+        onToken={setTurnstileToken}
+        resetKey={resetKey}
+        siteKey={TURNSTILE_SITE_KEY}
+        theme="dark"
+      />
+      <button
+        className="btn btn-primary"
+        disabled={status === "submitting" || (!!TURNSTILE_SITE_KEY && !turnstileToken)}
+        type="submit"
+      >
         {status === "submitting" ? "Sending enquiry..." : "Send Enquiry"}
       </button>
       {message ? (
