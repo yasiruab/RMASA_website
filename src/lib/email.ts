@@ -152,7 +152,8 @@ type EmailLogType =
   | "unpaid_reminder_admin_digest"
   | "slot_overridden_customer"
   | "slot_overridden_admin"
-  | "contact_enquiry";
+  | "contact_enquiry"
+  | "contact_acknowledgement";
 
 async function sendEmail(params: {
   bookingReference: string;
@@ -779,5 +780,53 @@ export async function sendContactEnquiry(params: {
     subject,
     html,
     replyTo: params.email,
+  });
+}
+
+/** Courtesy acknowledgement sent to the person who submitted the contact form.
+ *  Echoes their submission back and lists urgent contact channels. Best-effort:
+ *  the caller must not let a failure here block the API success response. */
+export async function sendContactAcknowledgement(params: {
+  name: string;
+  email: string;
+  phone: string;
+  message: string;
+}): Promise<boolean> {
+  const subject = "Thank you for contacting Royal MAS Arena";
+  const messageHtml = esc(params.message).replaceAll("\n", "<br/>");
+  const html = card(`
+    <p style="margin:0 0 16px;font-size:16px;font-weight:600;color:#31343a;">Hi ${esc(params.name)},</p>
+    <p style="margin:0 0 20px;line-height:1.6;">
+      Thank you for reaching out to Royal MAS Arena. We have received your enquiry and
+      a member of our team will get back to you as soon as possible. A copy of what you
+      sent is below for your records.
+    </p>
+    <table width="100%" cellpadding="0" cellspacing="0" style="background:#f7f8f9;border:1px solid #dfe3e8;border-radius:6px;padding:16px 20px;margin-bottom:20px;">
+      <tr><td style="padding:4px 0;font-size:13px;color:#6f737a;width:90px;">Name</td><td style="padding:4px 0;font-size:13px;color:#31343a;">${esc(params.name)}</td></tr>
+      <tr><td style="padding:4px 0;font-size:13px;color:#6f737a;">Email</td><td style="padding:4px 0;font-size:13px;color:#31343a;"><a href="mailto:${esc(params.email)}" style="color:#b26c5e;text-decoration:none;">${esc(params.email)}</a></td></tr>
+      <tr><td style="padding:4px 0;font-size:13px;color:#6f737a;">Phone</td><td style="padding:4px 0;font-size:13px;color:#31343a;">${esc(params.phone)}</td></tr>
+    </table>
+    <p style="margin:0 0 8px;font-size:13px;color:#6f737a;">Your message</p>
+    <div style="background:#f7f8f9;border:1px solid #dfe3e8;border-radius:5px;padding:14px;font-size:14px;line-height:1.6;color:#31343a;margin-bottom:24px;">
+      ${messageHtml}
+    </div>
+    <p style="margin:0 0 8px;font-size:13px;color:#31343a;font-weight:600;">Need to reach us urgently?</p>
+    <table width="100%" cellpadding="0" cellspacing="0" style="margin-bottom:20px;">
+      <tr><td style="padding:4px 0;font-size:13px;color:#6f737a;width:90px;">Call</td><td style="padding:4px 0;font-size:13px;color:#31343a;"><a href="tel:+94704421590" style="color:#b26c5e;text-decoration:none;">+94 (0) 70 442 1590</a> <span style="color:#6f737a;">(08:00–18:00 daily)</span></td></tr>
+      <tr><td style="padding:4px 0;font-size:13px;color:#6f737a;">WhatsApp</td><td style="padding:4px 0;font-size:13px;color:#31343a;"><a href="https://wa.me/94704421590" style="color:#b26c5e;text-decoration:none;">wa.me/94704421590</a></td></tr>
+      <tr><td style="padding:4px 0;font-size:13px;color:#6f737a;">Email</td><td style="padding:4px 0;font-size:13px;color:#31343a;"><a href="mailto:info@royalmasarena.lk" style="color:#b26c5e;text-decoration:none;">info@royalmasarena.lk</a></td></tr>
+    </table>
+    <p style="margin:0;font-size:13px;color:#6f737a;line-height:1.6;">
+      We look forward to speaking with you.<br/>
+      — The Royal MAS Arena Team
+    </p>
+  `);
+
+  return sendEmail({
+    bookingReference: "CONTACT",
+    type: "contact_acknowledgement",
+    to: params.email,
+    subject,
+    html,
   });
 }

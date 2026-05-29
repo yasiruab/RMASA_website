@@ -145,9 +145,12 @@ Court palette (`--ac-*` tokens above) and the same Archivo / Newsreader /
 Space Grotesk / Geist Mono type stack. The chrome (live-strip + logo-nav-strip
 header + four-column footer) is provided by the public `src/app/layout.tsx`
 — there is no parallel admin layout. The admin layout at
-[`src/app/admin/calendar/layout.tsx`](src/app/admin/calendar/layout.tsx) only
-enforces the auth guard and exposes the session to client pages via
-[`src/components/admin/admin-session-context.tsx`](src/components/admin/admin-session-context.tsx).
+[`src/app/admin/calendar/layout.tsx`](src/app/admin/calendar/layout.tsx)
+enforces the auth guard, exposes the session to client pages via
+[`src/components/admin/admin-session-context.tsx`](src/components/admin/admin-session-context.tsx),
+and imports [`src/styles/admin.css`](src/styles/admin.css) here (NOT in the
+root layout) so the ~130 KB admin stylesheet ships only on `/admin/calendar/*`
+routes — see "Where to add new admin CSS" below.
 
 **Hub** at `/admin/calendar` — server-rendered by [`src/components/admin/hub/admin-hub.tsx`](src/components/admin/hub/admin-hub.tsx).
 Composition: hero (display title + identity pill + Sign Out) → 5-tile KPI strip
@@ -354,7 +357,11 @@ NOT remove them. They're still consulted by hundreds of selectors in
 `globals.css` itself; deletion would cascade-break the entire admin panel.
 
 **Where to add new admin CSS**: [`src/styles/admin.css`](src/styles/admin.css)
-(imported once from `src/app/layout.tsx`). Keep new selectors scoped under
+(imported once from [`src/app/admin/calendar/layout.tsx`](src/app/admin/calendar/layout.tsx),
+**not** the root layout — this scopes the ~130 KB admin stylesheet to
+`/admin/calendar/*` so it never ships on public pages; moving it out of the
+root layout was a PageSpeed win, since the home page was loading the entire
+admin stylesheet 99% unused). Keep new selectors scoped under
 `.admin-section .…` so they don't leak into the public site. Use the
 `--ac-*` tokens directly, never the legacy `--brand`/`--ink`/`--bg` ones —
 those are kept only for compatibility with existing legacy bodies.
@@ -661,6 +668,56 @@ Amplify SSR Lambdas do **not** receive raw env vars at runtime via `process.env`
 
 **`_AMPLIFY_*` values are statically inlined, not runtime env vars.** Next.js's `env` block in `next.config.ts` does **build-time string replacement** — every `process.env._AMPLIFY_FOO` reference becomes a literal string in the compiled JS. The key never appears in the runtime `process.env`, so you can't iterate `Object.keys(process.env)` to find it. You must reference each key explicitly by name in source code. This also means `_AMPLIFY_*` references must stay in server-only files; the [`scripts/check-amplify-secret-leak.mjs`](scripts/check-amplify-secret-leak.mjs) prebuild guard enforces an allowlist so stray references can't leak production secrets into the client bundle.
 
+### Static-asset caching: use amplify.yml `customHeaders`, not next.config.ts
+
+**Amplify CloudFront overrides Next.js `headers()` for `/public/` static
+assets.** A `headers()` rule in [`next.config.ts`](next.config.ts) targeting
+`/home-sliders/:path*` (etc.) is silently ignored in production — CloudFront
+serves those files directly from the build artifact with its own default
+`Cache-Control: public, max-age=5, stale-while-revalidate`. (The `headers()`
+rules DO apply to SSR/HTML responses — that's why the CSP and HSTS headers
+work; only `/public/` static files bypass them.)
+
+The authoritative cache config for static assets is the **`customHeaders`**
+block in [`amplify.yml`](amplify.yml):
+
+```yaml
+  customHeaders:
+    - pattern: '/home-sliders/**'
+      headers:
+        - key: 'Cache-Control'
+          value: 'public, max-age=31536000, immutable'
+    # …repeat per static-image directory
+```
+
+This pins the immutable hero/banner imagery (`/home-sliders`,
+`/rmasa-hero-banners`, `/logos`, `/activities`, `/events`) to a one-year
+cache, eliminating ~1.3 MB of repeat-visit re-downloads PageSpeed flagged.
+The matching `next.config.ts` rule is kept as a no-op fallback for non-Amplify
+hosts (Vercel, self-host) and is commented as such. **Verify after deploy
+with** `curl -I <url>/home-sliders/home-slider-1.webp` — expect
+`cache-control: public, max-age=31536000, immutable`, not `max-age=5`.
+
+Files emitted by Next.js itself under `/_next/static/` already get the
+one-year immutable header automatically (content-hashed filenames) — only the
+hand-placed `/public/` assets need the `customHeaders` treatment.
+
+### Modern browser target: `.browserslistrc` (not the package.json field)
+
+The build's browser target lives in [`.browserslistrc`](.browserslistrc)
+(`Chrome >= 87`, `Edge >= 88`, `Firefox >= 78`, `Safari >= 14`) to drop the
+ES2019/2022 polyfills SWC would otherwise inline for older browsers.
+
+It was first tried as a `browserslist` field in `package.json`, but Amplify
+caches `.next/cache/**/*` between builds and reused the prior SWC output —
+the polyfill chunk hash never changed. Moving the config to a **dedicated
+`.browserslistrc` file** is the canonical location AND adds a new tracked
+build input, which forces webpack to recompute cache keys for the affected
+chunks. Note: a residual ~11 KB of polyfills still ships inside a vendor
+chunk (`chunks/255-*.js`) because they're baked into a third-party
+`node_modules` tarball, not our transpiled code — browserslist can't strip
+those, and they don't execute on modern browsers, so they're left alone.
+
 ### Fire-and-forget (`void`) does not work in Lambda
 
 AWS Lambda freezes the execution context the moment the HTTP response is returned. Any un-awaited promises are abandoned — they will never complete. **Never use `void someAsyncFn()` before a `return NextResponse.json(...)` in a route handler.** Always `await` async work before returning, even if you don't care about the result. Since the email send functions already catch all errors internally, awaiting them is safe and does not affect the response status.
@@ -691,6 +748,7 @@ Uses the **Resend** SDK (v6 — note: returns `{ data, error }` instead of throw
 | `sendBookingUnpaidReminder` | Called per due booking from `POST /api/cron/unpaid-reminders`. Caller relies on the boolean return: `lastReminderDays` is only stamped on success so failed sends retry on the next cron run |
 | `sendAdminUnpaidDigest` | Called once per cron run that produced any reminders; skipped if `ADMIN_NOTIFICATION_EMAIL` unset or `bookings` array empty |
 | `sendContactEnquiry` | Called from `POST /api/contact` with the submitted name / email / phone / message. Goes to `ADMIN_NOTIFICATION_EMAIL` with `replyTo` set to the customer's address so a direct Reply hits the enquirer. Skipped silently if `ADMIN_NOTIFICATION_EMAIL` unset. |
+| `sendContactAcknowledgement` | Called from `POST /api/contact` alongside `sendContactEnquiry` (both via `Promise.allSettled`). Courtesy email back to the **sender's** own address: thankful copy, echoes their submitted name / email / phone / message, and lists urgent contact channels (phone / WhatsApp / email). Best-effort — the route derives its success/502 only from the admin enquiry, so a failed acknowledgement never blocks lead capture. |
 
 Every send attempt writes a row to `EmailLog` (status `sent` or `failed`). Email failures never propagate to the API response.
 

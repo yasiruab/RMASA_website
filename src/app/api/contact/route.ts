@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { sendContactEnquiry } from "@/lib/email";
+import { sendContactEnquiry, sendContactAcknowledgement } from "@/lib/email";
 import { verifyTurnstileToken } from "@/lib/turnstile";
 
 type ContactPayload = {
@@ -78,7 +78,14 @@ export async function POST(req: Request) {
     return NextResponse.json({ message: "Please provide a valid email address." }, { status: 400 });
   }
 
-  const emailSent = await sendContactEnquiry({ name, email, phone, message });
+  // Both sends are awaited (Lambda freezes after the response — no fire-and-forget).
+  // The admin enquiry determines lead capture; the sender acknowledgement is
+  // courtesy and its failure must not turn a captured enquiry into a 502.
+  const [enquiryResult] = await Promise.allSettled([
+    sendContactEnquiry({ name, email, phone, message }),
+    sendContactAcknowledgement({ name, email, phone, message }),
+  ]);
+  const emailSent = enquiryResult.status === "fulfilled" && enquiryResult.value;
 
   const webhookUrl = process.env.CONTACT_WEBHOOK_URL ?? process.env._AMPLIFY_CONTACT_WEBHOOK_URL;
   let webhookOk = true;
