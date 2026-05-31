@@ -2015,6 +2015,18 @@ a.ac-channel-card:focus-visible {
 .ac-bookings-legend-item.is-cleanup .dot { background: #B8870A; }
 .ac-bookings-legend-item.is-yours .dot { background: var(--ac-gold-bright); border-radius: 50%; }
 .ac-bookings-legend-item.is-recurrence .dot { background: var(--ac-gold); opacity: 0.6; }
+.ac-bookings-legend-item.is-closed .dot {
+  background:
+    repeating-linear-gradient(
+      45deg,
+      rgba(107, 116, 148, 0.6),
+      rgba(107, 116, 148, 0.6) 1px,
+      transparent 1px,
+      transparent 3px
+    ),
+    rgba(31, 51, 96, 0.18);
+  border: 1px solid var(--ac-line);
+}
 .ac-bookings-legend-suffix {
   margin-left: auto;
   font-family: "Geist Mono", monospace;
@@ -2168,6 +2180,16 @@ a.ac-channel-card:focus-visible {
   background: rgba(255, 255, 255, 0.02);
   color: var(--ac-text-mute);
 }
+.ac-bookings-day-row.is-closed {
+  background: repeating-linear-gradient(
+    45deg,
+    rgba(107, 116, 148, 0.15),
+    rgba(107, 116, 148, 0.15) 2px,
+    transparent 2px,
+    transparent 6px
+  );
+  color: var(--ac-text-mute);
+}
 .ac-bookings-day-row.is-pending .label,
 .ac-bookings-day-row.is-confirmed .label,
 .ac-bookings-day-row.is-tentative .label,
@@ -2308,6 +2330,16 @@ a.ac-channel-card:focus-visible {
 }
 .ac-bookings-grid-cell.is-off {
   background: rgba(31, 51, 96, 0.18);
+  cursor: not-allowed;
+}
+.ac-bookings-grid-cell.is-closed {
+  background: repeating-linear-gradient(
+    45deg,
+    rgba(107, 116, 148, 0.15),
+    rgba(107, 116, 148, 0.15) 2px,
+    transparent 2px,
+    transparent 6px
+  );
   cursor: not-allowed;
 }
 .ac-bookings-grid-cell.is-past-limit {

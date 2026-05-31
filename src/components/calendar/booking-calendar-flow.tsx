@@ -1442,6 +1442,9 @@ export function BookingCalendarFlow() {
           <span className="ac-bookings-legend-item is-recurrence">
             <span className="dot" /> ↻ RECURRENCE
           </span>
+          <span className="ac-bookings-legend-item is-closed">
+            <span className="dot" /> CLOSED
+          </span>
           <span className="ac-bookings-legend-suffix">
             SLOT · {durationLabel} · COLOMBO TIME
           </span>
@@ -1510,6 +1513,12 @@ export function BookingCalendarFlow() {
                       const inWorkingHours =
                         minuteAbs >= workingStartMinute &&
                         minuteAbs + durationMinutes <= workingEndMinute;
+                      // "Closed time" = the bands before the room's admin-defined
+                      // opening time and at/after its closing time. Distinct from
+                      // generic is-off (which also covers within-hours cells that
+                      // can't fit the selected event-type duration).
+                      const isClosed =
+                        minuteAbs < workingStartMinute || minuteAbs >= workingEndMinute;
                       const clickable =
                         inWorkingHours &&
                         !isPastLimit &&
@@ -1520,8 +1529,10 @@ export function BookingCalendarFlow() {
                         <button
                           aria-label={`${date} ${startTime}`}
                           className={`ac-bookings-grid-cell${clickable ? "" : " is-off"}${
-                            isPastLimit ? " is-past-limit" : ""
-                          }${isUnpriced && !isPastLimit ? " is-unpriced" : ""}${isToday ? " is-today" : ""}`}
+                            isClosed ? " is-closed" : ""
+                          }${isPastLimit ? " is-past-limit" : ""}${
+                            isUnpriced && !isPastLimit ? " is-unpriced" : ""
+                          }${isToday ? " is-today" : ""}`}
                           disabled={!clickable}
                           key={`${date}-${startTime}`}
                           onClick={() => toggleSelectionForCell(date, startTime)}
@@ -1699,6 +1710,8 @@ export function BookingCalendarFlow() {
                   const slot = slotMap[selectedDayDate]?.[startTime];
                   const inWorkingHours =
                     minuteAbs >= workingStartMinute && minuteAbs + durationMinutes <= workingEndMinute;
+                  const isClosed =
+                    minuteAbs < workingStartMinute || minuteAbs >= workingEndMinute;
                   const isPastLimit = maxDateStr !== null && selectedDayDate > maxDateStr;
                   const isUnpriced = unpricedDates.has(selectedDayDate);
                   const fallbackEndMin = minuteAbs + durationMinutes;
@@ -1724,8 +1737,8 @@ export function BookingCalendarFlow() {
                   let actionIsRemove = false;
 
                   if (!inWorkingHours) {
-                    rowClass += " is-off";
-                    labelText = "—";
+                    rowClass += isClosed ? " is-off is-closed" : " is-off";
+                    labelText = isClosed ? "CLOSED" : "—";
                     actionDisabled = true;
                   } else if (isPastLimit) {
                     rowClass += " is-past-limit";
