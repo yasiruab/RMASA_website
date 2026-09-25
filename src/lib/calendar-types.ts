@@ -24,13 +24,18 @@ export type BookingStatus =
 
 export type ReconciliationStatus = "unpaid" | "part_paid" | "paid" | "waived";
 
+/** Minutes between allowed booking start times in a room. */
+export type BookingCadence = 30 | 60;
+
 export type RoomType = {
   id: string;
   name: string;
   workingHours: {
-    startTime: string; // HH:mm
-    endTime: string; // HH:mm
+    startTime: string; // HH:mm — on the hour or half hour
+    endTime: string; // HH:mm — on the hour or half hour
   };
+  // Allowed starts are startTime + k × bookingCadenceMinutes.
+  bookingCadenceMinutes: BookingCadence;
   capacity?: number;
   description?: string;
 };

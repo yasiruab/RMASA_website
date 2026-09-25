@@ -8,7 +8,7 @@ import {
   sendBookingSlotOverriddenNotification,
   sendAdminSlotOverriddenNotification,
 } from "@/lib/email";
-import { evaluateBookingConflicts, type OverrideTarget } from "@/lib/calendar-core";
+import { evaluateBookingConflicts, toRoomType, type OverrideTarget } from "@/lib/calendar-core";
 import {
   readCalendarDb,
   updateBookingSlotStatus,
@@ -25,6 +25,7 @@ import {
   DayType,
   PaymentEntryType,
   ReconciliationStatus,
+  RoomType,
 } from "@/lib/calendar-types";
 
 // ─── Pagination params (page mode) ────────────────────────────────────────
@@ -166,13 +167,7 @@ export async function GET(req: Request) {
       ]);
       return NextResponse.json({
         bookings: bookingRows.map(toBooking),
-        rooms: roomRows.map((r) => ({
-          id: r.id,
-          name: r.name,
-          workingHours: { startTime: r.startTime, endTime: r.endTime },
-          capacity: r.capacity ?? undefined,
-          description: r.description ?? undefined,
-        })),
+        rooms: roomRows.map(toRoomType),
         eventTypes: eventTypeRows.map((e) => ({
           id: e.id,
           name: e.name,
@@ -377,13 +372,7 @@ export async function GET(req: Request) {
     pageSize,
     kpis,
     conflictPairs: Object.fromEntries(conflictPairs),
-    rooms: rooms.map((r) => ({
-      id: r.id,
-      name: r.name,
-      workingHours: { startTime: r.startTime, endTime: r.endTime },
-      capacity: r.capacity ?? undefined,
-      description: r.description ?? undefined,
-    })),
+    rooms: rooms.map(toRoomType),
     eventTypes: eventTypes.map((e) => ({
       id: e.id,
       name: e.name,
@@ -461,20 +450,12 @@ export async function PATCH(req: Request) {
   ]);
 
   const current: {
-    rooms: Array<{ id: string; name: string; workingHours: { startTime: string; endTime: string }; capacity?: number; description?: string }>;
+    rooms: RoomType[];
     eventTypes: Array<{ id: string; name: string; durationMinutes: number; cleanupDurationMinutes: number; maxAdvanceBookingDays: number; priority: number; roomTypeId?: string }>;
     bookings: Booking[];
   } = {
     rooms: ownRoomRow
-      ? [
-          {
-            id: ownRoomRow.id,
-            name: ownRoomRow.name,
-            workingHours: { startTime: ownRoomRow.startTime, endTime: ownRoomRow.endTime },
-            capacity: ownRoomRow.capacity ?? undefined,
-            description: ownRoomRow.description ?? undefined,
-          },
-        ]
+      ? [toRoomType(ownRoomRow)]
       : [],
     eventTypes: ownEventTypeRow
       ? [

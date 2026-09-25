@@ -1265,6 +1265,19 @@ main > .admin-section {
   color: var(--ac-danger);
 }
 
+/* Rooms editor: live, non-blocking booking-cadence warnings under a room row */
+.admin-section .admin-room-warnings {
+  list-style: none;
+  margin: -2px 0 12px;
+  padding: 8px 12px;
+  border-left: 3px solid var(--ac-gold);
+  background: color-mix(in srgb, var(--ac-gold) 8%, transparent);
+  font-family: "Space Grotesk", sans-serif;
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--ac-gold-bright);
+}
+
 /* ── Dashboard KPIs (legacy stat / kpi cards) ────────────────────────── */
 .admin-section .admin-dashboard-grid,
 .admin-section .admin-revenue-grid {

@@ -3,12 +3,13 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Breadcrumbs } from "@/components/breadcrumbs";
 import { TurnstileWidget } from "@/components/calendar/turnstile-widget";
-import { getSlotAvailabilities } from "@/lib/calendar-core";
+import { DEFAULT_BOOKING_CADENCE, nextCadenceStart } from "@/lib/booking-cadence";
+import { fromMinutes, getSlotAvailabilities } from "@/lib/calendar-core";
 import type {
   Booking as ApiBooking,
+  BookingCadence,
   CalendarBlock as ApiCalendarBlock,
   CalendarDb,
-  RoomType as ApiRoomType,
 } from "@/lib/calendar-types";
 
 const TURNSTILE_SITE_KEY = process.env.NEXT_PUBLIC_TURNSTILE_SITE_KEY ?? "";
@@ -19,6 +20,7 @@ type RoomType = {
   id: string;
   name: string;
   workingHours: { startTime: string; endTime: string };
+  bookingCadenceMinutes: BookingCadence;
   capacity?: number;
   description?: string;
 };
@@ -203,10 +205,6 @@ function getAcPremiumForEventType(
 function dayType(date: string): "weekday" | "weekend" {
   const d = ymdToDate(date).getDay();
   return d === 0 || d === 6 ? "weekend" : "weekday";
-}
-
-function toHour(time: string) {
-  return Number(time.split(":")[0]);
 }
 
 function toMinutes(time: string) {
@@ -537,17 +535,11 @@ export function BookingCalendarFlow() {
       blocks: snapshot.blocks,
     } as unknown as CalendarDb;
 
-    const apiRoom: ApiRoomType = {
-      id: room.id,
-      name: room.name,
-      workingHours: room.workingHours,
-    };
-
     const next: Record<string, Slot[]> = {};
     for (const date of weekDates) {
       const result = getSlotAvailabilities(
         fakeDb,
-        apiRoom,
+        room,
         date,
         eventType.durationMinutes,
         eventType.priority,
@@ -616,11 +608,24 @@ export function BookingCalendarFlow() {
 
   const activeRoom = useMemo(() => rooms.find((r) => r.id === roomTypeId), [rooms, roomTypeId]);
 
-  const workingStartHour = activeRoom ? toHour(activeRoom.workingHours.startTime) : 7;
-  const workingEndHour = activeRoom ? toHour(activeRoom.workingHours.endTime) : 21;
-  const workingStartMinute = workingStartHour * 60;
-  const workingEndMinute = workingEndHour * 60;
+  // Opening / closing may be on the half hour, so keep minute precision here;
+  // the hour values only frame which rows are visible.
+  const workingStartMinute = activeRoom ? toMinutes(activeRoom.workingHours.startTime) : 7 * 60;
+  const workingEndMinute = activeRoom ? toMinutes(activeRoom.workingHours.endTime) : 21 * 60;
+  const workingStartHour = Math.floor(workingStartMinute / 60);
+  const workingEndHour = Math.floor(workingEndMinute / 60);
+  const cadenceMinutes = activeRoom?.bookingCadenceMinutes ?? DEFAULT_BOOKING_CADENCE;
   const durationMinutes = eventType?.durationMinutes ?? 60;
+
+  // Grid rows are every 30 min, but a room may only allow starts every 60 min.
+  // A row inside opening hours books the next allowed start at or after it
+  // (opening 08:30, 60-min cadence: the 09:00 row books 09:30). Returns null
+  // when no allowed start from this row still fits before closing.
+  function bookableStartForRow(rowMinute: number): string | null {
+    if (rowMinute < workingStartMinute) return null;
+    const start = nextCadenceStart(rowMinute, workingStartMinute, cadenceMinutes);
+    return start + durationMinutes <= workingEndMinute ? fromMinutes(start) : null;
+  }
   const firstVisibleHour = Math.max(0, workingStartHour - 2);
   const lastVisibleHour = Math.min(23, workingEndHour + 2);
   const firstVisibleMinute = firstVisibleHour * 60;
@@ -1510,9 +1515,7 @@ export function BookingCalendarFlow() {
                     {weekDates.map((date) => {
                       const isPastLimit = maxDateStr !== null && date > maxDateStr;
                       const isUnpriced = unpricedDates.has(date);
-                      const inWorkingHours =
-                        minuteAbs >= workingStartMinute &&
-                        minuteAbs + durationMinutes <= workingEndMinute;
+                      const bookableStart = bookableStartForRow(minuteAbs);
                       // "Closed time" = the bands before the room's admin-defined
                       // opening time and at/after its closing time. Distinct from
                       // generic is-off (which also covers within-hours cells that
@@ -1520,10 +1523,10 @@ export function BookingCalendarFlow() {
                       const isClosed =
                         minuteAbs < workingStartMinute || minuteAbs >= workingEndMinute;
                       const clickable =
-                        inWorkingHours &&
+                        bookableStart !== null &&
                         !isPastLimit &&
                         !isUnpriced &&
-                        Boolean(slotMap[date]?.[startTime]);
+                        Boolean(slotMap[date]?.[bookableStart]);
                       const isToday = date === todayYmd;
                       return (
                         <button
@@ -1535,7 +1538,7 @@ export function BookingCalendarFlow() {
                           }${isToday ? " is-today" : ""}`}
                           disabled={!clickable}
                           key={`${date}-${startTime}`}
-                          onClick={() => toggleSelectionForCell(date, startTime)}
+                          onClick={() => bookableStart && toggleSelectionForCell(date, bookableStart)}
                           type="button"
                         />
                       );
@@ -1707,9 +1710,13 @@ export function BookingCalendarFlow() {
                   const hour = Math.floor(minuteAbs / 60);
                   const minute = minuteAbs % 60;
                   const startTime = `${String(hour).padStart(2, "0")}:${String(minute).padStart(2, "0")}`;
-                  const slot = slotMap[selectedDayDate]?.[startTime];
-                  const inWorkingHours =
-                    minuteAbs >= workingStartMinute && minuteAbs + durationMinutes <= workingEndMinute;
+                  // Off-cadence rows act for the next allowed start (see
+                  // bookableStartForRow); `targetStart` is what PICK books.
+                  const bookableStart = bookableStartForRow(minuteAbs);
+                  const inWorkingHours = bookableStart !== null;
+                  const targetStart = bookableStart ?? startTime;
+                  const isSnapped = bookableStart !== null && bookableStart !== startTime;
+                  const slot = slotMap[selectedDayDate]?.[targetStart];
                   const isClosed =
                     minuteAbs < workingStartMinute || minuteAbs >= workingEndMinute;
                   const isPastLimit = maxDateStr !== null && selectedDayDate > maxDateStr;
@@ -1720,10 +1727,10 @@ export function BookingCalendarFlow() {
                     `${String(Math.floor(fallbackEndMin / 60)).padStart(2, "0")}:${String(fallbackEndMin % 60).padStart(2, "0")}`;
 
                   const isSelected = selectedSlots.some(
-                    (s) => s.date === selectedDayDate && s.startTime === startTime,
+                    (s) => s.date === selectedDayDate && s.startTime === targetStart,
                   );
                   const recurrenceSlot = recurrencePreviewSlots.find(
-                    (s) => s.date === selectedDayDate && s.startTime === startTime,
+                    (s) => s.date === selectedDayDate && s.startTime === targetStart,
                   );
                   const isRecurrenceConflict =
                     recurrenceSlot !== undefined &&
@@ -1785,17 +1792,22 @@ export function BookingCalendarFlow() {
                   return (
                     <div className={rowClass} key={`day-row-${startTime}`}>
                       <span className="time">
-                        {startTime} – {endTime}
+                        {isSnapped ? startTime : `${startTime} – ${endTime}`}
                       </span>
                       <div>
                         <span className="label">{labelText}</span>
                         {metaText ? <div className="meta">{metaText}</div> : null}
+                        {isSnapped && !actionDisabled ? (
+                          <div className="meta">
+                            Books {targetStart} – {endTime}
+                          </div>
+                        ) : null}
                       </div>
                       <button
-                        aria-label={`${actionText} ${startTime}`}
+                        aria-label={`${actionText} ${targetStart}`}
                         className={`action${actionIsRemove ? " is-remove" : ""}`}
                         disabled={actionDisabled}
-                        onClick={() => toggleSelectionForCell(selectedDayDate, startTime)}
+                        onClick={() => toggleSelectionForCell(selectedDayDate, targetStart)}
                         type="button"
                       >
                         {actionText}

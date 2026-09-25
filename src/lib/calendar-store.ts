@@ -1,5 +1,5 @@
 import { prisma } from "@/lib/prisma";
-import type { OverrideTarget } from "@/lib/calendar-core";
+import { toRoomType, type OverrideTarget } from "@/lib/calendar-core";
 import {
   Booking,
   BookingStatus,
@@ -31,16 +31,7 @@ export async function readCalendarDb(): Promise<CalendarDb> {
   ]);
 
   return {
-    rooms: rooms.map((room) => ({
-      id: room.id,
-      name: room.name,
-      workingHours: {
-        startTime: room.startTime,
-        endTime: room.endTime,
-      },
-      capacity: room.capacity ?? undefined,
-      description: room.description ?? undefined,
-    })),
+    rooms: rooms.map(toRoomType),
     eventTypes: eventTypes.map((eventType) => ({
       id: eventType.id,
       name: eventType.name,
@@ -411,6 +402,7 @@ export async function replaceCalendarConfig(
           name: room.name,
           startTime: room.workingHours.startTime,
           endTime: room.workingHours.endTime,
+          bookingCadenceMinutes: room.bookingCadenceMinutes,
           capacity: room.capacity ?? null,
           description: room.description ?? null,
         },
@@ -418,6 +410,7 @@ export async function replaceCalendarConfig(
           name: room.name,
           startTime: room.workingHours.startTime,
           endTime: room.workingHours.endTime,
+          bookingCadenceMinutes: room.bookingCadenceMinutes,
           capacity: room.capacity ?? null,
           description: room.description ?? null,
         },

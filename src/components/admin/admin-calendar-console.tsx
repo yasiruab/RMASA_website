@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useMemo, useState } from "react";
+import { Fragment, useEffect, useMemo, useState } from "react";
 import { useSession } from "next-auth/react";
 import { computeAmountDue, computePaymentTotals } from "@/lib/payments";
 import {
@@ -16,6 +16,13 @@ import {
   isOverpaid,
 } from "@/lib/admin/booking-utils";
 import { safeJson } from "@/lib/admin/api";
+import {
+  BOOKING_CADENCE_OPTIONS,
+  DEFAULT_BOOKING_CADENCE,
+  toBookingCadence,
+} from "@/lib/booking-cadence";
+import type { BookingCadence } from "@/lib/calendar-types";
+import { RoomCadenceWarnings } from "@/components/admin/room-cadence-warnings";
 import {
   addDays,
   inDateRange,
@@ -40,6 +47,7 @@ type RoomType = {
   id: string;
   name: string;
   workingHours: { startTime: string; endTime: string };
+  bookingCadenceMinutes: BookingCadence;
   capacity?: number;
   description?: string;
 };
@@ -1096,12 +1104,14 @@ export function AdminCalendarConsole({ section }: AdminCalendarConsoleProps) {
             <span>Room Name</span>
             <span>Opening Time</span>
             <span>Closing Time</span>
+            <span>Start Every</span>
             <span>Capacity</span>
             <span>Description</span>
             <span></span>
           </div>
           {rooms.map((room, index) => (
-            <div className="admin-row admin-row-rooms" key={room.id}>
+            <Fragment key={room.id}>
+            <div className="admin-row admin-row-rooms">
               <input
                 placeholder="Room Name"
                 value={room.name}
@@ -1115,7 +1125,7 @@ export function AdminCalendarConsole({ section }: AdminCalendarConsoleProps) {
               />
               <input
                 type="time"
-                step={3600}
+                step={1800}
                 value={room.workingHours.startTime}
                 onChange={(event) =>
                   setRooms((current) =>
@@ -1135,7 +1145,7 @@ export function AdminCalendarConsole({ section }: AdminCalendarConsoleProps) {
               />
               <input
                 type="time"
-                step={3600}
+                step={1800}
                 value={room.workingHours.endTime}
                 onChange={(event) =>
                   setRooms((current) =>
@@ -1153,6 +1163,24 @@ export function AdminCalendarConsole({ section }: AdminCalendarConsoleProps) {
                   )
                 }
               />
+              <select
+                aria-label="Start every"
+                value={room.bookingCadenceMinutes}
+                onChange={(event) => {
+                  const next = toBookingCadence(Number(event.target.value));
+                  setRooms((current) =>
+                    current.map((item, i) =>
+                      i === index ? { ...item, bookingCadenceMinutes: next } : item,
+                    ),
+                  );
+                }}
+              >
+                {BOOKING_CADENCE_OPTIONS.map((minutes) => (
+                  <option key={minutes} value={minutes}>
+                    {minutes} min
+                  </option>
+                ))}
+              </select>
               <input
                 type="number"
                 min={0}
@@ -1189,6 +1217,12 @@ export function AdminCalendarConsole({ section }: AdminCalendarConsoleProps) {
                 Delete
               </button>
             </div>
+            <RoomCadenceWarnings
+              room={room}
+              savedRoom={savedRooms.find((saved) => saved.id === room.id)}
+              eventTypes={eventTypes}
+            />
+            </Fragment>
           ))}
         </div>
         <button
@@ -1200,6 +1234,7 @@ export function AdminCalendarConsole({ section }: AdminCalendarConsoleProps) {
                 id: uid("room"),
                 name: "New Room",
                 workingHours: { startTime: "07:00", endTime: "21:00" },
+                bookingCadenceMinutes: DEFAULT_BOOKING_CADENCE,
               },
             ])
           }

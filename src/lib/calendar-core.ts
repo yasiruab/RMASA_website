@@ -10,6 +10,7 @@ import {
   RoomType,
   SlotAvailability,
 } from "@/lib/calendar-types";
+import { toBookingCadence } from "@/lib/booking-cadence";
 
 const MAX_RECURRENCE_DAYS = 183;
 
@@ -75,13 +76,36 @@ export function effectiveOverlaps(
   return aStart < bEnd && bStart < aEnd;
 }
 
-export const SLOT_STEP_MINUTES = 30;
+/** Prisma `RoomType` row shape (structural, so this file stays client-safe). */
+type RoomTypeRow = {
+  id: string;
+  name: string;
+  startTime: string;
+  endTime: string;
+  bookingCadenceMinutes: number;
+  capacity: number | null;
+  description: string | null;
+};
 
+export function toRoomType(row: RoomTypeRow): RoomType {
+  return {
+    id: row.id,
+    name: row.name,
+    workingHours: { startTime: row.startTime, endTime: row.endTime },
+    bookingCadenceMinutes: toBookingCadence(row.bookingCadenceMinutes),
+    capacity: row.capacity ?? undefined,
+    description: row.description ?? undefined,
+  };
+}
+
+// Candidate starts are opening time + k × cadence, so the room's cadence
+// decides which start times a customer can book.
 export function generateSlotsForDuration(
   date: string,
   durationMinutes: number,
   workingStartTime: string,
   workingEndTime: string,
+  cadenceMinutes: number,
 ): BookingSlot[] {
   const slots: BookingSlot[] = [];
   let start = toMinutes(workingStartTime);
@@ -93,7 +117,7 @@ export function generateSlotsForDuration(
       startTime: fromMinutes(start),
       endTime: fromMinutes(start + durationMinutes),
     });
-    start += SLOT_STEP_MINUTES;
+    start += cadenceMinutes;
   }
 
   return slots;
@@ -245,6 +269,7 @@ export function getSlotAvailabilities(
     durationMinutes,
     room.workingHours.startTime,
     room.workingHours.endTime,
+    room.bookingCadenceMinutes,
   );
   return slots.map((slot) => {
     const status = getSlotStatus(db, room.id, slot, candidatePriority);

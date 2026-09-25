@@ -20,7 +20,9 @@ import {
   sortSlots,
   toMinutes,
   toDayType,
+  toRoomType,
 } from "@/lib/calendar-core";
+import { isOnCadence } from "@/lib/booking-cadence";
 import { insertBookingWithCascade } from "@/lib/calendar-store";
 import { prisma } from "@/lib/prisma";
 import {
@@ -152,13 +154,7 @@ export async function POST(req: Request) {
     return NextResponse.json({ message: "Invalid room or event type." }, { status: 400 });
   }
 
-  const room: RoomType = {
-    id: roomRow.id,
-    name: roomRow.name,
-    workingHours: { startTime: roomRow.startTime, endTime: roomRow.endTime },
-    capacity: roomRow.capacity ?? undefined,
-    description: roomRow.description ?? undefined,
-  };
+  const room: RoomType = toRoomType(roomRow);
   const eventType = {
     id: eventTypeRow.id,
     name: eventTypeRow.name,
@@ -182,6 +178,17 @@ export async function POST(req: Request) {
       return NextResponse.json(
         {
           message: `Selected slot ${slot.date} ${slot.startTime}-${slot.endTime} is outside room working hours (${fromMinutes(workingStart)}-${fromMinutes(workingEnd)}).`,
+        },
+        { status: 400 },
+      );
+    }
+    // The calendar only offers cadence starts; this stops hand-crafted requests
+    // booking e.g. 09:07. Recurrence copies the base start time, so checking the
+    // base slots covers the expanded ones too.
+    if (!isOnCadence(start, workingStart, room.bookingCadenceMinutes)) {
+      return NextResponse.json(
+        {
+          message: `Selected slot ${slot.date} ${slot.startTime}-${slot.endTime} does not start at an allowed time for this room.`,
         },
         { status: 400 },
       );
