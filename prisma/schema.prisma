@@ -59,6 +59,8 @@ model RoomType {
   name            String
   startTime       String
   endTime         String
+  /// Minutes between allowed booking starts (30 or 60), counted from startTime.
+  bookingCadenceMinutes Int   @default(30)
   capacity        Int?
   description     String?
   eventTypes      EventType[]

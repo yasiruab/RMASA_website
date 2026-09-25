@@ -381,9 +381,12 @@ The top live-strip in [`src/components/nav.tsx`](src/components/nav.tsx) shows "
 ### RoomType
 
 Key fields:
-- `id`, `name`, `startTime`, `endTime` (room working hours, HH:00)
+- `id`, `name`, `startTime`, `endTime` (room working hours, `HH:00` or `HH:30`; config PUT rejects other minutes and opening ≥ closing)
+- `bookingCadenceMinutes` (Int, default 30) — allowed booking starts are `startTime + k × cadence`; `30 | 60` only (see "Room: Booking Cadence" below)
 - `capacity` (Int?) — admin-editable; appears as the CAPACITY tile on the public bookings room card
 - `description` (String?) — short blurb (e.g. "The full floor. 1,200 sqm of polished maple."); admin-editable; shown on the public bookings room card; hidden when blank
+
+Map Prisma rows to the app `RoomType` with `toRoomType(row)` from [calendar-core.ts](src/lib/calendar-core.ts) — every route uses it, so a new column only needs adding in one place.
 
 Both `capacity` and `description` are set by super-admins in the Room Types editor (admin/calendar/rooms). The public bookings page derives HOURLY / DAY RATE / +LKR X/hr from `PricingRule` — never hardcode them in the component.
 
@@ -570,11 +573,21 @@ kill non-conflicting slots (the bug that motivated the fix; see the
 - Slot status (availability): `available | pending | confirmed | tentative | blocked | cleanup`
   - `cleanup` — slot falls within a booking's post-event cleanup window; conflicts are enforced the same as occupied slots; displayed as **"Site Preparation"** (warm orange) in the public booking calendar
 
+## Room: Booking Cadence
+
+`RoomType.bookingCadenceMinutes` (`30 | 60`, default 30 — migration `20260923120000_room_booking_cadence`) sets which start times customers can book in a room: `opening + k × cadence`. Opening 08:30 + 60 min → 08:30, 09:30 … only. Spec: [docs/booking-cadence-spec.md](docs/booking-cadence-spec.md).
+
+- **Pure helpers** in [src/lib/booking-cadence.ts](src/lib/booking-cadence.ts) (`isOnCadence`, `nextCadenceStart`, `lastCadenceStart`, `cadenceGapMinutes`, `BOOKING_CADENCE_OPTIONS`) — no `@/` imports so `npm test` can load them; tests in `booking-cadence.test.ts`.
+- **Server enforcement**: `POST /api/calendar/bookings` rejects any slot whose start is off the room's grid (400). Before this, any start inside working hours was accepted.
+- **Public calendar snap-forward**: grid rows stay 30 min. On a 60-min room, clicking an off-grid row books the next allowed start (`bookableStartForRow()` in [booking-calendar-flow.tsx](src/components/calendar/booking-calendar-flow.tsx)); the mobile day view shows such rows as `HH:MM` + "Books X – Y". It never searches past the next start — if that slot is busy the normal "Cannot select this slot" error shows.
+- **Admin Rooms editor**: START EVERY select + live, non-blocking warnings from [room-cadence-warnings.tsx](src/components/admin/room-cadence-warnings.tsx) — end-of-day unused time, per-event-type gaps where `(duration + cleanup) % cadence ≠ 0`, and a count of future active bookings that are off a changed grid (via `GET /api/admin/calendar/rooms/[id]/off-cadence?startTime&cadence`, `requireAdmin`). Warning text is deliberately short, simple English — admins are not native English speakers.
+- **Existing bookings are never moved or re-validated** when cadence or opening time changes; they keep their times and still block conflicts.
+
 ## EventType: Duration (minutes)
 
 `EventType.durationMinutes` (1–1440, whole number) is the **canonical event duration**. Replaces the old `durationHours` column as of migration `20260518203400_event_type_duration_minutes` (existing rows backfilled `durationMinutes = durationHours * 60` in the migration body). Configured per event type by super-admins in the Event Types section.
 
-- **Slot generation** in `generateSlotsForDuration()` ([calendar-core.ts](src/lib/calendar-core.ts)) walks the room's working hours in **30-minute steps** (`SLOT_STEP_MINUTES = 30`), emitting one candidate start at each :00 and :30. So a 60-min event type produces slots at 07:00, 07:30, 08:00…; a 90-min event type produces 07:00, 07:30… but slot end times respect the duration. This is why the public calendar grid renders half-hour rows (see "Bookings Page: Half-Hour Grid" below).
+- **Slot generation** in `generateSlotsForDuration()` ([calendar-core.ts](src/lib/calendar-core.ts)) walks the room's working hours in steps of the room's **booking cadence** (`RoomType.bookingCadenceMinutes`, 30 or 60), starting at opening time. With 30-min cadence from 07:00, a 60-min event type produces slots at 07:00, 07:30, 08:00…; with 60-min cadence from 08:30 it produces 08:30, 09:30…. Slot end times respect the duration. The public calendar grid renders half-hour rows (see "Bookings Page: Half-Hour Grid" below).
 - **Hourly rate display** in [booking-calendar-flow.tsx](src/components/calendar/booking-calendar-flow.tsx) is `amountLkr * 60 / durationMinutes`, since pricing rules are per event-type, not per hour.
 - **Admin editor**: "Duration (min)" column in Event Types table; `<input type="number" min={1} max={1440} step={1}>`. Default for new event types is **240** (4 h).
 - **Config validation**: `PUT /api/admin/calendar/config` requires `1 ≤ durationMinutes ≤ 1440` whole number; 400 otherwise.

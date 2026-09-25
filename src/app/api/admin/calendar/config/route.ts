@@ -1,11 +1,17 @@
 import { NextResponse } from "next/server";
 import { logAuditEvent } from "@/lib/audit";
 import { requireAdmin, requireSuperAdmin } from "@/lib/auth-guards";
+import { isBookingCadence } from "@/lib/booking-cadence";
+import { toMinutes, toRoomType } from "@/lib/calendar-core";
 import { replaceCalendarConfig } from "@/lib/calendar-store";
 import { EventType, PricingRule, RoomType } from "@/lib/calendar-types";
 import { prisma } from "@/lib/prisma";
 
 export const dynamic = "force-dynamic";
+
+// Room opening/closing times must sit on the hour or half hour so every
+// booking cadence (30 / 60) lines up with them.
+const HALF_HOUR_TIME = /^\d{2}:(00|30)$/;
 
 type ConfigPayload = {
   rooms?: RoomType[];
@@ -25,13 +31,7 @@ export async function GET() {
     prisma.pricingRule.findMany(),
   ]);
   return NextResponse.json({
-    rooms: rooms.map((r) => ({
-      id: r.id,
-      name: r.name,
-      workingHours: { startTime: r.startTime, endTime: r.endTime },
-      capacity: r.capacity ?? undefined,
-      description: r.description ?? undefined,
-    })),
+    rooms: rooms.map(toRoomType),
     eventTypes: eventTypes.map((e) => ({
       id: e.id,
       name: e.name,
@@ -64,12 +64,30 @@ export async function PUT(req: Request) {
   const invalidRoom = payload.rooms.find(
     (room) =>
       !room.name.trim() ||
-      !/^\d{2}:00$/.test(room.workingHours.startTime) ||
-      !/^\d{2}:00$/.test(room.workingHours.endTime),
+      !HALF_HOUR_TIME.test(room.workingHours.startTime) ||
+      !HALF_HOUR_TIME.test(room.workingHours.endTime),
   );
   if (invalidRoom) {
     return NextResponse.json(
-      { message: "Each room must have a name and full-hour working times (HH:00)." },
+      { message: "Each room must have a name and working times on the hour or half hour (HH:00 or HH:30)." },
+      { status: 400 },
+    );
+  }
+
+  const invalidHours = payload.rooms.find(
+    (room) => toMinutes(room.workingHours.startTime) >= toMinutes(room.workingHours.endTime),
+  );
+  if (invalidHours) {
+    return NextResponse.json(
+      { message: `Room "${invalidHours.name}": opening time must be before closing time.` },
+      { status: 400 },
+    );
+  }
+
+  const invalidCadence = payload.rooms.find((room) => !isBookingCadence(room.bookingCadenceMinutes));
+  if (invalidCadence) {
+    return NextResponse.json(
+      { message: `Room "${invalidCadence.name}": start every must be 30 or 60 minutes.` },
       { status: 400 },
     );
   }

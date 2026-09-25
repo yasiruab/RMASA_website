@@ -4788,7 +4788,7 @@ a.ac-channel-card:focus-visible {
 }
 
 .admin-row-rooms {
-  grid-template-columns: 1.6fr 0.9fr 0.9fr 0.8fr 2.2fr 80px;
+  grid-template-columns: 1.6fr 0.9fr 0.9fr 0.8fr 0.8fr 2.2fr 80px;
 }
 
 .admin-help-text {

@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto";
 import { NextResponse } from "next/server";
 import { logAuditEvent } from "@/lib/audit";
 import { requireAdmin } from "@/lib/auth-guards";
-import { isValidDate, isValidTime } from "@/lib/calendar-core";
+import { isValidDate, isValidTime, toRoomType } from "@/lib/calendar-core";
 import {
   createCalendarBlock,
   deleteCalendarBlock,
@@ -38,13 +38,7 @@ export async function GET() {
       reason: b.reason,
       createdAt: b.createdAt.toISOString(),
     })),
-    rooms: roomRows.map((r) => ({
-      id: r.id,
-      name: r.name,
-      workingHours: { startTime: r.startTime, endTime: r.endTime },
-      capacity: r.capacity ?? undefined,
-      description: r.description ?? undefined,
-    })),
+    rooms: roomRows.map(toRoomType),
   });
 }
 

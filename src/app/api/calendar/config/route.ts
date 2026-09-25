@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { toRoomType } from "@/lib/calendar-core";
 import { prisma } from "@/lib/prisma";
 
 export const dynamic = "force-dynamic";
@@ -11,16 +12,7 @@ export async function GET() {
   ]);
 
   return NextResponse.json({
-    rooms: rooms.map((room) => ({
-      id: room.id,
-      name: room.name,
-      workingHours: {
-        startTime: room.startTime,
-        endTime: room.endTime,
-      },
-      capacity: room.capacity ?? undefined,
-      description: room.description ?? undefined,
-    })),
+    rooms: rooms.map(toRoomType),
     eventTypes: eventTypes.map((eventType) => ({
       id: eventType.id,
       name: eventType.name,
