@@ -583,6 +583,16 @@ kill non-conflicting slots (the bug that motivated the fix; see the
 - **Admin Rooms editor**: START EVERY select + live, non-blocking warnings from [room-cadence-warnings.tsx](src/components/admin/room-cadence-warnings.tsx) — end-of-day unused time, per-event-type gaps where `(duration + cleanup) % cadence ≠ 0`, and a count of future active bookings that are off a changed grid (via `GET /api/admin/calendar/rooms/[id]/off-cadence?startTime&cadence`, `requireAdmin`). Warning text is deliberately short, simple English — admins are not native English speakers.
 - **Existing bookings are never moved or re-validated** when cadence or opening time changes; they keep their times and still block conflicts.
 
+## Booking Priority Notice (customer-facing)
+
+A higher-priority booking cancels overlapping slots of lower-priority ones — **even confirmed ones** (`evaluateBookingConflicts`). Customers booking a lower-priority event type are warned up front.
+
+- **Rule**: an event type is "lower priority" when another **bookable** event type in the same room (applies to the room AND has a `PricingRule` for it) has a strictly higher `priority`. Derived from admin config — nothing is hardcoded. Equal priority never triggers it.
+- **Single wording source**: [src/lib/booking-priority.ts](src/lib/booking-priority.ts) — `higherPriorityEventNames()`, `buildPriorityNotice()` (title "Please note: Booking priority applies" + two paragraphs; names joined "A, B, or C"), `PRIORITY_SUMMARY_LINE`. Tests in `booking-priority.test.ts`. Event names are inserted exactly as configured in admin.
+- **Bookings page**: gold-bordered `.ac-bookings-priority-notice` under the event-type pills, plus a one-line `.ac-bookings-receipt-priority` reminder above SUBMIT. No extra checkbox.
+- **Emails**: `findPriorityNotice(roomTypeId, eventType)` in [calendar-store.ts](src/lib/calendar-store.ts) (one small `eventType.findMany`) feeds `priorityNotice` into `sendBookingAcknowledgement` and `sendBookingStatusNotification` (confirmed / tentative / partial_update — **not** rejected). Rendered by `priorityNoticeBlock()` in `email.ts`, text passed through `esc()`.
+- The "We'll email you if this happens" promise is backed by `sendBookingSlotOverriddenNotification`, sent (awaited) from both the public POST cascade and the admin confirm cascade.
+
 ## EventType: Duration (minutes)
 
 `EventType.durationMinutes` (1–1440, whole number) is the **canonical event duration**. Replaces the old `durationHours` column as of migration `20260518203400_event_type_duration_minutes` (existing rows backfilled `durationMinutes = durationHours * 60` in the migration body). Configured per event type by super-admins in the Event Types section.

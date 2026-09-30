@@ -1843,6 +1843,30 @@ a.ac-channel-card:focus-visible {
   flex-wrap: wrap;
   gap: 8px;
 }
+/* Lower-priority event type: can be cancelled by a higher-priority booking. */
+.ac-bookings-priority-notice {
+  margin-top: 16px;
+  max-width: 720px;
+  padding: 14px 18px;
+  background: color-mix(in srgb, var(--ac-gold) 10%, transparent);
+  border: 1px solid color-mix(in srgb, var(--ac-gold) 45%, transparent);
+  border-left: 3px solid var(--ac-gold);
+  color: var(--ac-text);
+  font-size: 14px;
+  line-height: 1.55;
+}
+.ac-bookings-priority-notice p {
+  margin: 0;
+}
+.ac-bookings-priority-notice p + p {
+  margin-top: 6px;
+}
+.ac-bookings-priority-notice .ac-bookings-priority-notice-title {
+  font-family: "Archivo", sans-serif;
+  font-weight: 800;
+  color: var(--ac-gold-bright);
+  margin-bottom: 6px;
+}
 .ac-bookings-event-pill {
   padding: 14px 22px;
   background: transparent;
@@ -2956,6 +2980,15 @@ a.ac-channel-card:focus-visible {
 }
 
 /* Blockers panel — lists every reason SUBMIT is disabled. */
+.ac-bookings-receipt-priority {
+  margin: 0 22px 12px;
+  padding: 10px 14px;
+  border-left: 3px solid var(--ac-gold);
+  background: color-mix(in srgb, var(--ac-gold) 10%, transparent);
+  color: var(--ac-gold-bright);
+  font-size: 13px;
+  line-height: 1.45;
+}
 .ac-bookings-receipt-blockers {
   margin: 0 22px 0;
   padding: 14px 16px;
