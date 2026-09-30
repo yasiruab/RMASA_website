@@ -23,7 +23,7 @@ import {
   toRoomType,
 } from "@/lib/calendar-core";
 import { isOnCadence } from "@/lib/booking-cadence";
-import { insertBookingWithCascade } from "@/lib/calendar-store";
+import { findPriorityNotice, insertBookingWithCascade } from "@/lib/calendar-store";
 import { prisma } from "@/lib/prisma";
 import {
   AcMode,
@@ -512,6 +512,8 @@ export async function POST(req: Request) {
     })
     .filter((o): o is NonNullable<typeof o> => o !== null);
 
+  const priorityNotice = await findPriorityNotice(room.id, eventType);
+
   await Promise.allSettled([
     sendBookingAcknowledgement({
       to: booking.customer.email,
@@ -521,6 +523,7 @@ export async function POST(req: Request) {
       eventTypeName: eventType.name,
       slots: booking.slots,
       totalAmountLkr: booking.totalAmountLkr,
+      priorityNotice,
     }),
     sendAdminNewBookingNotification({
       reference: booking.reference,

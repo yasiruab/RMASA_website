@@ -4,6 +4,11 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { Breadcrumbs } from "@/components/breadcrumbs";
 import { TurnstileWidget } from "@/components/calendar/turnstile-widget";
 import { DEFAULT_BOOKING_CADENCE, nextCadenceStart } from "@/lib/booking-cadence";
+import {
+  buildPriorityNotice,
+  higherPriorityEventNames,
+  PRIORITY_SUMMARY_LINE,
+} from "@/lib/booking-priority";
 import { fromMinutes, getSlotAvailabilities } from "@/lib/calendar-core";
 import type {
   Booking as ApiBooking,
@@ -573,6 +578,16 @@ export function BookingCalendarFlow() {
   const eventType = useMemo(
     () => allowedEventTypes.find((item) => item.id === eventTypeId),
     [allowedEventTypes, eventTypeId],
+  );
+
+  // Shown when another bookable event in this room outranks the selected one,
+  // since a higher-priority booking can cancel this one even after confirmation.
+  const priorityNotice = useMemo(
+    () =>
+      eventType
+        ? buildPriorityNotice(eventType.name, higherPriorityEventNames(eventType, allowedEventTypes))
+        : null,
+    [eventType, allowedEventTypes],
   );
 
   const availableAcModes = useMemo(() => {
@@ -1303,6 +1318,14 @@ export function BookingCalendarFlow() {
                 );
               })}
             </div>
+            {priorityNotice ? (
+              <div className="ac-bookings-priority-notice" role="note">
+                <p className="ac-bookings-priority-notice-title">{priorityNotice.title}</p>
+                {priorityNotice.paragraphs.map((text) => (
+                  <p key={text}>{text}</p>
+                ))}
+              </div>
+            ) : null}
           </div>
 
           <div>
@@ -2172,6 +2195,12 @@ export function BookingCalendarFlow() {
                   theme="dark"
                 />
               </div>
+            ) : null}
+
+            {priorityNotice ? (
+              <p className="ac-bookings-receipt-priority">
+                <span aria-hidden="true">⚠</span> {PRIORITY_SUMMARY_LINE}
+              </p>
             ) : null}
 
             {submitBlockers.length > 0 ? (

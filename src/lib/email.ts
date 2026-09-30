@@ -1,5 +1,6 @@
 import { Resend } from "resend";
 import { prisma } from "@/lib/prisma";
+import type { PriorityNotice } from "@/lib/booking-priority";
 import type { BookingStatus } from "@/lib/calendar-types";
 
 const RESEND_API_KEY = process.env.RESEND_API_KEY ?? process.env._AMPLIFY_RESEND_API_KEY;
@@ -80,6 +81,19 @@ function paymentDeadline24h(): string {
   const sriLanka = new Date(deadlineMs + (5 * 60 + 30) * 60 * 1000);
   const pad = (n: number) => String(n).padStart(2, "0");
   return `${sriLanka.getUTCFullYear()}-${pad(sriLanka.getUTCMonth() + 1)}-${pad(sriLanka.getUTCDate())} at ${pad(sriLanka.getUTCHours())}:${pad(sriLanka.getUTCMinutes())} (Sri Lanka Time)`;
+}
+
+// Amber "booking priority applies" box for lower-priority event types; same
+// wording as the bookings page (buildPriorityNotice). Empty when not needed.
+function priorityNoticeBlock(notice: PriorityNotice | null | undefined): string {
+  if (!notice) return "";
+  const paragraphs = notice.paragraphs
+    .map((text) => `<p style="margin:6px 0 0;font-size:13px;line-height:1.6;color:#31343a;">${esc(text)}</p>`)
+    .join("");
+  return `<div style="margin:0 0 20px;padding:12px 16px;background:#fff8e6;border:1px solid #f0d58c;border-left:4px solid #e8b73a;border-radius:4px;">
+      <p style="margin:0;font-size:14px;font-weight:700;color:#7a5600;">${esc(notice.title)}</p>
+      ${paragraphs}
+    </div>`;
 }
 
 function card(body: string): string {
@@ -240,6 +254,7 @@ export async function sendBookingAcknowledgement(params: {
   eventTypeName: string;
   slots: SlotList;
   totalAmountLkr: number;
+  priorityNotice?: PriorityNotice | null;
 }): Promise<void> {
   const subject = `Booking Request Received – ${esc(params.reference)}`;
   const html = card(`
@@ -258,6 +273,7 @@ export async function sendBookingAcknowledgement(params: {
       </tr>
       <tr><td style="padding:4px 0;font-size:13px;color:#6f737a;">Total Amount</td><td style="padding:4px 0;font-size:13px;color:#31343a;">${formatLkr(params.totalAmountLkr)} <span style="color:#6f737a;">(indicative, pending confirmation)</span></td></tr>
     </table>
+    ${priorityNoticeBlock(params.priorityNotice)}
     <p style="margin:0;font-size:13px;color:#6f737a;line-height:1.6;">
       If you have any questions, please contact us at
       <a href="mailto:info@royalmasarena.lk" style="color:#b26c5e;">info@royalmasarena.lk</a>.
@@ -278,6 +294,7 @@ export async function sendBookingStatusNotification(params: {
   totalAmountLkr: number;
   newStatus: "confirmed" | "tentative" | "rejected" | "partial_update";
   rejectReason?: string; // included in rejection email body
+  priorityNotice?: PriorityNotice | null; // not shown on rejections
 }): Promise<void> {
   const { slotStatuses } = params;
   const hasRejectedAmongConfirmed =
@@ -326,6 +343,7 @@ export async function sendBookingStatusNotification(params: {
         <tr><td style="padding:4px 0;font-size:13px;color:#6f737a;">Amount Due</td><td style="padding:4px 0;font-size:13px;font-weight:700;color:#b26c5e;">${formatLkr(params.totalAmountLkr)}</td></tr>
         <tr><td style="padding:4px 0;font-size:13px;color:#6f737a;">Payment Due By</td><td style="padding:4px 0;font-size:13px;font-weight:600;color:#31343a;">${deadline}</td></tr>
       </table>
+      ${priorityNoticeBlock(params.priorityNotice)}
       <p style="margin:0 0 8px;font-size:13px;color:#31343a;font-weight:600;">Payment Instructions</p>
       <p style="margin:0;font-size:13px;color:#6f737a;line-height:1.6;">
         Please contact us at <a href="mailto:info@royalmasarena.lk" style="color:#b26c5e;">info@royalmasarena.lk</a>
@@ -347,6 +365,7 @@ export async function sendBookingStatusNotification(params: {
           <td style="padding:4px 0;">${slotTable}</td>
         </tr>
       </table>
+      ${priorityNoticeBlock(params.priorityNotice)}
       <p style="margin:0;font-size:13px;color:#6f737a;line-height:1.6;">
         If you have any questions, contact us at
         <a href="mailto:info@royalmasarena.lk" style="color:#b26c5e;">info@royalmasarena.lk</a>.
@@ -381,6 +400,7 @@ export async function sendBookingStatusNotification(params: {
           <td style="padding:4px 0;">${slotTable}</td>
         </tr>
       </table>
+      ${priorityNoticeBlock(params.priorityNotice)}
       <p style="margin:0;font-size:13px;color:#6f737a;line-height:1.6;">
         If you have any questions, contact us at
         <a href="mailto:info@royalmasarena.lk" style="color:#b26c5e;">info@royalmasarena.lk</a>.

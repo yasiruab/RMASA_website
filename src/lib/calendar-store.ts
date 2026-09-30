@@ -1,4 +1,9 @@
 import { prisma } from "@/lib/prisma";
+import {
+  buildPriorityNotice,
+  higherPriorityEventNames,
+  type PriorityNotice,
+} from "@/lib/booking-priority";
 import { toRoomType, type OverrideTarget } from "@/lib/calendar-core";
 import {
   Booking,
@@ -9,6 +14,26 @@ import {
   PricingRule,
   RoomType,
 } from "@/lib/calendar-types";
+
+/**
+ * Customer-email priority notice for a booking, or null when nothing bookable
+ * in the room outranks its event type. "Bookable" mirrors the public page:
+ * the event type applies to the room and has a price set for it.
+ */
+export async function findPriorityNotice(
+  roomTypeId: string,
+  eventType: { id: string; name: string; priority: number },
+): Promise<PriorityNotice | null> {
+  const outranking = await prisma.eventType.findMany({
+    where: {
+      OR: [{ roomTypeId }, { roomTypeId: null }],
+      pricingRules: { some: { roomTypeId } },
+      priority: { gt: eventType.priority },
+    },
+    select: { id: true, name: true, priority: true },
+  });
+  return buildPriorityNotice(eventType.name, higherPriorityEventNames(eventType, outranking));
+}
 
 function toIso(value: Date) {
   return value.toISOString();

@@ -10,6 +10,7 @@ import {
 } from "@/lib/email";
 import { evaluateBookingConflicts, toRoomType, type OverrideTarget } from "@/lib/calendar-core";
 import {
+  findPriorityNotice,
   readCalendarDb,
   updateBookingSlotStatus,
   updateBookingSlotsBatch,
@@ -556,6 +557,8 @@ export async function PATCH(req: Request) {
 
       if (emailStatus) {
         const rejectReasonText = newlyRejected.map((u) => u.rejectReason).filter(Boolean).join("; ");
+        const priorityNotice =
+          emailStatus === "rejected" ? null : await findPriorityNotice(existing.roomTypeId, eventType);
         await sendBookingStatusNotification({
           to: existing.customer.email,
           customerName: existing.customer.name,
@@ -567,6 +570,7 @@ export async function PATCH(req: Request) {
           totalAmountLkr: adjustedTotal,
           newStatus: emailStatus,
           rejectReason: emailStatus === "rejected" ? rejectReasonText : undefined,
+          priorityNotice,
         });
 
         if (hasNewRejections) {
@@ -830,6 +834,8 @@ export async function PATCH(req: Request) {
     const room = current.rooms.find((r) => r.id === existing.roomTypeId);
     const eventType = current.eventTypes.find((et) => et.id === existing.eventTypeId);
     if (room && eventType) {
+      const priorityNotice =
+        nextStatus === "rejected" ? null : await findPriorityNotice(existing.roomTypeId, eventType);
       await sendBookingStatusNotification({
         to: existing.customer.email,
         customerName: existing.customer.name,
@@ -840,6 +846,7 @@ export async function PATCH(req: Request) {
         totalAmountLkr: existing.totalAmountLkr,
         newStatus: nextStatus as "confirmed" | "tentative" | "rejected",
         rejectReason: nextStatus === "rejected" ? payload.rejectReason : undefined,
+        priorityNotice,
       });
 
       if (nextStatus === "rejected") {
