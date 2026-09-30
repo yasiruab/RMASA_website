@@ -762,8 +762,8 @@ Uses the **Resend** SDK (v6 — note: returns `{ data, error }` instead of throw
 
 | Function | Trigger |
 |---|---|
-| `sendBookingAcknowledgement` | Called in `POST /api/calendar/bookings` after booking saved |
-| `sendBookingStatusNotification` | Called in `PATCH /api/admin/calendar/bookings` on booking-level status change to `confirmed`, `tentative`, or `rejected` |
+| `sendBookingAcknowledgement` | Called in `POST /api/calendar/bookings` after booking saved. Includes the amber booking-priority notice for lower-priority event types (`priorityNotice`) |
+| `sendBookingStatusNotification` | Called in `PATCH /api/admin/calendar/bookings` on booking-level status change to `confirmed`, `tentative`, or `rejected`. Includes the booking-priority notice on confirmed / tentative / partial-update (never on rejected) |
 | `sendAdminNewBookingNotification` | Called alongside acknowledgement on new booking; skipped if `ADMIN_NOTIFICATION_EMAIL` unset |
 | `sendAdminRejectionNotification` | Called when any booking is set to `rejected` (booking-level or per-slot via Save); skipped if `ADMIN_NOTIFICATION_EMAIL` unset; includes reject reason |
 | `sendBookingSlotOverriddenNotification` | Called per overridden booking after a higher-priority cascade fires — from both `POST /api/calendar/bookings` and admin `PATCH` (confirm). Names the displacing booking + lists cancelled vs surviving slots. Skipped silently when the overridden customer's email is empty. |

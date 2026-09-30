@@ -80,6 +80,8 @@ Key components:
   - **OUTSTANDING / REFUND DUE / SETTLED tile** in the detail-pane summary strip (bold gold display when the customer owes; blue when overpaid; green when balanced).
   - **Search box** matches against booking reference, customer name/email, purpose, booking ID, room name, and event type name.
 - `src/components/admin/admin-calendar-console.tsx`: legacy mega-component, still mounted for accounts / rooms / event-types / pricing / blockouts sections (revenue, schedule, bookings, and reports have all moved to their own explicit routes).
+  - **Rooms editor** has a **START EVERY** select (30 / 60 min booking cadence) and accepts opening / closing times on the half hour.
+- `src/components/admin/room-cadence-warnings.tsx`: live, non-blocking warnings under each room row in the Rooms editor — unused time at the end of the day, empty minutes after each event type (duration + cleanup not a multiple of the cadence), and how many future bookings no longer start on the new times after a cadence / opening-time change. Wording is deliberately short, simple English.
 - `src/components/admin/sections/admin-revenue.tsx`: Revenue Insights page. Granularity + range controls, 5-KPI strip with vs-prev delta, stacked-bar trend with venue/event-type breakdown, collection-efficiency line chart, adjustments stacked bar with toggleable legends.
 - `src/components/admin/sections/admin-schedule.tsx`: unified week schedule across all venues. Half-hour grid, venue-coloured blocks with 5-tier content rendering by height, greedy lane assignment for in-day overlaps, click-through to booking detail.
 - `src/lib/admin/booking-utils.ts`: shared admin booking helpers.
@@ -98,6 +100,7 @@ Under `src/app/api/admin/`:
 - `calendar/`:
   - `src/app/api/admin/calendar/config/route.ts`: manage global calendar configuration.
   - `src/app/api/admin/calendar/blocks/route.ts`: manage availability / block ranges.
+  - `src/app/api/admin/calendar/rooms/[id]/off-cadence/route.ts`: `GET ?startTime=HH:MM&cadence=30|60` → `{ count }` of active future slots in the room that are off that start grid. Read-only, `requireAdmin()`; feeds the Rooms editor change warning.
   - `src/app/api/admin/calendar/bookings/route.ts`: manage bookings from an admin perspective (e.g. view, cancel).
 
 All admin API routes should:
