@@ -79,8 +79,16 @@ Relations: `auditLogs[]` — populated by `AuditLog.actorUserId`.
 ### RoomType
 
 Capacity + description are admin-editable in the Room Types editor and shown
-on the public bookings room cards. Working hours (`startTime` / `endTime`)
-constrain slot generation in `calendar-core.ts`.
+on the public bookings room cards. Working hours (`startTime` / `endTime`,
+`HH:00` or `HH:30`) constrain slot generation in `calendar-core.ts`.
+
+`bookingCadenceMinutes` (`Int`, default 30, values `30 | 60`) sets the allowed
+booking starts: `startTime + k × cadence`. Added by migration
+`20260923120000_room_booking_cadence`; the default keeps pre-existing rooms on
+the old fixed 30-minute step. Changing it never touches existing bookings.
+
+Map rows to the app `RoomType` with `toRoomType()` from `calendar-core.ts`
+rather than hand-building the object in each route.
 
 Writes: `replaceCalendarConfig()` in `src/lib/calendar-store.ts` (wipe + recreate
 scoped to room/event-type/pricing only).

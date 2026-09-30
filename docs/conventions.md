@@ -27,6 +27,7 @@ This document captures local conventions for the RMASA website so that the codeb
 - **Domain logic**:
   - Calendar core logic and reusable helpers live in `src/lib/calendar-core.ts` and related modules.
   - Prisma client lives in `src/lib/prisma.ts` and should be reused everywhere instead of instantiating new clients.
+  - Pure logic that needs unit tests goes in a module with **no `@/` imports** (only relative `import type`), next to a `*.test.ts` file — e.g. `payments.ts`, `booking-cadence.ts`, `booking-priority.ts`. `npm test` runs Node's built-in test runner, which cannot resolve the `@/` path alias, so anything importing `calendar-core.ts` can't be tested directly.
 
 ### Styling
 
