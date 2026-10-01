@@ -741,6 +741,20 @@ chunk (`chunks/255-*.js`) because they're baked into a third-party
 `node_modules` tarball, not our transpiled code — browserslist can't strip
 those, and they don't execute on modern browsers, so they're left alone.
 
+### Security overrides in `package.json`
+
+`overrides` forces patched copies of two transitive packages that the direct
+dependencies pin to vulnerable versions:
+
+| Override | Pulled in by | Why | Remove when |
+|---|---|---|---|
+| `postcss ^8.5.28` | `next` 15 (pins `8.4.31`) | sourceMappingURL file-read + `</style>` XSS advisories | upgrading to Next 16, which ships a fixed postcss |
+| `deepmerge-ts ^8.0.2` | `@prisma/config` (`7.x`) | stack exhaustion on recursive merges (CLI-time only) | a Prisma release outside the advisory range (≥ 8.1) |
+
+Both are minor/major bumps of leaf utilities; verified with `prisma validate` +
+`generate`, `npm test`, lint, `tsc` and a full `next build` (Oct 2026). After
+removing an override, run `npm audit` to confirm the parent now ships a fix.
+
 ### Fire-and-forget (`void`) does not work in Lambda
 
 AWS Lambda freezes the execution context the moment the HTTP response is returned. Any un-awaited promises are abandoned — they will never complete. **Never use `void someAsyncFn()` before a `return NextResponse.json(...)` in a route handler.** Always `await` async work before returning, even if you don't care about the result. Since the email send functions already catch all errors internally, awaiting them is safe and does not affect the response status.
