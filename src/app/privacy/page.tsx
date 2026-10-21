@@ -1,4 +1,12 @@
 import { Breadcrumbs } from "@/components/breadcrumbs";
+import { pageMetadata } from "@/lib/site-metadata";
+
+export const metadata = pageMetadata({
+  title: "Privacy Policy",
+  description:
+    "How Royal MAS Arena collects, uses and keeps the personal details you share when booking or contacting us.",
+  path: "/privacy",
+});
 
 export default function PrivacyPage() {
   return (

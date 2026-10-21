@@ -4,6 +4,7 @@ import Image from "next/image";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
+import { contactConfig } from "@/config/contact";
 
 type NavLink = { href: string; label: string };
 
@@ -121,7 +122,7 @@ export function Nav() {
           <span className="ac-live-strip-address">RAJAKEEYA MAWATHA · COLOMBO 07</span>
         </div>
         <div className="ac-live-strip-right">
-          <a href="tel:+94704421590">+94 (0) 70 442 1590</a>
+          <a href={contactConfig.desk.phoneHref}>{contactConfig.desk.phoneDisplay}</a>
           <a className="ac-live-strip-email" href="mailto:info@royalmasarena.lk">INFO@ROYALMASARENA.LK</a>
         </div>
       </div>

@@ -1,4 +1,12 @@
 import { Breadcrumbs } from "@/components/breadcrumbs";
+import { pageMetadata } from "@/lib/site-metadata";
+
+export const metadata = pageMetadata({
+  title: "About",
+  description:
+    "The story of Royal MAS Arena: a purpose-built indoor sports venue in Colombo 07 with retractable seating for 1,000.",
+  path: "/about",
+});
 
 type Fact = { value: string; label: string; sub: string; gold?: boolean };
 type TimelineEntry = { year: string; title: string; body: string; current?: boolean };
@@ -49,11 +57,11 @@ export default function AboutPage() {
         <div className="ac-page-hero-inner">
           <Breadcrumbs current="About" />
           <span className="ac-page-hero-eyebrow">{"// ABOUT THE ARENA"}</span>
-          <div className="ac-page-hero-title">
+          <h1 className="ac-page-hero-title">
             <span className="ac-display">
               ABOUT<span className="punct">.</span>
             </span>
-          </div>
+          </h1>
           <div className="ac-page-hero-italic">
             <span className="ac-italic">the purpose built indoor arena.</span>
           </div>
@@ -78,9 +86,9 @@ export default function AboutPage() {
 
       <section className="ac-story" aria-label="The story">
         <div className="ac-section-heading">
-          <span className="title">
-            <span className="num">01 /</span> THE STORY.
-          </span>
+          <h2 className="title">
+            <span aria-hidden="true" className="num">01 /</span> THE STORY.
+          </h2>
           <span className="meta">ROYAL COLLEGE · RAJAKEEYA MAWATHA</span>
         </div>
         <div className="ac-story-grid">
@@ -131,9 +139,9 @@ export default function AboutPage() {
 
       <section className="ac-timeline-section" aria-label="A short history">
         <div className="ac-section-heading">
-          <span className="title">
-            <span className="num">02 /</span> A SHORT HISTORY.
-          </span>
+          <h2 className="title">
+            <span aria-hidden="true" className="num">02 /</span> A SHORT HISTORY.
+          </h2>
           <span className="meta">A DECADE OF THE FLOOR</span>
         </div>
         <ol className="ac-timeline">

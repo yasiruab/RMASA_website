@@ -42,18 +42,73 @@ const SLIDES: Slide[] = [
   },
 ];
 
+const AUTOPLAY_INTERVAL_MS = 5000;
+
+/**
+ * Splits a trailing comma/full stop off a slide title so it can be rendered in
+ * the gold accent. Titles without trailing punctuation (e.g. "A pit for") get
+ * none — appending a gold "." unconditionally produced "The arena,." on the
+ * live site.
+ */
+function splitTrailingPunct(title: string): { text: string; punct: string } {
+  const match = /^(.*?)([,.])$/.exec(title);
+  return match ? { text: match[1], punct: match[2] } : { text: title, punct: "" };
+}
+
+/** Tracks the OS-level "reduce motion" preference, updating live if it changes. */
+function usePrefersReducedMotion(): boolean {
+  const [reduced, setReduced] = useState(false);
+  useEffect(() => {
+    const query = window.matchMedia("(prefers-reduced-motion: reduce)");
+    setReduced(query.matches);
+    const onChange = (e: MediaQueryListEvent) => setReduced(e.matches);
+    query.addEventListener("change", onChange);
+    return () => query.removeEventListener("change", onChange);
+  }, []);
+  return reduced;
+}
+
 export function HeroSlider() {
   const [idx, setIdx] = useState(0);
+  const [pausedByUser, setPausedByUser] = useState(false);
+  const [isHovered, setIsHovered] = useState(false);
+  const [hasFocusWithin, setHasFocusWithin] = useState(false);
+  const prefersReducedMotion = usePrefersReducedMotion();
+
+  // WCAG 2.2.2: auto-advancing content must be pausable. Autoplay stops while
+  // the visitor hovers or tabs into the hero (so the headline doesn't change
+  // mid-read), when they press pause, and entirely under reduced motion.
+  const isAutoplaying = !pausedByUser && !prefersReducedMotion && !isHovered && !hasFocusWithin;
 
   useEffect(() => {
-    const t = window.setInterval(() => setIdx((i) => (i + 1) % SLIDES.length), 5000);
+    if (!isAutoplaying) return;
+    const t = window.setInterval(
+      () => setIdx((i) => (i + 1) % SLIDES.length),
+      AUTOPLAY_INTERVAL_MS
+    );
     return () => window.clearInterval(t);
-  }, []);
+  }, [isAutoplaying]);
 
   const current = SLIDES[idx];
+  const title = splitTrailingPunct(current.title);
+  const showPauseControl = !prefersReducedMotion;
 
   return (
-    <section aria-label="Royal MAS Arena highlights" className="ac-hero">
+    <section
+      aria-label="Royal MAS Arena highlights"
+      aria-roledescription="carousel"
+      className="ac-hero"
+      onBlur={(e) => {
+        if (!e.currentTarget.contains(e.relatedTarget as Node | null)) setHasFocusWithin(false);
+      }}
+      onFocus={(e) => {
+        // Keyboard focus only: a mouse click on Play also focuses the button,
+        // and treating that as "reading" would keep the slideshow paused.
+        if (e.target.matches(":focus-visible")) setHasFocusWithin(true);
+      }}
+      onMouseEnter={() => setIsHovered(true)}
+      onMouseLeave={() => setIsHovered(false)}
+    >
       {SLIDES.map((slide, i) => (
         <div
           aria-hidden={i !== idx}
@@ -72,8 +127,8 @@ export function HeroSlider() {
 
         <div className="ac-hero-title">
           <span className="ac-display">
-            {current.title}
-            <span className="punct">.</span>
+            {title.text}
+            {title.punct ? <span className="punct">{title.punct}</span> : null}
           </span>
         </div>
         <div className="ac-hero-italic">
@@ -93,6 +148,17 @@ export function HeroSlider() {
       </div>
 
       <div className="ac-hero-dots">
+        {showPauseControl ? (
+          <button
+            aria-label={pausedByUser ? "Play slideshow" : "Pause slideshow"}
+            aria-pressed={pausedByUser}
+            className="ac-hero-pause"
+            onClick={() => setPausedByUser((p) => !p)}
+            type="button"
+          >
+            <span aria-hidden="true">{pausedByUser ? "▶" : "❚❚"}</span>
+          </button>
+        ) : null}
         <span className="counter">
           {String(idx + 1).padStart(2, "0")} / {String(SLIDES.length).padStart(2, "0")}
         </span>

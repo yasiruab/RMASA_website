@@ -366,6 +366,13 @@ admin stylesheet 99% unused). Keep new selectors scoped under
 `--ac-*` tokens directly, never the legacy `--brand`/`--ink`/`--bg` ones —
 those are kept only for compatibility with existing legacy bodies.
 
+### Page metadata, headings & contact details
+
+- **Metadata**: every public page exports `metadata = pageMetadata({ title, description, path })` from [`src/lib/site-metadata.ts`](src/lib/site-metadata.ts). The root layout uses `rootMetadata` (title template `%s · Royal MAS Arena`, `metadataBase` from `NEXTAUTH_URL`). The helper re-declares the share image (`public/og/royal-mas-arena.jpg`, 1200×630) on every page, because Next.js replaces a parent's `openGraph` object rather than merging it.
+- **Headings**: page hero titles are `<h1 className="ac-page-hero-title">` and section titles are `<h2 className="title">` inside `.ac-section-heading`. A zero-specificity `:where()` reset in `globals.css` strips the browser's heading defaults, so the swap changes semantics only. The home page has a screen-reader-only `<h1>`, because the slider headline rotates.
+- **Desk phone**: use `contactConfig.desk.phoneDisplay` / `phoneHref` from [`src/config/contact.ts`](src/config/contact.ts). Don't hand-type the number. Every visible number should be a `tel:` link.
+- **No prices on the home page**: rates live in `PricingRule` and are shown only on `/bookings`. A hardcoded copy on the home page drifted to ~4× the real Studio rate.
+
 ### Live booking-desk status
 
 The top live-strip in [`src/components/nav.tsx`](src/components/nav.tsx) shows "LIVE · BOOKINGS DESK · OPEN UNTIL 18:00" or "CLOSED · BOOKINGS DESK · OPENS 08:00" depending on **Colombo time** (not the visitor's local time), via `Intl.DateTimeFormat({ timeZone: "Asia/Colombo", hourCycle: "h23" })` in `getDeskStatus()`. To avoid hydration mismatch, the server render emits a stable static label and the client effect (1-minute interval) replaces it after mount. Dot turns grey + label reads CLOSED outside `[08:00, 18:00)`. The whole strip is hidden below 700 px — phone + email already live in the footer and on `/contact`.
