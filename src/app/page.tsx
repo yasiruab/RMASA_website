@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { HeroSlider } from "@/components/hero-slider";
+import { contactConfig } from "@/config/contact";
 
 type Chapter = {
   image: string;
@@ -49,6 +50,11 @@ type RoomCard = {
   accent?: boolean;
 };
 
+// Rates are deliberately not quoted here. They live in the admin-managed
+// PricingRule table and are shown on /bookings; a hardcoded copy on this page
+// drifted far from the real rates (e.g. Studio "DAY · LKR 56K" vs LKR 13,500).
+const LIVE_RATES_META = "LIVE RATES ON THE BOOKINGS CALENDAR";
+
 const ROOMS: RoomCard[] = [
   {
     tag: "VENUE 01",
@@ -60,7 +66,7 @@ const ROOMS: RoomCard[] = [
       "Suitable for tournaments, seminars, theatre and concerts",
       "Includes support spaces for event operations",
     ],
-    meta: ["1,200 SQM", "LKR 18.5K/HR", "DAY · LKR 165K"],
+    meta: ["1,200 SQM", "UP TO 1,000 SEATED", LIVE_RATES_META],
     cta: "Book Main Arena",
     href: "/bookings",
     accent: true,
@@ -75,7 +81,7 @@ const ROOMS: RoomCard[] = [
       "Mirrored wall for movement-focused sessions",
       "Ideal for focused groups and repeat sessions",
     ],
-    meta: ["280 SQM", "LKR 6.4K/HR", "DAY · LKR 56K"],
+    meta: ["2,000 SQFT", "AIR-CONDITIONED", LIVE_RATES_META],
     cta: "Book Studio Room",
     href: "/bookings",
   },
@@ -92,6 +98,9 @@ export default function HomePage() {
         href="/home-sliders/home-slider-1.webp"
         fetchPriority="high"
       />
+      {/* The slider's display headline rotates every few seconds, so the page's
+          single h1 is a stable, screen-reader-only summary instead. */}
+      <h1 className="sr-only">Royal MAS Arena — indoor sports and event venue in Colombo 07</h1>
       <HeroSlider />
 
       <section className="ac-intro" aria-label="Introduction">
@@ -106,14 +115,17 @@ export default function HomePage() {
             seminars, theatre, concerts and more.
           </p>
           <div className="ac-intro-phone">
-            FOR RESERVATIONS · <span className="num">+94 (0) 70 442 1590</span>
+            FOR RESERVATIONS ·{" "}
+            <a className="num" href={contactConfig.desk.phoneHref}>
+              {contactConfig.desk.phoneDisplay}
+            </a>
           </div>
         </div>
       </section>
 
       <section className="ac-section-cards" aria-label="The tour">
         <div className="ac-section-heading">
-          <span className="title">THE TOUR.</span>
+          <h2 className="title">THE TOUR.</h2>
           <span className="meta">THREE CHAPTERS · EVERY ROOM, EVERY USE</span>
         </div>
         <div className="ac-section-cards-grid">
@@ -149,7 +161,7 @@ export default function HomePage() {
 
       <section className="ac-room-compare" aria-label="Find the floor">
         <div className="ac-section-heading">
-          <span className="title">FIND THE FLOOR.</span>
+          <h2 className="title">FIND THE FLOOR.</h2>
           <span className="meta">TWO CORE SPACES · PICK THE ONE FOR YOUR FORMAT</span>
         </div>
         <div className="ac-room-grid">
@@ -187,11 +199,11 @@ export default function HomePage() {
         <div className="ac-closing-grid">
           <div>
             <span className="ac-closing-eyebrow">{"// READY?"}</span>
-            <div className="ac-closing-title">
+            <h2 className="ac-closing-title">
               <span className="ac-display">
                 BOOK<span className="punct">.</span>
               </span>
-            </div>
+            </h2>
             <div className="ac-closing-italic">
               <span className="ac-italic">the floor today.</span>
             </div>
@@ -208,7 +220,9 @@ export default function HomePage() {
           <aside className="ac-assistance">
             <span className="ac-assistance-eyebrow">FOR ASSISTANCE</span>
             <p className="ac-assistance-body">The desk takes calls between 08:00–18:00 daily.</p>
-            <p className="ac-assistance-phone">+94&nbsp;&nbsp;70&nbsp;&nbsp;442&nbsp;&nbsp;1590</p>
+            <a className="ac-assistance-phone" href={contactConfig.desk.phoneHref}>
+              {contactConfig.desk.phoneDisplay}
+            </a>
             <Link className="ac-assistance-link" href="/contact">
               Or write to the bookings office →
             </Link>

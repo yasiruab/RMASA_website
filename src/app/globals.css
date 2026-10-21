@@ -456,8 +456,45 @@ main {
   width: 32px;
   background: var(--ac-gold);
 }
+/* Pause/play control — overrides the 4px progress-bar styling the dot buttons use. */
+.ac-hero-dots button.ac-hero-pause {
+  width: 28px;
+  height: 28px;
+  margin-right: 4px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid var(--ac-line);
+  background: rgba(6, 17, 46, 0.55);
+  color: var(--ac-text);
+  font-size: 9px;
+  letter-spacing: -0.1em;
+}
+.ac-hero-dots button.ac-hero-pause:hover,
+.ac-hero-dots button.ac-hero-pause:focus-visible {
+  border-color: var(--ac-gold);
+  color: var(--ac-gold);
+}
+.ac-hero-dots button.ac-hero-pause::before {
+  inset: -8px;
+}
+@media (prefers-reduced-motion: reduce) {
+  .ac-hero-slide,
+  .ac-hero-dots button {
+    transition: none;
+  }
+}
 
 /* ─── Section heading ─────────────────────────────────────────── */
+
+/* Display titles are real <h1>/<h2> elements for screen-reader navigation.
+   Strip the user-agent heading defaults so the element swap changes semantics
+   only; :where() keeps specificity at zero so each class's own rules win. */
+:where(h1.ac-page-hero-title, h2.ac-closing-title, .ac-section-heading h2.title) {
+  margin: 0;
+  font-size: inherit;
+  font-weight: inherit;
+}
 
 .ac-section-heading {
   display: flex;
@@ -811,11 +848,14 @@ main {
   letter-spacing: -0.01em;
 }
 .ac-assistance-phone {
+  display: block;
+  width: fit-content;
   margin-top: 18px;
   font-family: "Geist Mono", monospace;
   font-size: 15px;
   color: var(--ac-text);
   letter-spacing: 0.06em;
+  word-spacing: 0.4em;
 }
 .ac-assistance-link {
   display: inline-block;
@@ -1041,11 +1081,21 @@ main {
   margin: 0;
 }
 .ac-aside-phone {
+  display: block;
+  width: fit-content;
   margin: 18px 0 0;
   font-family: "Geist Mono", monospace;
   font-size: 15px;
   color: var(--ac-text);
   letter-spacing: 0.06em;
+  word-spacing: 0.4em;
+}
+/* Phone numbers are tap-to-call links; underline on hover so they read as links. */
+.ac-assistance-phone:hover,
+.ac-assistance-phone:focus-visible,
+.ac-aside-phone:hover,
+.ac-aside-phone:focus-visible {
+  color: var(--ac-gold-bright);
 }
 .ac-aside-link {
   display: inline-block;
@@ -3005,6 +3055,18 @@ a.ac-channel-card:focus-visible {
   font-weight: 700;
   margin-bottom: 8px;
 }
+/* Pre-interaction state: a neutral checklist, not an error. */
+.ac-bookings-receipt-blockers.is-neutral {
+  background: rgba(156, 166, 191, 0.06);
+  border-color: var(--ac-line);
+  border-left-color: var(--ac-gold);
+}
+.ac-bookings-receipt-blockers.is-neutral .ac-bookings-receipt-blockers-title {
+  color: var(--ac-text-dim);
+}
+.ac-bookings-receipt-blockers.is-neutral li .bullet {
+  color: var(--ac-gold);
+}
 .ac-bookings-receipt-blockers ul {
   margin: 0;
   padding: 0;
@@ -3121,6 +3183,13 @@ a.ac-channel-card:focus-visible {
 }
 .ac-footer-contact p:first-of-type {
   margin-top: 8px;
+}
+.ac-footer-contact a {
+  color: inherit;
+}
+.ac-footer-contact a:hover,
+.ac-footer-contact a:focus-visible {
+  color: var(--ac-gold-bright);
 }
 .ac-footer-meta-row > div:last-child ul {
   list-style: none;

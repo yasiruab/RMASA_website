@@ -2,6 +2,14 @@ import type { CSSProperties } from "react";
 import Image from "next/image";
 import Link from "next/link";
 import { Breadcrumbs } from "@/components/breadcrumbs";
+import { pageMetadata } from "@/lib/site-metadata";
+
+export const metadata = pageMetadata({
+  title: "Activities",
+  description:
+    "Boxing, fencing, gymnastics, karate, wushu, wrestling, table tennis, seminars and performing arts — what Royal MAS Arena hosts.",
+  path: "/activities",
+});
 
 type Activity = {
   label: string;
@@ -40,11 +48,11 @@ export default function ActivitiesPage() {
         <div className="ac-page-hero-inner">
           <Breadcrumbs current="Activities" />
           <span className="ac-page-hero-eyebrow">{"// WHAT THE FLOOR CAN HOST"}</span>
-          <div className="ac-page-hero-title">
+          <h1 className="ac-page-hero-title">
             <span className="ac-display">
               ACTIVITIES<span className="punct">.</span>
             </span>
-          </div>
+          </h1>
           <div className="ac-page-hero-italic">
             <span className="ac-italic">sport, training, gatherings.</span>
           </div>
@@ -57,9 +65,9 @@ export default function ActivitiesPage() {
 
       <section className="ac-disciplines-section" aria-label="Disciplines">
         <div className="ac-section-heading">
-          <span className="title">
-            <span className="num">01 /</span> THE DISCIPLINES.
-          </span>
+          <h2 className="title">
+            <span aria-hidden="true" className="num">01 /</span> THE DISCIPLINES.
+          </h2>
           <span className="meta">{ACTIVITIES.length} USES</span>
         </div>
 

@@ -1,5 +1,13 @@
 import Link from "next/link";
 import { Breadcrumbs } from "@/components/breadcrumbs";
+import { pageMetadata } from "@/lib/site-metadata";
+
+export const metadata = pageMetadata({
+  title: "Facilities",
+  description:
+    "The Main Arena, air-conditioned Studio Room and support amenities at Royal MAS Arena, Colombo 07.",
+  path: "/facilities",
+});
 
 type Stat = { label: string; value: string };
 
@@ -37,11 +45,11 @@ export default function FacilitiesPage() {
         <div className="ac-page-hero-inner">
           <Breadcrumbs current="Facilities" />
           <span className="ac-page-hero-eyebrow">{"// SPACES & SUPPORT"}</span>
-          <div className="ac-page-hero-title">
+          <h1 className="ac-page-hero-title">
             <span className="ac-display">
               FACILITIES<span className="punct">.</span>
             </span>
-          </div>
+          </h1>
           <div className="ac-page-hero-italic">
             <span className="ac-italic">every room, equipped.</span>
           </div>
@@ -54,9 +62,9 @@ export default function FacilitiesPage() {
 
       <section className="ac-facility-section" aria-label="Main arena">
         <div className="ac-section-heading">
-          <span className="title">
-            <span className="num">01 /</span> MAIN ARENA.
-          </span>
+          <h2 className="title">
+            <span aria-hidden="true" className="num">01 /</span> MAIN ARENA.
+          </h2>
           <span className="meta">THE 1,200 SQM CENTRE FLOOR</span>
         </div>
         <div className="ac-facility-grid">
@@ -94,9 +102,9 @@ export default function FacilitiesPage() {
 
       <section className="ac-facility-section is-alt" aria-label="Studio room">
         <div className="ac-section-heading">
-          <span className="title">
-            <span className="num">02 /</span> STUDIO ROOM.
-          </span>
+          <h2 className="title">
+            <span aria-hidden="true" className="num">02 /</span> STUDIO ROOM.
+          </h2>
           <span className="meta">WOODEN-FLOOR REHEARSAL &amp; TRAINING</span>
         </div>
         <div className="ac-facility-grid is-reverse">
@@ -131,9 +139,9 @@ export default function FacilitiesPage() {
 
       <section className="ac-support-section" aria-label="Support amenities">
         <div className="ac-section-heading">
-          <span className="title">
-            <span className="num">03 /</span> SUPPORT.
-          </span>
+          <h2 className="title">
+            <span aria-hidden="true" className="num">03 /</span> SUPPORT.
+          </h2>
           <span className="meta">EVERYTHING ROUND THE FLOOR</span>
         </div>
         <p className="ac-support-lede">

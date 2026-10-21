@@ -9,6 +9,15 @@ import {
   PinIcon,
   WhatsAppIcon,
 } from "@/components/icons";
+import { contactConfig } from "@/config/contact";
+import { pageMetadata } from "@/lib/site-metadata";
+
+export const metadata = pageMetadata({
+  title: "Contact",
+  description:
+    "Call, email or WhatsApp the Royal MAS Arena bookings desk, open 08:00–18:00 daily, or send an enquiry online.",
+  path: "/contact",
+});
 
 type Channel = {
   Icon: ComponentType<SVGProps<SVGSVGElement>>;
@@ -19,7 +28,7 @@ type Channel = {
 };
 
 const CHANNELS: Channel[] = [
-  { Icon: PhoneIcon, label: "Call", value: "+94 (0) 70 442 1590", sub: "Open 08:00–18:00 daily", href: "tel:+94704421590" },
+  { Icon: PhoneIcon, label: "Call", value: contactConfig.desk.phoneDisplay, sub: "Open 08:00–18:00 daily", href: contactConfig.desk.phoneHref },
   { Icon: EnvelopeIcon, label: "Email", value: "info@royalmasarena.lk", sub: "Tap to open your mail app", href: "mailto:info@royalmasarena.lk" },
   {
     Icon: PinIcon,
@@ -68,11 +77,11 @@ export default async function ContactPage({ searchParams }: ContactPageProps) {
         <div className="ac-page-hero-inner">
           <Breadcrumbs current="Contact" />
           <span className="ac-page-hero-eyebrow">{"// REACH THE DESK"}</span>
-          <div className="ac-page-hero-title">
+          <h1 className="ac-page-hero-title">
             <span className="ac-display">
               CONTACT<span className="punct">.</span>
             </span>
-          </div>
+          </h1>
           <div className="ac-page-hero-italic">
             <span className="ac-italic">four ways in.</span>
           </div>
@@ -90,9 +99,9 @@ export default async function ContactPage({ searchParams }: ContactPageProps) {
 
       <section className="ac-channels-section" aria-label="Reach us">
         <div className="ac-section-heading">
-          <span className="title">
-            <span className="num">01 /</span> REACH US.
-          </span>
+          <h2 className="title">
+            <span aria-hidden="true" className="num">01 /</span> REACH US.
+          </h2>
           <span className="meta">DESK OPEN 08:00–18:00 DAILY</span>
         </div>
         <div className="ac-channels-grid">
@@ -159,9 +168,9 @@ export default async function ContactPage({ searchParams }: ContactPageProps) {
 
       <section className="ac-enquiry-section" aria-label="Send an enquiry">
         <div className="ac-section-heading">
-          <span className="title">
-            <span className="num">02 /</span> SEND AN ENQUIRY.
-          </span>
+          <h2 className="title">
+            <span aria-hidden="true" className="num">02 /</span> SEND AN ENQUIRY.
+          </h2>
           <span className="meta">REPLIES WITHIN 24 HOURS</span>
         </div>
         <div className="ac-enquiry-grid">
@@ -174,7 +183,9 @@ export default async function ContactPage({ searchParams }: ContactPageProps) {
             <p className="ac-aside-quote ac-aside-quote-sm">
               The desk takes calls between 08:00–18:00 daily.
             </p>
-            <p className="ac-aside-phone">+94&nbsp;&nbsp;70&nbsp;&nbsp;442&nbsp;&nbsp;1590</p>
+            <a className="ac-aside-phone" href={contactConfig.desk.phoneHref}>
+              {contactConfig.desk.phoneDisplay}
+            </a>
             <a className="ac-aside-link" href="mailto:info@royalmasarena.lk">
               Or email the bookings office →
             </a>

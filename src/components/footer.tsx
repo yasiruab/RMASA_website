@@ -1,5 +1,6 @@
 import Image from "next/image";
 import Link from "next/link";
+import { contactConfig } from "@/config/contact";
 
 type FooterLink = { label: string; href: string; external?: boolean };
 
@@ -88,7 +89,9 @@ export function Footer() {
         </div>
         <div className="ac-footer-contact">
           <p className="ac-footer-col-heading">CONTACT</p>
-          <p>+94 (0) 70 442 1590</p>
+          <p>
+            <a href={contactConfig.desk.phoneHref}>{contactConfig.desk.phoneDisplay}</a>
+          </p>
           <p>info@royalmasarena.lk</p>
         </div>
         <div>

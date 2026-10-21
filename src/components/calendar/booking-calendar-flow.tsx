@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Breadcrumbs } from "@/components/breadcrumbs";
 import { TurnstileWidget } from "@/components/calendar/turnstile-widget";
+import { contactConfig } from "@/config/contact";
 import { DEFAULT_BOOKING_CADENCE, nextCadenceStart } from "@/lib/booking-cadence";
 import {
   buildPriorityNotice,
@@ -1152,11 +1153,11 @@ export function BookingCalendarFlow() {
         <div className="ac-bookings-loading-inner">
           <Breadcrumbs current="Bookings" />
           <p className="ac-bookings-loading-eyebrow">{"// WARMING UP THE COURTS"}</p>
-          <div className="ac-page-hero-title">
+          <h1 className="ac-page-hero-title">
             <span className="ac-display">
               LOADING<span className="punct">.</span>
             </span>
-          </div>
+          </h1>
           <p className="ac-page-hero-lede">Your booking calendar is on its way.</p>
         </div>
       </section>
@@ -1171,11 +1172,11 @@ export function BookingCalendarFlow() {
           <p className="ac-bookings-loading-eyebrow ac-bookings-loading-eyebrow-danger">
             {"// CALENDAR UNAVAILABLE"}
           </p>
-          <div className="ac-page-hero-title">
+          <h1 className="ac-page-hero-title">
             <span className="ac-display">
               OFFLINE<span className="punct">.</span>
             </span>
-          </div>
+          </h1>
           <p className="ac-page-hero-lede">
             {configError === "timeout"
               ? "The calendar is taking a slow lap today. Give it another go?"
@@ -1199,11 +1200,11 @@ export function BookingCalendarFlow() {
           <div className="ac-bookings-hero-grid">
             <div>
               <span className="ac-page-hero-eyebrow">{heroEyebrowTxt}</span>
-              <div className="ac-page-hero-title">
+              <h1 className="ac-page-hero-title">
                 <span className="ac-display">
                   BOOK<span className="punct">.</span>
                 </span>
-              </div>
+              </h1>
               <div className="ac-page-hero-italic">
                 <span className="ac-italic">the floor.</span>
               </div>
@@ -1217,7 +1218,9 @@ export function BookingCalendarFlow() {
               <p className="ac-aside-quote ac-aside-quote-sm">
                 The desk takes calls between 08:00–18:00 daily.
               </p>
-              <p className="ac-aside-phone">+94&nbsp;&nbsp;70&nbsp;&nbsp;442&nbsp;&nbsp;1590</p>
+              <a className="ac-aside-phone" href={contactConfig.desk.phoneHref}>
+                {contactConfig.desk.phoneDisplay}
+              </a>
               <a className="ac-aside-link" href="mailto:info@royalmasarena.lk">
                 Or write to the bookings office →
               </a>
@@ -1229,9 +1232,9 @@ export function BookingCalendarFlow() {
       {/* ─── 01 / THE ROOM. ───────────────────────────────────── */}
       <section className="ac-bookings-room-section" aria-label="Choose room and event type">
         <div className="ac-section-heading">
-          <span className="title">
-            <span className="num">01 /</span> THE ROOM.
-          </span>
+          <h2 className="title">
+            <span aria-hidden="true" className="num">01 /</span> THE ROOM.
+          </h2>
           <span className="meta">SELECT VENUE TO REVEAL CALENDAR</span>
         </div>
 
@@ -1367,9 +1370,9 @@ export function BookingCalendarFlow() {
       {/* ─── 02 / THE WEEK. ───────────────────────────────────── */}
       <section className="ac-bookings-week-section" aria-label="Weekly calendar">
         <div className="ac-section-heading">
-          <span className="title">
-            <span className="num">02 /</span> THE WEEK.
-          </span>
+          <h2 className="title">
+            <span aria-hidden="true" className="num">02 /</span> THE WEEK.
+          </h2>
           <span className="meta">
             {ymdToDate(weekDates[0]).toLocaleDateString("en-US", { day: "numeric", month: "short" })}{" "}
             →{" "}
@@ -1847,9 +1850,9 @@ export function BookingCalendarFlow() {
       {/* ─── 03 / THE DETAILS. ────────────────────────────────── */}
       <section className="ac-bookings-details-section" aria-label="Your details and booking fee">
         <div className="ac-section-heading">
-          <span className="title">
-            <span className="num">03 /</span> THE DETAILS.
-          </span>
+          <h2 className="title">
+            <span aria-hidden="true" className="num">03 /</span> THE DETAILS.
+          </h2>
           <span className="meta">{selectedSlots.length === 0 ? "PICK A SLOT TO BEGIN" : "FORM AUTO-SAVES"}</span>
         </div>
 
@@ -1959,6 +1962,10 @@ export function BookingCalendarFlow() {
                 >
                   <span className="ac-bookings-field-label">FULL NAME</span>
                   <input
+                    aria-invalid={hasInteractedSubmit && Boolean(fieldErrors.name)}
+                    aria-required="true"
+                    autoComplete="name"
+                    name="name"
                     onChange={(e) => setCustomer((p) => ({ ...p, name: e.target.value }))}
                     type="text"
                     value={customer.name}
@@ -1974,6 +1981,11 @@ export function BookingCalendarFlow() {
                 >
                   <span className="ac-bookings-field-label">CONTACT NUMBER</span>
                   <input
+                    aria-invalid={hasInteractedSubmit && Boolean(fieldErrors.phone)}
+                    aria-required="true"
+                    autoComplete="tel"
+                    inputMode="tel"
+                    name="phone"
                     onChange={(e) => setCustomer((p) => ({ ...p, phone: e.target.value }))}
                     type="tel"
                     value={customer.phone}
@@ -1990,6 +2002,11 @@ export function BookingCalendarFlow() {
               >
                 <span className="ac-bookings-field-label">EMAIL</span>
                 <input
+                  aria-invalid={hasInteractedSubmit && Boolean(fieldErrors.email)}
+                  aria-required="true"
+                  autoComplete="email"
+                  inputMode="email"
+                  name="email"
                   onChange={(e) => setCustomer((p) => ({ ...p, email: e.target.value }))}
                   type="email"
                   value={customer.email}
@@ -2005,6 +2022,9 @@ export function BookingCalendarFlow() {
               >
                 <span className="ac-bookings-field-label">PURPOSE OF BOOKING</span>
                 <textarea
+                  aria-invalid={hasInteractedSubmit && Boolean(fieldErrors.purpose)}
+                  aria-required="true"
+                  name="purpose"
                   onChange={(e) => setCustomer((p) => ({ ...p, purpose: e.target.value }))}
                   rows={4}
                   value={customer.purpose}
@@ -2203,15 +2223,23 @@ export function BookingCalendarFlow() {
               </p>
             ) : null}
 
+            {/* Neutral checklist until the customer tries to submit, then red.
+                Showing a red "fix" list on first paint scolded people before
+                they had touched the form. role="status" (polite) rather than
+                "alert" so screen readers aren't interrupted on load and on
+                every keystroke that changes the count. */}
             {submitBlockers.length > 0 ? (
               <div
-                className="ac-bookings-receipt-blockers"
-                role="alert"
+                aria-live="polite"
+                className={
+                  "ac-bookings-receipt-blockers" + (hasInteractedSubmit ? "" : " is-neutral")
+                }
+                role="status"
                 onMouseDownCapture={() => setHasInteractedSubmit(true)}
               >
                 <div className="ac-bookings-receipt-blockers-title">
-                  FIX TO SUBMIT · {submitBlockers.length}{" "}
-                  {submitBlockers.length === 1 ? "ITEM" : "ITEMS"}
+                  {hasInteractedSubmit ? "FIX TO SUBMIT" : "TO SUBMIT, STILL NEEDED"} ·{" "}
+                  {submitBlockers.length} {submitBlockers.length === 1 ? "ITEM" : "ITEMS"}
                 </div>
                 <ul>
                   {submitBlockers.map((b) => (

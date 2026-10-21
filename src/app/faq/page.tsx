@@ -1,15 +1,23 @@
 import { Breadcrumbs } from "@/components/breadcrumbs";
+import { pageMetadata } from "@/lib/site-metadata";
+
+export const metadata = pageMetadata({
+  title: "FAQ",
+  description:
+    "Answers to common questions about booking, confirmation, cancellation and using Royal MAS Arena.",
+  path: "/faq",
+});
 
 const faqItems = [
   {
     question: "How do I start a booking?",
     answer:
-      "Go to the Bookings page, select your preferred space, then continue to the Contact page to submit your enquiry.",
+      "Go to the Bookings page, choose the room and event type, pick your slots on the live calendar, then fill in your details and submit the request on the same page.",
   },
   {
     question: "When is my booking confirmed?",
     answer:
-      "A booking is confirmed only after the RMASA team reviews your request and shares confirmation details directly.",
+      "A booking is confirmed only after the bookings desk reviews your request — usually within 24 hours — and lets you know the outcome.",
   },
   {
     question: "Can I cancel or reschedule?",
@@ -24,7 +32,7 @@ const faqItems = [
   {
     question: "How can I share event requirements?",
     answer:
-      "Use the enquiry form and include preferred date, time, participant count, and any setup requirements in your message.",
+      "Add them in the Purpose of Booking field when you book — expected participants, setup needs and anything else we should know. For anything longer, use the enquiry form on the Contact page.",
   },
 ];
 

@@ -1,5 +1,13 @@
 import Image from "next/image";
 import { Breadcrumbs } from "@/components/breadcrumbs";
+import { pageMetadata } from "@/lib/site-metadata";
+
+export const metadata = pageMetadata({
+  title: "Events",
+  description:
+    "Events and news from Royal MAS Arena, including the venue's opening ceremony.",
+  path: "/events",
+});
 
 export default function EventsPage() {
   return (
