@@ -578,7 +578,7 @@ kill non-conflicting slots (the bug that motivated the fix; see the
 - AC mode: `with_ac | without_ac`
 - Day type: `weekday | weekend | any`
 - Slot status (availability): `available | pending | confirmed | tentative | blocked | cleanup`
-  - `cleanup` — slot falls within a booking's post-event cleanup window; conflicts are enforced the same as occupied slots; displayed as **"Site Preparation"** (warm orange) in the public booking calendar
+  - `cleanup` — slot falls within a booking's post-event cleanup window; conflicts are enforced the same as occupied slots; displayed as **"CLEANUP"** chip / "Setup / cleanup" title (warm orange) in the public booking calendar. `tentative` displays as **"PROVISIONAL"** / "Provisional hold" — plain-language labels in `STATUS_LABELS`, replacing the earlier "HELD" / "PREP"
 
 ## Room: Booking Cadence
 
@@ -996,6 +996,18 @@ The desktop calendar grid uses **`ROW_HEIGHT = 24px` per half-hour** (not per ho
 - `.ac-bookings-grid-time-cell` only renders a label on hour rows (`isHourRow = minute === 0`)
 
 The `visibleSubRows` count = `(lastVisibleHour - firstVisibleHour + 1) * 2`. The grid body height is `visibleSubRows * ROW_HEIGHT`.
+
+The visible range is exactly the room's opening hours (`firstVisibleHour = workingStartHour`, `lastVisibleHour = ceil(workingEndMinute / 60) - 1`). It used to pad two hours either side, which put rows of hatched closed time (from 04:00 for a 06:00 room) ahead of the first bookable slot on both the desktop grid and the mobile day view. Hour labels are 24-hour `HH:00`, matching the times printed inside booking blocks. The mobile day view deliberately keeps **one row per slot**, even for long booked runs; collapsing them was considered and rejected.
+
+**Week navigation**: "◂ Previous week" / "Today" / "Next week ▸". The Today button has a constant label and is highlighted (`aria-pressed`) only when the current week is shown.
+
+**Event pills and pricing rows** show the duration via `formatDurationLabel()` in [`src/lib/duration-label.ts`](src/lib/duration-label.ts) (tested; "6 HRS", "55 MIN", "13 HRS 55 MIN"). Pricing rows add the day type ("WEEKDAYS" / "WEEKENDS") when the rule isn't `any`. Pills are listed shortest-first to match the pricing list; the default selection still follows the original `allowedEventTypes` order.
+
+**A/C**: when the selected room and event type have only one priced A/C mode, the toggle is replaced by a plain `.ac-bookings-ac-note` ("No air conditioning in Main Arena · open vents"). A disabled toggle with no explanation looked broken.
+
+**Sticky summary bar** (`.ac-bookings-summary-bar`, < 981 px only): shows "N slots · LKR X" and a "Review & submit ↓" link to `#booking-receipt` while slots are picked and the receipt is off screen. An `IntersectionObserver` on the receipt drives this.
+
+**Hero**: kept compact (eyebrow, `BOOK.`, a one-line lede and an inline help line with the tap-to-call desk number). The old assistance aside and the "FIXTURE #YYYY-Wnn" stamp were removed.
 
 ## Responsive Breakpoints (public site)
 

@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Breadcrumbs } from "@/components/breadcrumbs";
 import { TurnstileWidget } from "@/components/calendar/turnstile-widget";
 import { contactConfig } from "@/config/contact";
@@ -11,6 +11,7 @@ import {
   PRIORITY_SUMMARY_LINE,
 } from "@/lib/booking-priority";
 import { fromMinutes, getSlotAvailabilities } from "@/lib/calendar-core";
+import { formatDurationLabel } from "@/lib/duration-label";
 import type {
   Booking as ApiBooking,
   BookingCadence,
@@ -65,9 +66,10 @@ const STATUS_LABELS: Record<Slot["status"], string> = {
   available: "Available",
   pending: "PENDING",
   confirmed: "CONFIRMED",
-  tentative: "HELD",
+  // Customer-facing wording: "held"/"prep" read as jargon on the live site.
+  tentative: "PROVISIONAL",
   blocked: "BLOCKED",
-  cleanup: "PREP",
+  cleanup: "CLEANUP",
 };
 
 /* ─── Date / time helpers ───────────────────────────────────────── */
@@ -116,18 +118,15 @@ function addMonthsYmd(date: string, months: number) {
   return formatDate(d);
 }
 
-function isoWeek(date: Date) {
-  const d = new Date(Date.UTC(date.getFullYear(), date.getMonth(), date.getDate()));
-  const dayNum = d.getUTCDay() || 7;
-  d.setUTCDate(d.getUTCDate() + 4 - dayNum);
-  const yearStart = new Date(Date.UTC(d.getUTCFullYear(), 0, 1));
-  const weekNo = Math.ceil(((d.getTime() - yearStart.getTime()) / 86400000 + 1) / 7);
-  return { year: d.getUTCFullYear(), week: weekNo };
-}
-
 function currency(value: number) {
   return new Intl.NumberFormat("en-LK").format(value);
 }
+
+const DAY_TYPE_LABELS: Record<PricingRule["dayType"], string | null> = {
+  weekday: "WEEKDAYS",
+  weekend: "WEEKENDS",
+  any: null,
+};
 
 function venueTagPrefix(index: number): string {
   return `VENUE ${String(index + 1).padStart(2, "0")}`;
@@ -141,6 +140,8 @@ function formatCapacity(capacity: number | undefined): string {
 type RoomPricingRow = {
   key: string;
   eventName: string;
+  // e.g. "10 HRS · WEEKDAYS" — names like "Badminton" don't say how long a slot is.
+  detail: string;
   amountLkr: number;
   acPremiumLkr: number | null;
 };
@@ -174,6 +175,9 @@ function getRoomPricingRows(
       return {
         key: rule.id,
         eventName: eventType.name,
+        detail: [formatDurationLabel(eventType.durationMinutes), DAY_TYPE_LABELS[rule.dayType]]
+          .filter(Boolean)
+          .join(" · "),
         amountLkr: rule.amountLkr,
         acPremiumLkr: premium !== null && premium > 0 ? premium : null,
         _sortDuration: eventType.durationMinutes,
@@ -218,11 +222,9 @@ function toMinutes(time: string) {
   return h * 60 + m;
 }
 
+// 24-hour "HH:00", matching the HH:MM times printed inside booking blocks.
 function toHourLabel(hour: number) {
-  const h = hour % 24;
-  const suffix = h >= 12 ? "PM" : "AM";
-  const norm = h % 12 === 0 ? 12 : h % 12;
-  return hour === 0 || hour === 12 ? `${norm} ${suffix}` : `${norm}`;
+  return `${String(hour % 24).padStart(2, "0")}:00`;
 }
 
 function slotKey(slot: { date: string; startTime: string; endTime: string }) {
@@ -566,6 +568,13 @@ export function BookingCalendarFlow() {
     [eventTypes, roomTypeId, pricingRules],
   );
 
+  // Display order only, matching the room card's pricing list (shortest
+  // first). The default selection still follows allowedEventTypes' order.
+  const pillEventTypes = useMemo(
+    () => [...allowedEventTypes].sort((a, b) => a.durationMinutes - b.durationMinutes),
+    [allowedEventTypes],
+  );
+
   useEffect(() => {
     if (allowedEventTypes.length === 0) {
       setEventTypeId("");
@@ -642,17 +651,20 @@ export function BookingCalendarFlow() {
     const start = nextCadenceStart(rowMinute, workingStartMinute, cadenceMinutes);
     return start + durationMinutes <= workingEndMinute ? fromMinutes(start) : null;
   }
-  const firstVisibleHour = Math.max(0, workingStartHour - 2);
-  const lastVisibleHour = Math.min(23, workingEndHour + 2);
+  // Show only the room's opening hours. The old ±2 h padding put rows of
+  // hatched "closed" time (from 04:00 for a 06:00 room) ahead of the first
+  // bookable slot. Closing on the half hour keeps that last partial hour row.
+  const firstVisibleHour = workingStartHour;
+  const lastVisibleHour = Math.max(
+    firstVisibleHour,
+    Math.min(23, Math.ceil(workingEndMinute / 60) - 1),
+  );
   const firstVisibleMinute = firstVisibleHour * 60;
   // Half-hour rows render the half-hour granularity. ROW_HEIGHT is per half-hour.
   const ROW_HEIGHT = 24;
   const PX_PER_MINUTE = ROW_HEIGHT / 30;
   const visibleSubRows = (lastVisibleHour - firstVisibleHour + 1) * 2;
-  const durationLabel =
-    durationMinutes % 60 === 0
-      ? `${durationMinutes / 60} HR${durationMinutes / 60 > 1 ? "S" : ""}`
-      : `${durationMinutes} MIN`;
+  const durationLabel = formatDurationLabel(durationMinutes);
 
   const slotMap = useMemo(() => {
     const map: Record<string, Record<string, Slot>> = {};
@@ -871,6 +883,21 @@ export function BookingCalendarFlow() {
   }, [allPlannedSlots, pricingRules, roomTypeId, eventTypeId, acMode]);
 
   const total = pricingPreview.reduce((sum, item) => sum + item.amountLkr, 0);
+
+  // Below the two-column layout the receipt sits far under the calendar, so a
+  // slot pick had no visible price feedback. Track whether the receipt is on
+  // screen; the sticky summary bar shows only while it isn't.
+  const receiptRef = useRef<HTMLElement>(null);
+  const [isReceiptVisible, setIsReceiptVisible] = useState(false);
+  useEffect(() => {
+    const el = receiptRef.current;
+    if (!el) return;
+    const observer = new IntersectionObserver(([entry]) =>
+      setIsReceiptVisible(entry.isIntersecting),
+    );
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, [isConfigLoading, configError]);
 
   // Per-field validation. Same predicates the blockers panel surfaces, exposed
   // separately so the form labels can paint individual fields red. Mirrors the
@@ -1139,11 +1166,10 @@ export function BookingCalendarFlow() {
   }
 
   /* ─── Computed labels ────────────────────────────────────────── */
-  const week = isoWeek(weekStartDate);
-  const fixtureId = `FIXTURE #${week.year}-W${String(week.week).padStart(2, "0")}`;
   const monthYearLabel = `${MONTH_NAMES[visibleMonth].toUpperCase()} ${visibleYear}`;
   const heroEyebrowTxt = `// BOOKINGS · ${activeRoom?.name?.toUpperCase() ?? "ROOM"} · ${monthYearLabel}`;
   const todayYmd = formatDate(new Date());
+  const isCurrentWeek = weekDates.includes(todayYmd);
   const isNextDisabled =
     maxDateStr !== null && formatDate(addDays(weekStartDate, 7)) > maxDateStr;
 
@@ -1196,36 +1222,27 @@ export function BookingCalendarFlow() {
       <section className="ac-page-hero is-gradient ac-bookings-hero" aria-label="Bookings hero">
         <div className="ac-page-hero-inner">
           <Breadcrumbs current="Bookings" />
-          <div className="ac-bookings-hero-stamp">{fixtureId}</div>
-          <div className="ac-bookings-hero-grid">
-            <div>
-              <span className="ac-page-hero-eyebrow">{heroEyebrowTxt}</span>
-              <h1 className="ac-page-hero-title">
-                <span className="ac-display">
-                  BOOK<span className="punct">.</span>
-                </span>
-              </h1>
-              <div className="ac-page-hero-italic">
-                <span className="ac-italic">the floor.</span>
-              </div>
-              <p className="ac-page-hero-lede">
-                Reserve the Main Arena or Studio Room. Sport, ceremony, assembly — any use, any
-                week. Requests are reviewed by the bookings desk within 24 hours.
-              </p>
-            </div>
-            <aside className="ac-aside ac-bookings-hero-aside">
-              <span className="ac-aside-eyebrow">FOR ASSISTANCE</span>
-              <p className="ac-aside-quote ac-aside-quote-sm">
-                The desk takes calls between 08:00–18:00 daily.
-              </p>
-              <a className="ac-aside-phone" href={contactConfig.desk.phoneHref}>
-                {contactConfig.desk.phoneDisplay}
-              </a>
-              <a className="ac-aside-link" href="mailto:info@royalmasarena.lk">
-                Or write to the bookings office →
-              </a>
-            </aside>
+          {/* Kept deliberately short: visitors arrive here ready to book, and
+              the old hero pushed the calendar ~3 screens down on phones. */}
+          <span className="ac-page-hero-eyebrow">{heroEyebrowTxt}</span>
+          <h1 className="ac-page-hero-title">
+            <span className="ac-display">
+              BOOK<span className="punct">.</span>
+            </span>
+          </h1>
+          <div className="ac-page-hero-italic">
+            <span className="ac-italic">the floor.</span>
           </div>
+          <p className="ac-page-hero-lede">
+            Pick a room and a slot below. The bookings desk reviews every request within 24
+            hours.
+          </p>
+          <p className="ac-bookings-hero-help">
+            Need help? Call{" "}
+            <a href={contactConfig.desk.phoneHref}>{contactConfig.desk.phoneDisplay}</a>{" "}
+            (08:00–18:00 daily) or{" "}
+            <a href="mailto:info@royalmasarena.lk">email the bookings office</a>.
+          </p>
         </div>
       </section>
 
@@ -1235,7 +1252,7 @@ export function BookingCalendarFlow() {
           <h2 className="title">
             <span aria-hidden="true" className="num">01 /</span> THE ROOM.
           </h2>
-          <span className="meta">SELECT VENUE TO REVEAL CALENDAR</span>
+          <span className="meta">PICK A VENUE, THEN A USE</span>
         </div>
 
         <div className="ac-bookings-room-grid">
@@ -1278,7 +1295,10 @@ export function BookingCalendarFlow() {
                         {pricingRows.map((row) => (
                           <li className="ac-bookings-room-price-row" key={row.key}>
                             <div className="ac-bookings-room-price-line">
-                              <span className="ac-bookings-room-price-name">{row.eventName}</span>
+                              <span className="ac-bookings-room-price-name">
+                                {row.eventName}
+                                <span className="ac-bookings-room-price-detail">{row.detail}</span>
+                              </span>
                               <span className="ac-bookings-room-price-amount">
                                 LKR {currency(row.amountLkr)}
                               </span>
@@ -1305,7 +1325,7 @@ export function BookingCalendarFlow() {
               USE CASE — DURATION &amp; RATE ARE SET PER EVENT TYPE
             </span>
             <div className="ac-bookings-event-pills" role="radiogroup" aria-label="Event type">
-              {allowedEventTypes.map((type) => {
+              {pillEventTypes.map((type) => {
                 const active = type.id === eventTypeId;
                 return (
                   <button
@@ -1317,6 +1337,9 @@ export function BookingCalendarFlow() {
                     type="button"
                   >
                     {type.name}
+                    <span className="ac-bookings-event-pill-sub">
+                      {formatDurationLabel(type.durationMinutes)}
+                    </span>
                   </button>
                 );
               })}
@@ -1333,36 +1356,46 @@ export function BookingCalendarFlow() {
 
           <div>
             <span className="ac-bookings-config-eyebrow">AIR CONDITIONING</span>
-            <div className="ac-bookings-ac-toggle" role="radiogroup" aria-label="Air conditioning">
-              {(["without_ac", "with_ac"] as const).map((mode) => {
-                const active = acMode === mode;
-                const disabled = !availableAcModes.includes(mode);
-                const premium =
-                  mode === "with_ac"
-                    ? getAcPremiumForEventType(pricingRules, roomTypeId, eventTypeId)
-                    : null;
-                const withAcSub =
-                  premium !== null ? `climate · +LKR ${currency(premium)}` : "";
-                return (
-                  <button
-                    aria-checked={active}
-                    className={`ac-bookings-ac-btn${active ? " is-active" : ""}`}
-                    disabled={disabled}
-                    key={mode}
-                    onClick={() => setAcMode(mode)}
-                    role="radio"
-                    type="button"
-                  >
-                    <span className="ac-bookings-ac-label">
-                      {mode === "without_ac" ? "Without A/C" : "With A/C"}
-                    </span>
-                    <span className="ac-bookings-ac-sub">
-                      {mode === "without_ac" ? "open vents · included" : withAcSub}
-                    </span>
-                  </button>
-                );
-              })}
-            </div>
+            {/* A room/event with only one priced A/C mode used to show the other
+                as a disabled button with no explanation, which read as broken. */}
+            {availableAcModes.length === 1 ? (
+              <p className="ac-bookings-ac-note">
+                {availableAcModes[0] === "with_ac"
+                  ? "Air-conditioned · included in the rate"
+                  : `No air conditioning in ${activeRoom?.name ?? "this room"} · open vents`}
+              </p>
+            ) : (
+              <div className="ac-bookings-ac-toggle" role="radiogroup" aria-label="Air conditioning">
+                {(["without_ac", "with_ac"] as const).map((mode) => {
+                  const active = acMode === mode;
+                  const disabled = !availableAcModes.includes(mode);
+                  const premium =
+                    mode === "with_ac"
+                      ? getAcPremiumForEventType(pricingRules, roomTypeId, eventTypeId)
+                      : null;
+                  const withAcSub =
+                    premium !== null ? `climate · +LKR ${currency(premium)}` : "";
+                  return (
+                    <button
+                      aria-checked={active}
+                      className={`ac-bookings-ac-btn${active ? " is-active" : ""}`}
+                      disabled={disabled}
+                      key={mode}
+                      onClick={() => setAcMode(mode)}
+                      role="radio"
+                      type="button"
+                    >
+                      <span className="ac-bookings-ac-label">
+                        {mode === "without_ac" ? "Without A/C" : "With A/C"}
+                      </span>
+                      <span className="ac-bookings-ac-sub">
+                        {mode === "without_ac" ? "open vents · included" : withAcSub}
+                      </span>
+                    </button>
+                  );
+                })}
+              </div>
+            )}
           </div>
         </div>
       </section>
@@ -1390,14 +1423,17 @@ export function BookingCalendarFlow() {
             onClick={() => setWeekStartDate(addDays(weekStartDate, -7))}
             type="button"
           >
-            ◂ WEEK {isoWeek(addDays(weekStartDate, -7)).week}
+            ◂ Previous week
           </button>
+          {/* Always "Today": it used to read "WEEK 43 · NOW" or "WEEK 44 · GO TO
+              TODAY" depending on state, so one button meant two things. */}
           <button
-            className="ac-bookings-week-btn is-current"
+            aria-pressed={isCurrentWeek}
+            className={`ac-bookings-week-btn${isCurrentWeek ? " is-current" : ""}`}
             onClick={() => setWeekStartDate(startOfWeek(new Date()))}
             type="button"
           >
-            WEEK {week.week} · {weekDates.includes(todayYmd) ? "NOW" : "GO TO TODAY"}
+            Today
           </button>
           <button
             className="ac-bookings-week-btn"
@@ -1405,7 +1441,7 @@ export function BookingCalendarFlow() {
             onClick={() => setWeekStartDate(addDays(weekStartDate, 7))}
             type="button"
           >
-            WEEK {isoWeek(addDays(weekStartDate, 7)).week} ▸
+            Next week ▸
           </button>
           <button
             className="ac-bookings-week-btn ac-bookings-jump-toggle"
@@ -1459,13 +1495,13 @@ export function BookingCalendarFlow() {
             <span className="dot" /> CONFIRMED
           </span>
           <span className="ac-bookings-legend-item is-tentative">
-            <span className="dot" /> HELD
+            <span className="dot" /> PROVISIONAL
           </span>
           <span className="ac-bookings-legend-item is-blocked">
             <span className="dot" /> BLOCKED
           </span>
           <span className="ac-bookings-legend-item is-cleanup">
-            <span className="dot" /> PREP
+            <span className="dot" /> CLEANUP
           </span>
           <span className="ac-bookings-legend-item is-yours">
             <span className="dot" /> ★ YOURS
@@ -1607,11 +1643,11 @@ export function BookingCalendarFlow() {
                                 {block.status === "blocked"
                                   ? block.reason ?? "BLOCKED"
                                   : block.status === "cleanup"
-                                    ? "Site preparation"
+                                    ? "Setup / cleanup"
                                     : block.status === "pending"
                                       ? "Pending request"
                                       : block.status === "tentative"
-                                        ? "Held"
+                                        ? "Provisional hold"
                                         : "Confirmed booking"}
                               </div>
                             ) : null}
@@ -1803,9 +1839,9 @@ export function BookingCalendarFlow() {
                       rowClass += ` is-${slot.status}`;
                       labelText = STATUS_LABELS[slot.status];
                       if (slot.status === "blocked") metaText = slot.reason ?? "Blocked";
-                      else if (slot.status === "cleanup") metaText = "Site preparation";
+                      else if (slot.status === "cleanup") metaText = "Setup / cleanup";
                       else if (slot.status === "pending") metaText = "Pending request";
-                      else if (slot.status === "tentative") metaText = "Held";
+                      else if (slot.status === "tentative") metaText = "Provisional hold";
                       else if (slot.status === "confirmed") metaText = "Confirmed booking";
                       actionDisabled = true;
                     }
@@ -2096,7 +2132,7 @@ export function BookingCalendarFlow() {
           </div>
 
           {/* Receipt */}
-          <aside className="ac-bookings-receipt">
+          <aside className="ac-bookings-receipt" id="booking-receipt" ref={receiptRef}>
             <div className="ac-bookings-receipt-tag">● BOOKING FEE</div>
 
             <div className="ac-bookings-receipt-head">
@@ -2287,6 +2323,19 @@ export function BookingCalendarFlow() {
           </aside>
         </div>
       </section>
+
+      {/* Hidden at ≥ 981 px by CSS, where the receipt sits beside the form. */}
+      {pricingPreview.length > 0 && !isReceiptVisible ? (
+        <div className="ac-bookings-summary-bar" role="region" aria-label="Booking summary">
+          <span className="ac-bookings-summary-text">
+            {pricingPreview.length} {pricingPreview.length === 1 ? "slot" : "slots"} · LKR{" "}
+            {currency(total)}
+          </span>
+          <a className="ac-btn-primary ac-bookings-summary-cta" href="#booking-receipt">
+            Review &amp; submit <span aria-hidden="true">↓</span>
+          </a>
+        </div>
+      ) : null}
     </>
   );
 }
