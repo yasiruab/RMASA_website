@@ -1,19 +1,20 @@
 import { redirect } from "next/navigation";
-import { getServerSession } from "next-auth";
 import { Breadcrumbs } from "@/components/breadcrumbs";
 import { AdminLoginForm } from "@/components/admin/admin-login-form";
-import { authOptions } from "@/lib/auth";
+import { getActivePageAdmin } from "@/lib/auth-guards";
 
 export default async function AdminLoginPage({
   searchParams,
 }: {
   searchParams: Promise<{ next?: string }>;
 }) {
-  const session = await getServerSession(authOptions);
+  // Only auto-forward an *active* admin. Using the raw session here would loop a
+  // deactivated admin between this page and the admin layout's redirect.
+  const admin = await getActivePageAdmin();
   const params = await searchParams;
   const nextPath = params.next && params.next.startsWith("/admin") ? params.next : "/admin/calendar";
 
-  if (session?.user?.id) {
+  if (admin) {
     redirect(nextPath);
   }
 

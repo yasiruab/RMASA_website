@@ -379,7 +379,9 @@ The top live-strip in [`src/components/nav.tsx`](src/components/nav.tsx) shows "
 
 ### Microsoft Clarity (production-only)
 
-[`src/app/layout.tsx`](src/app/layout.tsx) injects the Clarity script (`project ID wrxgldd8t5`) via `next/script` with `strategy="afterInteractive"`, gated to `process.env.NODE_ENV === "production"` so local dev sessions don't pollute analytics. No env vars to set — project ID is hardcoded.
+[`src/app/layout.tsx`](src/app/layout.tsx) renders [`ClarityAnalytics`](src/components/clarity-analytics.tsx) (`project ID wrxgldd8t5`, `next/script` `afterInteractive`), gated to `process.env.NODE_ENV === "production"` so local dev sessions don't pollute analytics. No env vars to set — project ID is hardcoded.
+
+**Clarity never records `/admin`.** Admin pages render customer names, emails, phones and payments as plain text, which Clarity's default masking does not hide. `ClarityAnalytics` doesn't load the script on `/admin/*` (`isClarityExcludedPath()` in [`src/lib/clarity-scope.ts`](src/lib/clarity-scope.ts)), calls `clarity("stop")` if a session that began on a public page navigates into the admin, and `clarity("start")` on the way out. As a backstop the admin `<section>` carries `data-clarity-mask="true"`. Don't move the script back into the root layout.
 
 **Verifying it works:** the dashboard's "Almost there — install the tracking code" panel is **sticky** and can keep showing even while data is flowing. To confirm the snippet is alive, open the deployed site → DevTools → Console: `window.clarity` should return a function (not undefined). Then in Network filter `clarity` and reload: you should see `wrxgldd8t5` script (200), `clarity.js` script (200), and a stream of `collect` XHRs returning **`204 No Content`** — that 204 is Clarity's "data accepted" response. If all four are present, the integration is healthy and the dashboard will catch up on its own; don't bother changing code.
 
@@ -514,7 +516,7 @@ each touch only the rows the route actually intends to change:
 
 | Helper | Used by | What it writes |
 |---|---|---|
-| `insertBookingWithCascade(booking, overrideTargets, overrideReason)` | `POST /api/calendar/bookings` | Insert `Booking` + `BookingSlot[]` + `BookingAmountBreakdown[]` + `BookingOverride[]`; cascades each target's listed `slotKeys` to `slotStatus="cancelled_override"` (+ `rejectReason=overrideReason`) — slot-level, NOT booking-level. The overridden booking's top-level `status` is untouched. |
+| `insertBookingWithCascade(booking, overrideTargets, overrideReason)` | `POST /api/calendar/bookings` | Insert `Booking` + `BookingSlot[]` + `BookingAmountBreakdown[]` + `BookingOverride[]`; cascades each target's listed `slotKeys` to `slotStatus="cancelled_override"` (+ `rejectReason=overrideReason`) — slot-level, NOT booking-level. The overridden booking's top-level `status` is untouched. **The public POST always passes `[]`** — see "Public submit never cascades" below. |
 | `updateBookingStatus(bookingId, status, rejectReason, overrideTargets?, overrideReason?)` | `PATCH /api/admin/calendar/bookings` (booking-level path) | Update one booking's `status` (+ `rejectReason` when rejected); wipes per-slot overrides on bulk status change; when status=confirmed, cascades each `overrideTarget.slotKeys` to `slotStatus="cancelled_override"` (slot-level). Stamps `confirmedAt` set-once on first confirmation. |
 | `updateBookingSlotStatus(bookingId, slotDate, slotStartTime, slotStatus)` | `PATCH /api/admin/calendar/bookings` (legacy single-slot path) | Update one slot's status. |
 | `updateBookingSlotsBatch(bookingId, updates)` | `PATCH /api/admin/calendar/bookings` (batch path) | Apply many per-slot status updates to a single booking. |
@@ -526,6 +528,16 @@ before calling `insertBookingWithCascade` / `updateBookingStatus(confirmed, …)
 That check is not yet inside the transaction, so two simultaneous bookings on
 the same slot could still both pass and both insert. The cascade step is
 race-free; the conflict-check race is a separate (smaller) follow-up.
+
+**Public submit never cascades.** An anonymous `POST /api/calendar/bookings` that
+outranks existing bookings is stored as `pending` *alongside* them — lower-priority
+overlaps are not conflicts, but they are not cancelled either. The cascade (and the
+overridden customers' emails) runs only when an admin confirms the booking in
+`PATCH /api/admin/calendar/bookings`. Before October 2026 the public POST cascaded
+at submit time, so one anonymous request could cancel other customers' *confirmed*
+slots, and rejecting it never restored them (audit finding F1).
+[`scripts/restore-overridden-slots.mjs`](scripts/restore-overridden-slots.mjs)
+repairs slots orphaned that way (dry run by default; `--apply` to write).
 
 **Override cascade is slot-level, not booking-level.** `evaluateBookingConflicts`
 returns `OverrideTarget[] = { bookingId, slotKeys: { date, startTime }[] }[]` —
@@ -549,6 +561,7 @@ kill non-conflicting slots (the bug that motivated the fix; see the
 
 - Admin roles: `admin | super_admin`
 - Use `requireAdmin()` from `src/lib/auth-guards.ts` in all admin API routes
+- **Admin server components that read data** (the layout and the hub page) use `requireAdminPage()` from the same file, not `getServerSession()` alone — it runs the same Postgres role/active re-check and redirects to `/admin/login`. Call it in the *page* too, not just the layout: Next.js keeps layouts mounted across client-side navigation, so a layout-only check doesn't re-run. `/admin/login` auto-forwards only when `getActivePageAdmin()` returns an active admin (using the raw session there would loop a deactivated admin).
 - Super-admin-only features guarded by `requireSuperAdmin()`
 - **Role + active are re-read from Postgres on every admin request** by both guards (one
   PK lookup per call). The JWT-stamped values are not trusted, so deactivation and role
@@ -598,7 +611,7 @@ A higher-priority booking cancels overlapping slots of lower-priority ones — *
 - **Single wording source**: [src/lib/booking-priority.ts](src/lib/booking-priority.ts) — `higherPriorityEventNames()`, `buildPriorityNotice()` (title "Please note: Booking priority applies" + two paragraphs; names joined "A, B, or C"), `PRIORITY_SUMMARY_LINE`. Tests in `booking-priority.test.ts`. Event names are inserted exactly as configured in admin.
 - **Bookings page**: gold-bordered `.ac-bookings-priority-notice` under the event-type pills, plus a one-line `.ac-bookings-receipt-priority` reminder above SUBMIT. No extra checkbox.
 - **Emails**: `findPriorityNotice(roomTypeId, eventType)` in [calendar-store.ts](src/lib/calendar-store.ts) (one small `eventType.findMany`) feeds `priorityNotice` into `sendBookingAcknowledgement` and `sendBookingStatusNotification` (confirmed / tentative / partial_update — **not** rejected). Rendered by `priorityNoticeBlock()` in `email.ts`, text passed through `esc()`.
-- The "We'll email you if this happens" promise is backed by `sendBookingSlotOverriddenNotification`, sent (awaited) from both the public POST cascade and the admin confirm cascade.
+- The "We'll email you if this happens" promise is backed by `sendBookingSlotOverriddenNotification`, sent (awaited) from the admin confirm cascade. The public POST no longer cascades (see "Public submit never cascades").
 
 ## EventType: Duration (minutes)
 
@@ -787,7 +800,7 @@ Uses the **Resend** SDK (v6 — note: returns `{ data, error }` instead of throw
 | `sendBookingStatusNotification` | Called in `PATCH /api/admin/calendar/bookings` on booking-level status change to `confirmed`, `tentative`, or `rejected`. Includes the booking-priority notice on confirmed / tentative / partial-update (never on rejected) |
 | `sendAdminNewBookingNotification` | Called alongside acknowledgement on new booking; skipped if `ADMIN_NOTIFICATION_EMAIL` unset |
 | `sendAdminRejectionNotification` | Called when any booking is set to `rejected` (booking-level or per-slot via Save); skipped if `ADMIN_NOTIFICATION_EMAIL` unset; includes reject reason |
-| `sendBookingSlotOverriddenNotification` | Called per overridden booking after a higher-priority cascade fires — from both `POST /api/calendar/bookings` and admin `PATCH` (confirm). Names the displacing booking + lists cancelled vs surviving slots. Skipped silently when the overridden customer's email is empty. |
+| `sendBookingSlotOverriddenNotification` | Called per overridden booking after a higher-priority cascade fires — from admin `PATCH` (confirm) only. Names the displacing booking + lists cancelled vs surviving slots. Skipped silently when the overridden customer's email is empty. |
 | `sendAdminSlotOverriddenNotification` | Called once per cascade event listing every overridden booking; skipped if `ADMIN_NOTIFICATION_EMAIL` unset or no overrides occurred |
 | `sendBookingUnpaidReminder` | Called per due booking from `POST /api/cron/unpaid-reminders`. Caller relies on the boolean return: `lastReminderDays` is only stamped on success so failed sends retry on the next cron run |
 | `sendAdminUnpaidDigest` | Called once per cron run that produced any reminders; skipped if `ADMIN_NOTIFICATION_EMAIL` unset or `bookings` array empty |
@@ -841,7 +854,7 @@ latent XSS sink if `htmlBody` is ever rendered in an admin UI.
 The public booking form is gated by **Cloudflare Turnstile** to prevent scripted abuse (the endpoint is anonymous and triggers two transactional emails per submit). Turnstile is a free, invisible CAPTCHA alternative — the user usually sees nothing.
 
 **Files:**
-- `src/lib/turnstile.ts` — server-side `verifyTurnstileToken()`. **Fail-open** if `TURNSTILE_SECRET_KEY` is unset (deploys keep working before keys are configured in Amplify).
+- `src/lib/turnstile.ts` — server-side `verifyTurnstileToken()`. If `TURNSTILE_SECRET_KEY` is unset it **fails open in dev but closed in production** (every booking/contact submit returns 400 and logs `[turnstile] … not configured`), so a dropped Amplify env bake can't silently remove bot protection. In production it also checks the `hostname` Cloudflare reports against `NEXTAUTH_URL`'s host, its `www`/apex twin, and any extra comma-separated names in the optional `TURNSTILE_ALLOWED_HOSTNAMES` (baked via `_AMPLIFY_TURNSTILE_ALLOWED_HOSTNAMES`). If the public site is ever served on another domain, add it there or bookings will fail.
 - `src/components/calendar/turnstile-widget.tsx` — client widget; loads the CF script on demand, exposes a `resetKey` prop to force token rotation between submits (CF tokens are single-use).
 - `src/components/calendar/booking-calendar-flow.tsx` — renders widget in the receipt aside, gates Submit button, sends `turnstileToken` in the POST body, resets after every submit attempt (success or failure).
 - `src/app/api/calendar/bookings/route.ts` — verifies the token **first**, before any DB read.
@@ -900,6 +913,10 @@ The Amplify `CRON_SECRET` is wired with the `_AMPLIFY_*` pattern in [`next.confi
 | `customer.purpose` | 1000 chars | — |
 
 These caps are independent of Turnstile — both run on every request. A bot that somehow bypasses Turnstile still can't dump a 10 MB customer name.
+
+**Slots are rebuilt on the server** by `normalizePublicSlots()` in [`src/lib/public-booking-rules.ts`](src/lib/public-booking-rules.ts): only `date` + `startTime` are read from the client. `endTime` is always `startTime + eventType.durationMinutes` (a client-sent end time used to be trusted, so a "1 Hour" slot could span the whole day at the one-hour price), and any client-sent `slotStatus` / `rejectReason` is dropped (they used to be written straight to the DB, so a request could self-confirm its slots). Also enforced: no slot dated before today in Colombo, at most `MAX_SELECTED_SLOTS = 50` base slots and `MAX_EXPANDED_SLOTS = 400` after recurrence.
+
+**Public responses never carry admin text.** The 409 conflict body maps reasons through `toPublicConflictReason()` ("Unavailable — closed by the venue." / "Already booked.") instead of echoing block notes and booking UUIDs, and `GET /api/calendar/week-snapshot` omits `slot.rejectReason` and sends every block's `reason` as `"Unavailable"`.
 
 ## SlotAvailability
 
@@ -1138,7 +1155,7 @@ This is display-only — payments are still recorded at booking level, not per-s
 
 `GET /api/admin/calendar/reports?from=YYYY-MM-DD&to=YYYY-MM-DD` — returns all booking slots in the date range with per-slot financial allocation. The route delegates allocation to the shared [`computeSlotAllocations()`](src/lib/admin/booking-utils.ts) helper documented below, so the CSV columns always agree with what the admin sees in the bookings detail pane.
 
-Report page at `/admin/calendar/reports` (visible to all admins, not super-admin-only). Columns: Date, Time, Room, Event Type, Ref, Customer, Purpose, Status, Pay Status, Amount (LKR), Paid (LKR), Waiver (LKR), Credit Note (LKR), Balance (LKR), Reject Reason. Summary row shows totals. CSV export available.
+Report page at `/admin/calendar/reports` (visible to all admins, not super-admin-only). Columns: Date, Time, Room, Event Type, Ref, Customer, Purpose, Status, Pay Status, Amount (LKR), Paid (LKR), Waiver (LKR), Credit Note (LKR), Balance (LKR), Reject Reason. Summary row shows totals. CSV export available — every admin CSV export goes through `csvRow()` / `csvCell()` in [`src/lib/csv.ts`](src/lib/csv.ts), which prefixes text cells starting with `= + - @ tab CR` with `'` so customer-typed names can't run as Excel formulas. Use it for any new export.
 
 ## Per-slot Payment Allocation
 

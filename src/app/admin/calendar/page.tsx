@@ -1,5 +1,3 @@
-import { redirect } from "next/navigation";
-import { getServerSession } from "next-auth";
 import { Prisma } from "@prisma/client";
 import {
   AdminHub,
@@ -7,7 +5,7 @@ import {
   type HubActivity,
   type HubKpis,
 } from "@/components/admin/hub/admin-hub";
-import { authOptions } from "@/lib/auth";
+import { requireAdminPage } from "@/lib/auth-guards";
 import { buildRevenueModel } from "@/lib/admin/revenue-model";
 import { buildConflictPairs } from "@/lib/admin/conflict-detector";
 import { prisma } from "@/lib/prisma";
@@ -22,12 +20,12 @@ import type {
 export const dynamic = "force-dynamic";
 
 export default async function AdminCalendarHubPage() {
-  const session = await getServerSession(authOptions);
-  if (!session?.user?.id) {
-    redirect("/admin/login?next=/admin/calendar");
-  }
-  const email = session.user.email ?? "—";
-  const isSuperAdmin = session.user.role === "super_admin";
+  // Checked here as well as in the layout: Next.js keeps layouts mounted across
+  // client-side navigation, so the layout's check alone doesn't re-run when an
+  // admin navigates back to the hub.
+  const admin = await requireAdminPage();
+  const email = admin.email ?? "—";
+  const isSuperAdmin = admin.role === "super_admin";
 
   // ─── Date boundaries ───────────────────────────────────────────────────
   const now = new Date();

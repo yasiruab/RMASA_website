@@ -19,7 +19,9 @@ jobs:
             echo "Missing SITE_URL or CRON_SECRET secret in repo settings."
             exit 1
           fi
-          curl -fsS -X POST "$SITE_URL/api/cron/unpaid-reminders" \
+          # -o /dev/null: the response lists overdue booking references, and Actions
+          # logs on this public repo are world-readable. Print the status code only.
+          curl -fsS -o /dev/null -w "HTTP %{http_code}\n" -X POST "$SITE_URL/api/cron/unpaid-reminders" \
             -H "Authorization: Bearer $CRON_SECRET" \
             -H "Content-Type: application/json" \
             --max-time 120
