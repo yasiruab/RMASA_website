@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { AdminBreadcrumbs } from "@/components/admin/admin-breadcrumbs";
+import { csvRow } from "@/lib/csv";
 
 type SlotRow = {
   slotDate: string;
@@ -71,20 +72,16 @@ function exportCsv(rows: SlotRow[]) {
     "Status", "Pay Status", "Amount (LKR)", "Paid (LKR)", "Waiver (LKR)", "Credit Note (LKR)", "Balance (LKR)",
     "Reject Reason",
   ];
-  const escape = (v: string | number) => {
-    const s = String(v ?? "");
-    return s.includes(",") || s.includes('"') || s.includes("\n") ? `"${s.replace(/"/g, '""')}"` : s;
-  };
   const lines = [
-    headers.join(","),
+    csvRow(headers),
     ...rows.map((r) =>
-      [
+      csvRow([
         r.slotDate, `${r.startTime}–${r.endTime}`, r.roomName, r.eventTypeName,
         r.bookingReference, r.customerName, r.customerEmail, r.customerPhone, r.customerPurpose,
         statusLabel(r.slotEffectiveStatus), payStatusLabel(r.slotPaymentStatus),
         r.slotAmountLkr, r.slotPaidLkr, r.slotWaiverLkr, r.slotCreditNoteLkr, r.slotBalanceLkr,
         r.rejectReason ?? "",
-      ].map(escape).join(",")
+      ]),
     ),
   ];
   const blob = new Blob([lines.join("\n")], { type: "text/csv;charset=utf-8;" });

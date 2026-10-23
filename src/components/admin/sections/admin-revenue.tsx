@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { AdminLogoutButton } from "@/components/admin/admin-logout-button";
 import { useAdminSession } from "@/components/admin/admin-session-context";
 import { safeJson } from "@/lib/admin/api";
+import { csvRow } from "@/lib/csv";
 import {
   buildRevenueInsightsModel,
   type RevenueGranularity,
@@ -247,7 +248,7 @@ export function AdminRevenue() {
       "Net Revenue (LKR)",
       "Collection Rate (%)",
     ];
-    const lines = [cols.join(",")];
+    const lines = [csvRow(cols)];
     for (const bucket of model.buckets) {
       const row = [
         bucket.label,
@@ -259,7 +260,7 @@ export function AdminRevenue() {
         Math.round(bucket.netRevenueLkr),
         Math.round(bucket.collectionRatePct * 100),
       ];
-      lines.push(row.join(","));
+      lines.push(csvRow(row));
     }
     const blob = new Blob([lines.join("\n")], { type: "text/csv" });
     const url = URL.createObjectURL(blob);

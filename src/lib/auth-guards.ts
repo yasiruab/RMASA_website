@@ -1,4 +1,5 @@
 import { getServerSession } from "next-auth";
+import { redirect } from "next/navigation";
 import { NextResponse } from "next/server";
 import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
@@ -23,6 +24,29 @@ async function loadActiveAdmin(userId: string) {
     where: { id: userId },
     select: { role: true, active: true, email: true },
   });
+}
+
+// Server-component counterpart to requireAdmin(): the session plus the same
+// Postgres role/active re-check. Admin pages that render data server-side
+// (the hub) must use this rather than getServerSession() alone, which trusts
+// the JWT for up to 4 hours after an admin is deactivated or demoted.
+// Returns null when there is no session or the account is inactive.
+export async function getActivePageAdmin(): Promise<AdminActor | null> {
+  const session = await getServerSession(authOptions);
+  if (!session?.user?.id) return null;
+
+  const dbUser = await loadActiveAdmin(session.user.id);
+  if (!dbUser || !dbUser.active) return null;
+
+  return { userId: session.user.id, email: dbUser.email ?? session.user.email, role: dbUser.role };
+}
+
+export async function requireAdminPage(): Promise<AdminActor> {
+  const admin = await getActivePageAdmin();
+  if (!admin) {
+    redirect("/admin/login?next=/admin/calendar");
+  }
+  return admin;
 }
 
 export async function requireAdmin() {

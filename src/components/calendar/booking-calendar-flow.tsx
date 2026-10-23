@@ -1123,7 +1123,6 @@ export function BookingCalendarFlow() {
     let data: {
       message?: string;
       conflicts?: Array<{ slot: { date: string; startTime: string; endTime: string }; reason: string }>;
-      overriddenBookingIds?: string[];
     } = {};
     try {
       data = (await res.json()) as typeof data;
@@ -1150,12 +1149,7 @@ export function BookingCalendarFlow() {
       return;
     }
 
-    const overrideNote =
-      data.overriddenBookingIds && data.overriddenBookingIds.length > 0
-        ? ` Lower-priority overlaps cancelled: ${data.overriddenBookingIds.length}.`
-        : "";
-
-    setStatusMessage(`${data.message ?? "Booking submitted."}${overrideNote}`);
+    setStatusMessage(data.message ?? "Booking submitted.");
     resetForm();
     setIsSubmitting(false);
     setAvailabilityRefreshKey((k) => k + 1);

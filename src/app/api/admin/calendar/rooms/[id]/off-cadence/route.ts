@@ -3,15 +3,11 @@ import { requireAdmin } from "@/lib/auth-guards";
 import { isBookingCadence, isOnCadence } from "@/lib/booking-cadence";
 import { toMinutes } from "@/lib/calendar-core";
 import { prisma } from "@/lib/prisma";
+import { todayInColombo } from "@/lib/public-booking-rules";
 
 export const dynamic = "force-dynamic";
 
 const INACTIVE_STATUSES = new Set(["rejected", "cancelled_override"]);
-
-function todayInColombo() {
-  // en-CA formats as YYYY-MM-DD, matching BookingSlot.date.
-  return new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Colombo" }).format(new Date());
-}
 
 // Counts active future slots in a room that do NOT start on the grid given by
 // `startTime` + k × `cadence`. The Rooms editor calls this while the admin edits

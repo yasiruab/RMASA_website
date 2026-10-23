@@ -1,0 +1,18 @@
+# Weekly dependency update PRs. Security advisories (like the sharp/librsvg one
+# found in the October 2026 audit) also open PRs as soon as they are published,
+# independent of this schedule, once Dependabot security updates are enabled
+# in the repo settings.
+version: 2
+updates:
+  - package-ecosystem: npm
+    directory: /
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 5
+    groups:
+      minor-and-patch:
+        update-types: [minor, patch]
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly

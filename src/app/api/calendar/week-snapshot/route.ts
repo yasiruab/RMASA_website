@@ -5,6 +5,8 @@ import type { Booking, BookingSlot, CalendarBlock } from "@/lib/calendar-types";
 
 export const dynamic = "force-dynamic";
 
+const PUBLIC_BLOCK_REASON = "Unavailable";
+
 // Returns the raw conflict data (active bookings + blocks) for the requested
 // date window, across ALL rooms. The client derives per-(room, event) slot
 // availability from this snapshot by calling getSlotAvailabilities() locally —
@@ -96,7 +98,7 @@ export async function GET(req: Request) {
       startTime: row.startTime,
       endTime: row.endTime,
       slotStatus: row.slotStatus ?? undefined,
-      rejectReason: row.rejectReason ?? undefined,
+      // rejectReason is admin free text addressed to one customer — never public.
     });
   }
 
@@ -107,7 +109,9 @@ export async function GET(req: Request) {
     date: block.date,
     startTime: block.startTime,
     endTime: block.endTime,
-    reason: block.reason,
+    // Block reasons are internal admin notes; the public calendar only needs
+    // to know the time is closed.
+    reason: PUBLIC_BLOCK_REASON,
     createdAt: block.createdAt.toISOString(),
   }));
 

