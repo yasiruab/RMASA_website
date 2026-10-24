@@ -17,6 +17,7 @@ import {
   updateBookingStatus,
 } from "@/lib/calendar-store";
 import { buildConflictPairs } from "@/lib/admin/conflict-detector";
+import { classifySlotActivation, type SlotStatusUpdate } from "@/lib/admin/slot-activation";
 import { prisma } from "@/lib/prisma";
 import {
   AcMode,
@@ -414,6 +415,237 @@ function deriveEffectiveStatus(slots: BookingSlot[], baseStatus: BookingStatus):
   return unique.length === 1 ? unique[0] : null;
 }
 
+// The PATCH handler's working set: the target booking's own room / event type
+// plus whatever conflict scans load, accumulated so the email code can look
+// rows up without extra queries.
+type PatchContext = {
+  rooms: RoomType[];
+  eventTypes: Array<{ id: string; name: string; durationMinutes: number; cleanupDurationMinutes: number; maxAdvanceBookingDays: number; priority: number; roomTypeId?: string }>;
+  bookings: Booking[];
+};
+
+// Scoped conflict scan for `existing` occupying `slots` as confirmed: loads
+// only same-room active slots on those dates, blocks, and the priorities of
+// the event types involved, then runs evaluateBookingConflicts. Also caches the
+// loaded bookings / event types into `current` so the override-cascade emails
+// can find them without another round trip. Shared by the booking-level
+// confirm path and the per-slot save paths.
+async function evaluateSlotConflicts(existing: Booking, slots: BookingSlot[], current: PatchContext) {
+  const candidate: Booking = { ...existing, status: "confirmed", slots };
+  // Scoped conflict scan: only slots in the candidate's date set, same
+  // room, with active status. evaluateBookingConflicts inspects
+  // db.bookings + db.blocks + db.eventTypes (for the priority compare).
+  const candidateDates = Array.from(new Set(candidate.slots.map((s) => s.date)));
+  const [conflictSlotRows, conflictBlockRows] = await prisma.$transaction([
+    prisma.bookingSlot.findMany({
+      where: {
+        date: { in: candidateDates },
+        booking: {
+          roomTypeId: existing.roomTypeId,
+          status: { in: ["pending", "confirmed", "tentative"] },
+          id: { not: existing.id },
+        },
+      },
+      include: {
+        booking: {
+          select: {
+            id: true,
+            reference: true,
+            roomTypeId: true,
+            eventTypeId: true,
+            status: true,
+            cleanupDurationMinutes: true,
+            customerName: true,
+            customerEmail: true,
+            customerPhone: true,
+            customerPurpose: true,
+            totalAmountLkr: true,
+            paidAmountLkr: true,
+            reconciliationStatus: true,
+            reconciliationNotes: true,
+            rejectReason: true,
+            confirmedAt: true,
+            lastReminderDays: true,
+            createdAt: true,
+            updatedAt: true,
+            acMode: true,
+          },
+        },
+      },
+    }),
+    prisma.calendarBlock.findMany({
+      where: { roomTypeId: existing.roomTypeId, date: { in: candidateDates } },
+    }),
+  ]);
+
+  // Reassemble bookings from the slot rows (each may contribute multiple
+  // slots; same booking shows up once per active slot in the window).
+  const conflictBookingsById = new Map<string, Booking>();
+  for (const row of conflictSlotRows) {
+    const b = row.booking;
+    let entry = conflictBookingsById.get(b.id);
+    if (!entry) {
+      entry = {
+        id: b.id,
+        reference: b.reference,
+        roomTypeId: b.roomTypeId,
+        eventTypeId: b.eventTypeId,
+        acMode: b.acMode as AcMode,
+        status: b.status,
+        cleanupDurationMinutes: b.cleanupDurationMinutes,
+        slots: [],
+        customer: {
+          name: b.customerName,
+          email: b.customerEmail,
+          phone: b.customerPhone,
+          purpose: b.customerPurpose,
+        },
+        totalAmountLkr: b.totalAmountLkr,
+        paidAmountLkr: b.paidAmountLkr,
+        amountBreakdown: [],
+        reconciliationStatus: b.reconciliationStatus as ReconciliationStatus,
+        reconciliationNotes: b.reconciliationNotes,
+        rejectReason: b.rejectReason ?? undefined,
+        confirmedAt: b.confirmedAt ? b.confirmedAt.toISOString() : undefined,
+        lastReminderDays: b.lastReminderDays ?? undefined,
+        paymentEntries: [],
+        createdAt: b.createdAt.toISOString(),
+        updatedAt: b.updatedAt.toISOString(),
+        overriddenBookingIds: [],
+      };
+      conflictBookingsById.set(b.id, entry);
+    }
+    entry.slots.push({
+      date: row.date,
+      startTime: row.startTime,
+      endTime: row.endTime,
+      slotStatus: (row.slotStatus ?? undefined) as BookingStatus | undefined,
+      rejectReason: row.rejectReason ?? undefined,
+    });
+  }
+
+  // Priorities for the bookings we loaded — needed by the priority compare.
+  const referencedEventTypeIds = Array.from(
+    new Set(Array.from(conflictBookingsById.values()).map((b) => b.eventTypeId)),
+  );
+  const conflictEventTypeRows = referencedEventTypeIds.length
+    ? await prisma.eventType.findMany({
+        where: { id: { in: referencedEventTypeIds } },
+        select: {
+          id: true,
+          name: true,
+          durationMinutes: true,
+          cleanupDurationMinutes: true,
+          maxAdvanceBookingDays: true,
+          priority: true,
+          roomTypeId: true,
+        },
+      })
+    : [];
+
+  const conflictDb = {
+    rooms: current.rooms,
+    eventTypes: [
+      ...current.eventTypes,
+      ...conflictEventTypeRows
+        .filter((et) => !current.eventTypes.some((own) => own.id === et.id))
+        .map((et) => ({
+          id: et.id,
+          name: et.name,
+          durationMinutes: et.durationMinutes,
+          cleanupDurationMinutes: et.cleanupDurationMinutes,
+          maxAdvanceBookingDays: et.maxAdvanceBookingDays,
+          priority: et.priority,
+          roomTypeId: et.roomTypeId ?? undefined,
+        })),
+    ],
+    pricingRules: [],
+    bookings: Array.from(conflictBookingsById.values()),
+    blocks: conflictBlockRows.map((block) => ({
+      id: block.id,
+      roomTypeId: block.roomTypeId,
+      date: block.date,
+      startTime: block.startTime,
+      endTime: block.endTime,
+      reason: block.reason,
+      createdAt: block.createdAt.toISOString(),
+    })),
+  } as unknown as Parameters<typeof evaluateBookingConflicts>[0];
+
+  // Cache the overridden bookings + their event-type names into `current`
+  // so the override-cascade email block below finds them via the existing
+  // `.find()` patterns without another DB round-trip.
+  for (const b of conflictBookingsById.values()) {
+    if (!current.bookings.some((existing) => existing.id === b.id)) {
+      current.bookings.push(b);
+    }
+  }
+  for (const et of conflictEventTypeRows) {
+    if (!current.eventTypes.some((own) => own.id === et.id)) {
+      current.eventTypes.push({
+        id: et.id,
+        name: et.name,
+        durationMinutes: et.durationMinutes,
+        cleanupDurationMinutes: et.cleanupDurationMinutes,
+        maxAdvanceBookingDays: et.maxAdvanceBookingDays,
+        priority: et.priority,
+        roomTypeId: et.roomTypeId ?? undefined,
+      });
+    }
+  }
+
+  return evaluateBookingConflicts(conflictDb, candidate, existing.id);
+}
+
+// Refuses a per-slot save that would double-book, using the same rules as the
+// booking-level confirm. Returns a 409 response, or null when the save is safe.
+// Confirming a slot over a lower-priority booking is refused too: the override
+// cascade (and its customer emails) only runs on the booking-level confirm.
+async function refuseConflictingSlotSave(
+  existing: Booking,
+  updates: SlotStatusUpdate[],
+  current: PatchContext,
+): Promise<NextResponse | null> {
+  const { confirming, reactivating } = classifySlotActivation(updates, existing.slots, existing.status);
+
+  if (confirming.length > 0) {
+    const { conflicts, overrideTargets } = await evaluateSlotConflicts(existing, confirming, current);
+    if (conflicts.length > 0) {
+      return NextResponse.json(
+        {
+          message: "Cannot confirm these slots: they conflict with existing equal/higher-priority bookings or blocks.",
+          conflicts,
+        },
+        { status: 409 },
+      );
+    }
+    if (overrideTargets.length > 0) {
+      return NextResponse.json(
+        {
+          message:
+            "These slots overlap lower-priority bookings. Use Confirm All on this booking to override them, or reject the overlapping bookings first.",
+        },
+        { status: 409 },
+      );
+    }
+  }
+
+  if (reactivating.length > 0) {
+    const { conflicts } = await evaluateSlotConflicts(existing, reactivating, current);
+    if (conflicts.length > 0) {
+      return NextResponse.json(
+        {
+          message: "Cannot restore these slots: the time is now taken by another booking or a block.",
+          conflicts,
+        },
+        { status: 409 },
+      );
+    }
+  }
+
+  return null;
+}
+
 export async function PATCH(req: Request) {
   const auth = await requireAdmin();
   if ("response" in auth) return auth.response;
@@ -450,11 +682,7 @@ export async function PATCH(req: Request) {
     prisma.eventType.findUnique({ where: { id: existing.eventTypeId } }),
   ]);
 
-  const current: {
-    rooms: RoomType[];
-    eventTypes: Array<{ id: string; name: string; durationMinutes: number; cleanupDurationMinutes: number; maxAdvanceBookingDays: number; priority: number; roomTypeId?: string }>;
-    bookings: Booking[];
-  } = {
+  const current: PatchContext = {
     rooms: ownRoomRow
       ? [toRoomType(ownRoomRow)]
       : [],
@@ -482,14 +710,18 @@ export async function PATCH(req: Request) {
       }
     }
 
+    const refusal = await refuseConflictingSlotSave(existing, payload.batchSlotUpdates, current);
+    if (refusal) return refusal;
+
     const preBatchSlots = existing.slots.map((s) => ({ ...s }));
 
     try {
       await updateBookingSlotsBatch(bookingId, payload.batchSlotUpdates);
     } catch (err) {
+      // Full error goes to the server log only; raw Prisma messages describe
+      // schema internals and don't help the admin.
       console.error("[batch-save] updateBookingSlotsBatch failed:", err);
-      const msg = err instanceof Error ? err.message : "Database error.";
-      return NextResponse.json({ message: `Save failed: ${msg}` }, { status: 500 });
+      return NextResponse.json({ message: "Save failed. Please try again." }, { status: 500 });
     }
 
     await logAuditEvent({
@@ -592,6 +824,13 @@ export async function PATCH(req: Request) {
 
   // ─── Legacy single-slot path ───────────────────────────────────────────
   if (payload.slotDate && payload.slotStartTime && "slotStatus" in payload) {
+    const refusal = await refuseConflictingSlotSave(
+      existing,
+      [{ slotDate: payload.slotDate, slotStartTime: payload.slotStartTime, slotStatus: payload.slotStatus ?? null }],
+      current,
+    );
+    if (refusal) return refusal;
+
     await updateBookingSlotStatus(
       bookingId,
       payload.slotDate,
@@ -623,173 +862,7 @@ export async function PATCH(req: Request) {
   let overrideReason = "";
 
   if (nextStatus === "confirmed") {
-    const candidate: Booking = {
-      ...existing,
-      status: "confirmed",
-    };
-    // Scoped conflict scan: only slots in the candidate's date set, same
-    // room, with active status. evaluateBookingConflicts inspects
-    // db.bookings + db.blocks + db.eventTypes (for the priority compare).
-    const candidateDates = Array.from(new Set(existing.slots.map((s) => s.date)));
-    const [conflictSlotRows, conflictBlockRows] = await prisma.$transaction([
-      prisma.bookingSlot.findMany({
-        where: {
-          date: { in: candidateDates },
-          booking: {
-            roomTypeId: existing.roomTypeId,
-            status: { in: ["pending", "confirmed", "tentative"] },
-            id: { not: bookingId },
-          },
-        },
-        include: {
-          booking: {
-            select: {
-              id: true,
-              reference: true,
-              roomTypeId: true,
-              eventTypeId: true,
-              status: true,
-              cleanupDurationMinutes: true,
-              customerName: true,
-              customerEmail: true,
-              customerPhone: true,
-              customerPurpose: true,
-              totalAmountLkr: true,
-              paidAmountLkr: true,
-              reconciliationStatus: true,
-              reconciliationNotes: true,
-              rejectReason: true,
-              confirmedAt: true,
-              lastReminderDays: true,
-              createdAt: true,
-              updatedAt: true,
-              acMode: true,
-            },
-          },
-        },
-      }),
-      prisma.calendarBlock.findMany({
-        where: { roomTypeId: existing.roomTypeId, date: { in: candidateDates } },
-      }),
-    ]);
-
-    // Reassemble bookings from the slot rows (each may contribute multiple
-    // slots; same booking shows up once per active slot in the window).
-    const conflictBookingsById = new Map<string, Booking>();
-    for (const row of conflictSlotRows) {
-      const b = row.booking;
-      let entry = conflictBookingsById.get(b.id);
-      if (!entry) {
-        entry = {
-          id: b.id,
-          reference: b.reference,
-          roomTypeId: b.roomTypeId,
-          eventTypeId: b.eventTypeId,
-          acMode: b.acMode as AcMode,
-          status: b.status,
-          cleanupDurationMinutes: b.cleanupDurationMinutes,
-          slots: [],
-          customer: {
-            name: b.customerName,
-            email: b.customerEmail,
-            phone: b.customerPhone,
-            purpose: b.customerPurpose,
-          },
-          totalAmountLkr: b.totalAmountLkr,
-          paidAmountLkr: b.paidAmountLkr,
-          amountBreakdown: [],
-          reconciliationStatus: b.reconciliationStatus as ReconciliationStatus,
-          reconciliationNotes: b.reconciliationNotes,
-          rejectReason: b.rejectReason ?? undefined,
-          confirmedAt: b.confirmedAt ? b.confirmedAt.toISOString() : undefined,
-          lastReminderDays: b.lastReminderDays ?? undefined,
-          paymentEntries: [],
-          createdAt: b.createdAt.toISOString(),
-          updatedAt: b.updatedAt.toISOString(),
-          overriddenBookingIds: [],
-        };
-        conflictBookingsById.set(b.id, entry);
-      }
-      entry.slots.push({
-        date: row.date,
-        startTime: row.startTime,
-        endTime: row.endTime,
-        slotStatus: (row.slotStatus ?? undefined) as BookingStatus | undefined,
-        rejectReason: row.rejectReason ?? undefined,
-      });
-    }
-
-    // Priorities for the bookings we loaded — needed by the priority compare.
-    const referencedEventTypeIds = Array.from(
-      new Set(Array.from(conflictBookingsById.values()).map((b) => b.eventTypeId)),
-    );
-    const conflictEventTypeRows = referencedEventTypeIds.length
-      ? await prisma.eventType.findMany({
-          where: { id: { in: referencedEventTypeIds } },
-          select: {
-            id: true,
-            name: true,
-            durationMinutes: true,
-            cleanupDurationMinutes: true,
-            maxAdvanceBookingDays: true,
-            priority: true,
-            roomTypeId: true,
-          },
-        })
-      : [];
-
-    const conflictDb = {
-      rooms: current.rooms,
-      eventTypes: [
-        ...current.eventTypes,
-        ...conflictEventTypeRows
-          .filter((et) => !current.eventTypes.some((own) => own.id === et.id))
-          .map((et) => ({
-            id: et.id,
-            name: et.name,
-            durationMinutes: et.durationMinutes,
-            cleanupDurationMinutes: et.cleanupDurationMinutes,
-            maxAdvanceBookingDays: et.maxAdvanceBookingDays,
-            priority: et.priority,
-            roomTypeId: et.roomTypeId ?? undefined,
-          })),
-      ],
-      pricingRules: [],
-      bookings: Array.from(conflictBookingsById.values()),
-      blocks: conflictBlockRows.map((block) => ({
-        id: block.id,
-        roomTypeId: block.roomTypeId,
-        date: block.date,
-        startTime: block.startTime,
-        endTime: block.endTime,
-        reason: block.reason,
-        createdAt: block.createdAt.toISOString(),
-      })),
-    } as unknown as Parameters<typeof evaluateBookingConflicts>[0];
-
-    // Cache the overridden bookings + their event-type names into `current`
-    // so the override-cascade email block below finds them via the existing
-    // `.find()` patterns without another DB round-trip.
-    for (const b of conflictBookingsById.values()) {
-      if (!current.bookings.some((existing) => existing.id === b.id)) {
-        current.bookings.push(b);
-      }
-    }
-    for (const et of conflictEventTypeRows) {
-      if (!current.eventTypes.some((own) => own.id === et.id)) {
-        current.eventTypes.push({
-          id: et.id,
-          name: et.name,
-          durationMinutes: et.durationMinutes,
-          cleanupDurationMinutes: et.cleanupDurationMinutes,
-          maxAdvanceBookingDays: et.maxAdvanceBookingDays,
-          priority: et.priority,
-          roomTypeId: et.roomTypeId ?? undefined,
-        });
-      }
-    }
-
-    const evaluation = evaluateBookingConflicts(conflictDb, candidate, bookingId);
+    const evaluation = await evaluateSlotConflicts(existing, existing.slots, current);
     if (evaluation.conflicts.length > 0) {
       return NextResponse.json(
         {

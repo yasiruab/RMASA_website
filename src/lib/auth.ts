@@ -1,6 +1,7 @@
 import type { NextAuthOptions } from "next-auth";
 import CognitoProvider from "next-auth/providers/cognito";
 import { logAuditEvent } from "@/lib/audit";
+import { checkCognitoSub } from "@/lib/cognito-sub";
 import { prisma } from "@/lib/prisma";
 
 const SESSION_MAX_AGE_SECONDS = 60 * 60 * 4;
@@ -67,10 +68,22 @@ export const authOptions: NextAuthOptions = {
       }
 
       const cognitoSub = (profile as { sub?: unknown } | undefined)?.sub;
-      if (typeof cognitoSub === "string" && cognitoSub && !dbUser.cognitoSub) {
+      const subCheck = checkCognitoSub(dbUser.cognitoSub, cognitoSub);
+      // A stored sub must keep matching: a recreated Cognito user with the same
+      // email is a different identity and must not inherit this admin row.
+      if (subCheck === "mismatch" || (subCheck === "missing" && dbUser.cognitoSub)) {
+        await logAuditEvent({
+          actorUserId: dbUser.id,
+          actorEmail: email,
+          action: "AUTH_LOGIN_FAILED",
+          meta: { reason: "cognito_sub_mismatch" },
+        });
+        return false;
+      }
+      if (subCheck === "backfill") {
         await prisma.user.update({
           where: { id: dbUser.id },
-          data: { cognitoSub },
+          data: { cognitoSub: cognitoSub as string },
         });
       }
 

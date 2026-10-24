@@ -38,6 +38,7 @@ import {
   RoomType,
 } from "@/lib/calendar-types";
 import { verifyTurnstileToken } from "@/lib/turnstile";
+import { isUniqueViolationOn, retryOnCollision } from "@/lib/unique-retry";
 
 type BookingPayload = {
   roomTypeId?: string;
@@ -69,6 +70,8 @@ const MAX_PURPOSE_LEN = 1000;
 // 10-digit minimum ensures we capture a usable contact number (e.g. local
 // 077XXXXXXX or international +94XXXXXXXXX); upper bound matches MAX_PHONE_LEN.
 const PHONE_PATTERN = /^\+?\d{10,15}$/;
+
+const MAX_REFERENCE_ATTEMPTS = 5;
 
 function generateBookingReference(): string {
   return "BK-" + randomBytes(3).toString("hex").toUpperCase();
@@ -445,7 +448,17 @@ export async function POST(req: Request) {
     );
   }
 
-  await insertBookingWithCascade(booking, [], "");
+  // `reference` is only 24 random bits and @unique, so a collision becomes
+  // likelier as bookings accumulate. Draw a fresh one and retry instead of
+  // returning a 500 to the customer.
+  await retryOnCollision(
+    async (attempt) => {
+      if (attempt > 1) booking.reference = generateBookingReference();
+      await insertBookingWithCascade(booking, [], "");
+    },
+    (error) => isUniqueViolationOn(error, "reference"),
+    MAX_REFERENCE_ATTEMPTS,
+  );
   const priorityNotice = await findPriorityNotice(room.id, eventType);
 
   await Promise.allSettled([

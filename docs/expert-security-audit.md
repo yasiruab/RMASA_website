@@ -38,9 +38,17 @@ All ten quick wins are done on branch `claude/rmasa-security-audit-a5c50d`, exce
 | F10 — Clarity on admin | **Fixed.** `ClarityAnalytics` skips `/admin/*`, stops and resumes on client-side navigation, and the admin section carries `data-clarity-mask`. |
 | F16 — `sharp` advisory, no Dependabot | **Fixed.** `sharp` 0.35.5 via `npm audit fix` (prod audit now 0); `.github/dependabot.yml` added. A dev-only `braces` advisory in `eslint-config-next` remains; its only fix is a breaking downgrade. |
 | F17 — cron logs on public repo | **Fixed.** The workflow prints the HTTP status only. |
+| F5 — payment-ledger lost update; no amount cap | **Fixed** (follow-up branch). `SELECT … FOR UPDATE` on the booking row inside the payment transaction; `parsePaymentAmount()` caps entries at LKR 100M. |
+| F9 — acknowledgement email relay | **Fixed** (follow-up). The contact acknowledgement no longer echoes the name, phone or message; contact/booking acknowledgements are capped at 3/10 per address per 24 h. |
+| F11 — `cognitoSub` never compared | **Fixed** (follow-up). A stored sub must match; a mismatch is refused and audit-logged. |
+| F13 / May #10 — contact webhook never fired in prod | **Fixed** (follow-up). `_AMPLIFY_CONTACT_WEBHOOK_URL` added to `next.config.ts`. |
+| F15 — per-slot approve skips conflict check; raw Prisma errors | **Fixed** (follow-up). Batch and single-slot saves run the same conflict scan as Confirm All (409 on conflict, or when confirming over a lower-priority booking); errors are generic. |
+| F18 — last-super-admin race; unvalidated `role` | **Fixed** (follow-up). `parseAccountUpdate()` validation; check plus update in one SERIALIZABLE transaction. |
+| F19 — reference collision returns 500 | **Fixed** (follow-up). Insert retried with a fresh reference on P2002, up to 5 attempts. |
+| F21 (timeout part) — contact webhook has no timeout | **Fixed** (follow-up). 5 s `AbortSignal.timeout`. HMAC signing is still open. |
 | F12 — MFA | **Open.** Enable TOTP MFA in the Cognito user pool (AWS console). |
 
-Tests: `public-booking-rules.test.ts`, `turnstile.test.ts`, `csv.test.ts`, `clarity-scope.test.ts`.
+Tests: `public-booking-rules.test.ts`, `turnstile.test.ts`, `csv.test.ts`, `clarity-scope.test.ts`; follow-up adds `payments.test.ts` cases, `acknowledgement-caps.test.ts`, `cognito-sub.test.ts`, `account-update.test.ts`, `slot-activation.test.ts`, `contact-webhook.test.ts`, `unique-retry.test.ts`.
 
 ---
 

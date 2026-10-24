@@ -64,3 +64,16 @@ export function deriveReconciliationStatus(
   if (netCash >= amountDue) return "paid";
   return "part_paid";
 }
+
+// Ceiling for a single ledger entry. Far above any real booking (a year of
+// Full Day hire is well under LKR 10M) but well below the Postgres Int limit
+// (~2.1 billion), so a typo or `1e20` returns a 400 instead of an Int-overflow 500.
+export const MAX_PAYMENT_ENTRY_LKR = 100_000_000;
+
+/** Parses an admin-entered amount: whole LKR (fractions are floored, as before),
+ *  positive, and at most MAX_PAYMENT_ENTRY_LKR. Returns null when invalid. */
+export function parsePaymentAmount(raw: unknown): number | null {
+  const amount = Math.floor(Number(raw));
+  if (!Number.isFinite(amount) || amount <= 0 || amount > MAX_PAYMENT_ENTRY_LKR) return null;
+  return amount;
+}

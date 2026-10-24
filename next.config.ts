@@ -52,6 +52,9 @@ const nextConfig: NextConfig = {
     _AMPLIFY_TURNSTILE_SECRET_KEY: process.env.TURNSTILE_SECRET_KEY ?? "",
     _AMPLIFY_TURNSTILE_ALLOWED_HOSTNAMES: process.env.TURNSTILE_ALLOWED_HOSTNAMES ?? "",
     _AMPLIFY_CRON_SECRET: process.env.CRON_SECRET ?? "",
+    // Read by src/app/api/contact/route.ts. Without this line the route's
+    // _AMPLIFY_ fallback was always undefined, so the webhook never fired in prod.
+    _AMPLIFY_CONTACT_WEBHOOK_URL: process.env.CONTACT_WEBHOOK_URL ?? "",
   },
   async headers() {
     return [

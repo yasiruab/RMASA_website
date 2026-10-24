@@ -6,6 +6,8 @@ import {
   computeAmountDue,
   computePaymentTotals,
   deriveReconciliationStatus,
+  MAX_PAYMENT_ENTRY_LKR,
+  parsePaymentAmount,
 } from "@/lib/payments";
 
 const VALID_TYPES = ["payment", "refund", "credit_note", "waiver"] as const;
@@ -26,7 +28,7 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
 
   const type = String(body.type ?? "") as EntryType;
   const date = String(body.date ?? "").trim();
-  const amountLkr = Math.floor(Number(body.amountLkr));
+  const amountLkr = parsePaymentAmount(body.amountLkr);
   const receiptNo = String(body.receiptNo ?? "").trim();
   const notes = String(body.notes ?? "").trim();
 
@@ -42,9 +44,9 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
       { status: 400 },
     );
   }
-  if (!Number.isFinite(amountLkr) || amountLkr <= 0) {
+  if (amountLkr === null) {
     return NextResponse.json(
-      { message: "amountLkr must be a positive whole number." },
+      { message: `amountLkr must be a positive whole number up to ${MAX_PAYMENT_ENTRY_LKR}.` },
       { status: 400 },
     );
   }
@@ -53,6 +55,15 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
   }
 
   const result = await prisma.$transaction(async (tx) => {
+    // Lock the booking row for the rest of the transaction. Without it, two
+    // admins posting entries at the same moment (READ COMMITTED) each read the
+    // ledger without the other's new entry, and the last write of the cached
+    // paidAmountLkr / reconciliationStatus silently drops one of them.
+    const locked = await tx.$queryRaw<Array<{ id: string }>>`
+      SELECT "id" FROM "Booking" WHERE "id" = ${bookingId} FOR UPDATE
+    `;
+    if (locked.length === 0) return null;
+
     const booking = await tx.booking.findUnique({
       where: { id: bookingId },
       include: { paymentEntries: true },
