@@ -46,6 +46,8 @@ All ten quick wins are done on branch `claude/rmasa-security-audit-a5c50d`, exce
 | F18 — last-super-admin race; unvalidated `role` | **Fixed** (follow-up). `parseAccountUpdate()` validation; check plus update in one SERIALIZABLE transaction. |
 | F19 — reference collision returns 500 | **Fixed** (follow-up). Insert retried with a fresh reference on P2002, up to 5 attempts. |
 | F21 (timeout part) — contact webhook has no timeout | **Fixed** (follow-up). 5 s `AbortSignal.timeout`. HMAC signing is still open. |
+| F14 — `script-src 'unsafe-inline'` | **Fixed for `/admin/*`** (third branch). The middleware issues a strict per-request nonce CSP with `'strict-dynamic'` and no `'unsafe-inline'`. Public pages keep `'unsafe-inline'` on purpose: they are static and CDN-cached, and a nonce would force per-request rendering. They render no customer-typed text. |
+| F21 / May #13 — `EmailLog.htmlBody` PII kept forever | **Fixed** (third branch). A daily cron redacts recipient, subject, body and error text on rows older than 18 months. Both cron routes now use a constant-time secret check. |
 | F12 — MFA | **Open.** Enable TOTP MFA in the Cognito user pool (AWS console). |
 
 Tests: `public-booking-rules.test.ts`, `turnstile.test.ts`, `csv.test.ts`, `clarity-scope.test.ts`; follow-up adds `payments.test.ts` cases, `acknowledgement-caps.test.ts`, `cognito-sub.test.ts`, `account-update.test.ts`, `slot-activation.test.ts`, `contact-webhook.test.ts`, `unique-retry.test.ts`.

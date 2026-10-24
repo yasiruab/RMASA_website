@@ -14,7 +14,7 @@ const allowed = new Set([
   "src/lib/prisma.ts",
   "src/lib/email.ts",
   "src/lib/turnstile.ts",
-  "src/app/api/cron/unpaid-reminders/route.ts",
+  "src/lib/cron-auth.ts",
   "src/app/api/contact/route.ts",
   "scripts/check-amplify-secret-leak.mjs",
 ]);

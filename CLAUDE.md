@@ -647,16 +647,25 @@ Conflict detection uses `effectiveOverlaps()` in `src/lib/calendar-core.ts`, whi
 
 ## Security Headers (Content-Security-Policy)
 
-CSP is **enforcing** (not report-only) and set in [`next.config.ts`](next.config.ts) via the
-`CSP_DIRECTIVES` constant. It is served on every response under `/:path*` alongside HSTS,
-X-Frame-Options, X-Content-Type-Options, Referrer-Policy, and Permissions-Policy.
+CSP is **enforcing** (not report-only). Both policies are built in [`src/lib/csp.ts`](src/lib/csp.ts) (tested in `csp.test.ts`):
 
-**Host allowlist** — every entry corresponds to a script or asset the app actually loads
+| Routes | Policy | Set by | `script-src` |
+|---|---|---|---|
+| Everything except `/admin` and `/admin/*` | `buildPublicCsp()` | [`next.config.ts`](next.config.ts) `headers()`, source `/((?!admin(?:/|$)).*)` | `'self' 'unsafe-inline'` + Clarity + Turnstile hosts |
+| `/admin`, `/admin/*` | `buildAdminCsp(nonce)` | [`src/middleware.ts`](src/middleware.ts), fresh nonce per request | `'self' 'nonce-…' 'strict-dynamic'` — **no `'unsafe-inline'`**, no third-party hosts |
+
+**Why two policies (audit F14).** Next's App Router writes its page data as inline `<script>` tags, so dropping `'unsafe-inline'` needs a per-request nonce. Next reads it from the *request's* `content-security-policy` header (the middleware sets both request and response headers) and stamps it on its own scripts. That only works for per-request renders. The public pages are statically prerendered and CDN-cached, and making them dynamic would cost PageSpeed and Lambda time, so they keep `'unsafe-inline'`. They render no customer- or admin-typed text. Admin pages are already dynamic and are where PII and sessions live, so they get the strict policy. The middleware skips prefetch requests (RSC payloads, not documents). Verified against a production build: all admin `<script>` tags carry the nonce, the page hydrates, and an injected `onerror=` handler is blocked (`script-src-attr`).
+
+**Don't add inline scripts to admin pages.** Anything rendered under `/admin` that needs JS must be a normal component or a `next/script` with an `src` (Next stamps the nonce). Admin pages load no Clarity or Turnstile; if that changes, add the host to `buildAdminCsp()`.
+
+HSTS, X-Frame-Options, X-Content-Type-Options, Referrer-Policy and Permissions-Policy are still served on every response under `/:path*` from `next.config.ts`.
+
+**Public-policy host allowlist** — every entry corresponds to a script or asset the app actually loads
 (verified by grep over `src/` before being added):
 
 | Directive | Hosts | Why |
 |---|---|---|
-| `script-src` | `'self' 'unsafe-inline'`, `www.clarity.ms`, `*.clarity.ms`, `challenges.cloudflare.com` | `'unsafe-inline'` is required for the Microsoft Clarity bootstrap (inline `<Script>` in `src/app/layout.tsx`); the Clarity tag script then loads from `www.clarity.ms`; Turnstile loads `challenges.cloudflare.com/turnstile/v0/api.js` |
+| `script-src` | `'self' 'unsafe-inline'`, `www.clarity.ms`, `*.clarity.ms`, `challenges.cloudflare.com` | Public policy only. `'unsafe-inline'` covers Next's inline page-data scripts on static pages and the Clarity bootstrap (`src/components/clarity-analytics.tsx`); the Clarity tag script then loads from `www.clarity.ms`; Turnstile loads `challenges.cloudflare.com/turnstile/v0/api.js` |
 | `connect-src` | `'self'`, `*.clarity.ms`, `challenges.cloudflare.com` | Clarity beacons; Turnstile token verification |
 | `img-src` | `'self'`, `data:`, `*.clarity.ms` | Local imagery + data URIs (icons) + Clarity pixel beacons |
 | `style-src` | `'self' 'unsafe-inline'`, `fonts.googleapis.com` | Google Fonts CSS; `'unsafe-inline'` for inline `style="…"` attributes Next/React produces |
@@ -879,6 +888,12 @@ Get real keys at https://dash.cloudflare.com → **Turnstile** → **Add Site**.
 
 `src/lib/turnstile.ts` is on the `_AMPLIFY_*` allowlist in [`scripts/check-amplify-secret-leak.mjs`](scripts/check-amplify-secret-leak.mjs).
 
+## EmailLog Retention
+
+`EmailLog` rows hold the full rendered email (`htmlBody`) and recipient — the largest store of customer PII. A daily GitHub Actions cron ([`.github/workflows/email-log-retention.yml`](.github/workflows/email-log-retention.yml), 01:00 UTC) POSTs to [`/api/cron/email-log-retention`](src/app/api/cron/email-log-retention/route.ts), which **redacts** rows older than **18 months** (`EMAIL_LOG_RETENTION_MONTHS` in [`src/lib/email-log-retention.ts`](src/lib/email-log-retention.ts)): `toEmail` and `subject` become `"[redacted]"`, `htmlBody` becomes `""`, `errorMessage` becomes `null`. `type`, `status`, `bookingReference`, `fromEmail` and `createdAt` stay for troubleshooting and audit. Rows are not deleted. Idempotent (already-redacted rows are skipped); each run that redacts anything writes an `EMAIL_LOG_REDACTED` audit row. Same `CRON_SECRET` / `SITE_URL` secrets as the reminders cron.
+
+**Cron auth** for both cron routes is `hasValidCronSecret()` in [`src/lib/cron-auth.ts`](src/lib/cron-auth.ts): constant-time compare of `Bearer ${CRON_SECRET}`; an unset secret authorises nothing. That file (not the routes) is on the `_AMPLIFY_*` leak-guard allowlist.
+
 ## Unpaid-Booking Reminders
 
 Confirmed bookings with `reconciliationStatus IN ("unpaid", "part_paid")` get periodic reminder emails on a fixed cadence anchored to `Booking.confirmedAt`: **24 h**, **7 d**, **30 d**, then every **+30 d** indefinitely. A daily GitHub Actions cron POSTs to [`/api/cron/unpaid-reminders`](src/app/api/cron/unpaid-reminders/route.ts) at 00:30 UTC (06:00 SL time).
@@ -902,7 +917,7 @@ Confirmed bookings with `reconciliationStatus IN ("unpaid", "part_paid")` get pe
 | `CRON_SECRET` | Amplify console + GitHub repo secrets | Bearer auth token for the cron endpoint |
 | `SITE_URL` | GitHub repo secrets only | Base URL the workflow `curl`s (e.g. `https://royalmasarena.lk`) |
 
-The Amplify `CRON_SECRET` is wired with the `_AMPLIFY_*` pattern in [`next.config.ts`](next.config.ts). The route handler reads it via `process.env.CRON_SECRET ?? process.env._AMPLIFY_CRON_SECRET`. The route file is on the leak-guard allowlist in [`scripts/check-amplify-secret-leak.mjs`](scripts/check-amplify-secret-leak.mjs).
+The Amplify `CRON_SECRET` is wired with the `_AMPLIFY_*` pattern in [`next.config.ts`](next.config.ts) and read by `hasValidCronSecret()` in [`src/lib/cron-auth.ts`](src/lib/cron-auth.ts) (`process.env.CRON_SECRET ?? process.env._AMPLIFY_CRON_SECRET`), which is on the leak-guard allowlist in [`scripts/check-amplify-secret-leak.mjs`](scripts/check-amplify-secret-leak.mjs).
 
 **Composite index** `Booking(reconciliationStatus, confirmedAt)` (migration `20260519061500_booking_reminder_tracking`) covers the scan's filter prefix so the daily query stays cheap as the booking table grows.
 

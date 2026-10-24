@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { hasValidCronSecret } from "@/lib/cron-auth";
 import { prisma } from "@/lib/prisma";
 import {
   sendAdminUnpaidDigest,
@@ -7,7 +8,6 @@ import {
 import { activeBookingTotalLkr } from "@/lib/admin/booking-utils";
 import { computeAmountDue, computePaymentTotals } from "@/lib/payments";
 
-const CRON_SECRET = process.env.CRON_SECRET ?? process.env._AMPLIFY_CRON_SECRET ?? "";
 const MS_PER_DAY = 86_400_000;
 
 function deriveMilestone(daysSinceConfirm: number): number | null {
@@ -23,12 +23,7 @@ function formatYmd(date: Date): string {
 }
 
 export async function POST(req: Request) {
-  // Bearer-secret auth: cron has no user context so we don't go through NextAuth.
-  // Using timingSafeEqual would be marginally better, but the secret is high-entropy
-  // and the route is rate-limited by being POST-only with a single daily caller.
-  const authHeader = req.headers.get("authorization") ?? "";
-  const expected = `Bearer ${CRON_SECRET}`;
-  if (!CRON_SECRET || authHeader !== expected) {
+  if (!hasValidCronSecret(req.headers.get("authorization"))) {
     return NextResponse.json({ message: "Unauthorized." }, { status: 401 });
   }
 
