@@ -6,6 +6,9 @@ import type { NextConfig } from "next";
 // or asset actually loaded by the app, verified by grep over src/):
 //   - https://www.clarity.ms          inline-bootstrap loads the Clarity tag
 //   - https://*.clarity.ms            Clarity beacon hosts (z.clarity.ms etc.)
+//   - https://c.bing.com              Clarity's cookie-sync pixel (img-src only);
+//                                     blocked before, which logged a CSP error
+//                                     on every page view
 //   - https://challenges.cloudflare.com  Turnstile widget script + iframe
 //   - https://fonts.googleapis.com    Google Fonts stylesheet
 //   - https://fonts.gstatic.com       Google Fonts font files
@@ -27,7 +30,7 @@ const CSP_DIRECTIVES = [
   "default-src 'self'",
   scriptSrc,
   "connect-src 'self' https://*.clarity.ms https://challenges.cloudflare.com",
-  "img-src 'self' data: https://*.clarity.ms",
+  "img-src 'self' data: https://*.clarity.ms https://c.bing.com",
   "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
   "font-src 'self' https://fonts.gstatic.com",
   "frame-src https://challenges.cloudflare.com https://www.google.com",
