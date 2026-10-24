@@ -1,3 +1,4 @@
+import Link from "next/link";
 import { Breadcrumbs } from "@/components/breadcrumbs";
 import { pageMetadata } from "@/lib/site-metadata";
 
@@ -38,21 +39,42 @@ const faqItems = [
 
 export default function FaqPage() {
   return (
-    <section className="page-section container content-page">
-      <Breadcrumbs current="FAQ" />
-      <h1>Frequently Asked Questions</h1>
-      <p>
-        Common questions about booking flow, confirmation, and venue usage. If your case is
-        specific, contact us directly for a faster answer.
-      </p>
-      <div className="faq-list">
-        {faqItems.map((item) => (
-          <article className="faq-item" key={item.question}>
-            <h2>{item.question}</h2>
-            <p>{item.answer}</p>
-          </article>
-        ))}
-      </div>
-    </section>
+    <>
+      <section aria-label="FAQ hero" className="ac-page-hero is-gradient">
+        <div className="ac-page-hero-inner">
+          <Breadcrumbs current="FAQ" />
+          <span className="ac-page-hero-eyebrow">{"// BOOKING HELP"}</span>
+          <h1 className="ac-page-hero-title">
+            <span className="ac-display">
+              FAQ<span className="punct">.</span>
+            </span>
+          </h1>
+          <div className="ac-page-hero-italic">
+            <span className="ac-italic">questions, answered.</span>
+          </div>
+          <p className="ac-page-hero-lede">
+            Booking, confirmation and venue use. If your case is specific,{" "}
+            <Link href="/contact">contact the desk</Link> for a faster answer.
+          </p>
+        </div>
+      </section>
+
+      <section aria-label="Frequently asked questions" className="ac-story">
+        <div className="ac-section-heading">
+          <h2 className="title">
+            <span aria-hidden="true" className="num">01 /</span> THE ANSWERS.
+          </h2>
+          <span className="meta">{faqItems.length} QUESTIONS</span>
+        </div>
+        <div className="ac-faq-list">
+          {faqItems.map((item) => (
+            <article className="ac-faq-item" key={item.question}>
+              <h3>{item.question}</h3>
+              <p>{item.answer}</p>
+            </article>
+          ))}
+        </div>
+      </section>
+    </>
   );
 }
