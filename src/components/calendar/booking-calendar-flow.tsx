@@ -1163,6 +1163,15 @@ export function BookingCalendarFlow() {
   const monthYearLabel = `${MONTH_NAMES[visibleMonth].toUpperCase()} ${visibleYear}`;
   const heroEyebrowTxt = `// BOOKINGS · ${activeRoom?.name?.toUpperCase() ?? "ROOM"} · ${monthYearLabel}`;
   const todayYmd = formatDate(new Date());
+  // True while the snapshot for the visible week is still in flight. Without
+  // a cue, the cleared grid looked like a week with no bookings at all.
+  const isWeekLoading =
+    weekDates.length > 0 && snapshot?.from !== weekDates[0] && !errorMessage;
+  const weekLoadingOverlay = isWeekLoading ? (
+    <div className="ac-bookings-week-loading" role="status">
+      Loading availability…
+    </div>
+  ) : null;
   const isCurrentWeek = weekDates.includes(todayYmd);
   const isNextDisabled =
     maxDateStr !== null && formatDate(addDays(weekStartDate, 7)) > maxDateStr;
@@ -1554,6 +1563,7 @@ export function BookingCalendarFlow() {
 
             {/* Body rows: one row per half-hour. Hour labels show on :00 rows only. */}
             <div className="ac-bookings-grid-body" style={{ height: `${visibleSubRows * ROW_HEIGHT}px` }}>
+              {weekLoadingOverlay}
               {Array.from({ length: visibleSubRows }, (_, i) => {
                 const minuteAbs = firstVisibleMinute + i * 30;
                 const hour = Math.floor(minuteAbs / 60);
@@ -1761,6 +1771,7 @@ export function BookingCalendarFlow() {
                 })}
               </div>
               <div className="ac-bookings-day-rows">
+                {weekLoadingOverlay}
                 {Array.from({ length: visibleSubRows }, (_, i) => {
                   const minuteAbs = firstVisibleMinute + i * 30;
                   const hour = Math.floor(minuteAbs / 60);
