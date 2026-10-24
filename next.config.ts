@@ -1,43 +1,12 @@
 import type { NextConfig } from "next";
+import { buildPublicCsp } from "./src/lib/csp";
 
-// Content-Security-Policy. Enforcing, not report-only.
-//
-// Host allowlist (kept tight on purpose — every entry corresponds to a script
-// or asset actually loaded by the app, verified by grep over src/):
-//   - https://www.clarity.ms          inline-bootstrap loads the Clarity tag
-//   - https://*.clarity.ms            Clarity beacon hosts (z.clarity.ms etc.)
-//   - https://c.bing.com              Clarity's cookie-sync pixel (img-src only);
-//                                     blocked before, which logged a CSP error
-//                                     on every page view
-//   - https://challenges.cloudflare.com  Turnstile widget script + iframe
-//   - https://fonts.googleapis.com    Google Fonts stylesheet
-//   - https://fonts.gstatic.com       Google Fonts font files
-//
-// 'unsafe-inline' is required on script-src for the Microsoft Clarity bootstrap
-// (an inline <Script> tag in src/app/layout.tsx) and on style-src for the
-// inline style attributes that Next.js / React produce. 'unsafe-eval' is only
-// added in development — Next.js dev's React Refresh runtime evaluates strings
-// as JS, which a strict prod CSP correctly blocks but which would otherwise
-// halt the dev bundle before hydration and leave client effects (e.g. the
-// bookings calendar's config fetch) never firing. Production builds don't
-// need it.
-//
-// frame-ancestors 'none' duplicates X-Frame-Options: DENY but is the modern
-// browser-preferred header.
+// Content-Security-Policy. Enforcing, not report-only. Built in src/lib/csp.ts,
+// which explains both policies and every allowlisted host. This static one
+// covers every route except /admin/*, which gets a stricter per-request nonce
+// policy from src/middleware.ts.
 const isDev = process.env.NODE_ENV !== "production";
-const scriptSrc = `script-src 'self' 'unsafe-inline'${isDev ? " 'unsafe-eval'" : ""} https://www.clarity.ms https://*.clarity.ms https://challenges.cloudflare.com`;
-const CSP_DIRECTIVES = [
-  "default-src 'self'",
-  scriptSrc,
-  "connect-src 'self' https://*.clarity.ms https://challenges.cloudflare.com",
-  "img-src 'self' data: https://*.clarity.ms https://c.bing.com",
-  "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
-  "font-src 'self' https://fonts.gstatic.com",
-  "frame-src https://challenges.cloudflare.com https://www.google.com",
-  "frame-ancestors 'none'",
-  "form-action 'self'",
-  "base-uri 'none'",
-].join("; ");
+const PUBLIC_CSP = buildPublicCsp(isDev);
 
 const nextConfig: NextConfig = {
   reactStrictMode: true,
@@ -75,8 +44,14 @@ const nextConfig: NextConfig = {
             key: "Permissions-Policy",
             value: "camera=(), microphone=(), geolocation=(), payment=()",
           },
-          { key: "Content-Security-Policy", value: CSP_DIRECTIVES },
         ],
+      },
+      {
+        // Everything except /admin and /admin/* — those get the strict
+        // nonce-based CSP from src/middleware.ts instead. Sending both would
+        // be harmless (browsers enforce the intersection) but confusing.
+        source: "/((?!admin(?:/|$)).*)",
+        headers: [{ key: "Content-Security-Policy", value: PUBLIC_CSP }],
       },
       {
         // Immutable static imagery under /public/. NOTE: on AWS Amplify Hosting,
