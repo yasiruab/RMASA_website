@@ -62,6 +62,8 @@ See `docs/deployment.md` for the full deployment history, issues encountered, an
   - Route segments for all pages and API endpoints.
   - `layout.tsx` defines the main HTML shell, navigation, footer and providers.
   - Public routes like `about`, `facilities`, `bookings`, `events`, `faq`, `contact`, `privacy`.
+  - `not-found.tsx` is the branded 404 page.
+  - Per-page `<title>`, description and Open Graph image come from `pageMetadata()` in `src/lib/site-metadata.ts`.
   - Admin routes under `admin/` (e.g. `admin/login`, `admin/calendar`).
 - `src/components`
   - Reusable UI components.

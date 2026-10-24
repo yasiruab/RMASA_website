@@ -247,7 +247,18 @@ mobile day view. Remove the ornaments that look like data.
 
 ## Prioritised recommendations
 
-> **Status (22 Oct 2026):** P1 items #1–#9 are implemented on branch `claude/live-site-ui-ux-audit-cba4b8`. For #1, prices were removed from the home page rather than fetched live. The capacity shown on `/bookings` (1,200) is admin data in `RoomType.capacity`; check it against the 1,000 quoted elsewhere.
+> **Status (25 Oct 2026):** every code item is shipped except #12, which was declined.
+>
+> - **P1 (#1–#9):** merged in PR #51. For #1, prices were removed from the home page rather than fetched live.
+> - **P2 (#10, #11, #13–#17):** merged in PR #52.
+>   - **#12 declined:** the owner wants the mobile day view to keep one row per slot.
+>   - **#17:** only the UI half shipped (duration and day-type labels). Merging the two Full Day event types is an admin config task.
+>   - **Durations:** shown exactly as configured ("55 MIN", "13 HRS 55 MIN"). The short durations deliberately leave a gap between sessions.
+> - **P3 (#18–#22):** merged in PR #60.
+>
+> Two content and config items are still open outside the code:
+> - **Capacity:** Main Arena capacity shows 1,200 on `/bookings` (`RoomType.capacity`), but 1,000 everywhere else.
+> - **Opening year:** the Events page dates the opening-ceremony post 2017, but About says the arena opened in 2016.
 
 | # | Recommendation | Where | Expert(s) | Effort | Impact | Priority |
 |---|---|---|---|---|---|---|
