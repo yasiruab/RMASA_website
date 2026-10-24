@@ -372,6 +372,9 @@ those are kept only for compatibility with existing legacy bodies.
 - **Headings**: page hero titles are `<h1 className="ac-page-hero-title">` and section titles are `<h2 className="title">` inside `.ac-section-heading`. A zero-specificity `:where()` reset in `globals.css` strips the browser's heading defaults, so the swap changes semantics only. The home page has a screen-reader-only `<h1>`, because the slider headline rotates.
 - **Desk phone**: use `contactConfig.desk.phoneDisplay` / `phoneHref` from [`src/config/contact.ts`](src/config/contact.ts). Don't hand-type the number. Every visible number should be a `tel:` link.
 - **No prices on the home page**: rates live in `PricingRule` and are shown only on `/bookings`. A hardcoded copy on the home page drifted to ~4× the real Studio rate.
+- **Page pattern**: every public content page (About, Activities, Facilities, Contact, Events, FAQ, Bookings, 404) opens with an `.ac-page-hero` (eyebrow → `<h1 className="ac-page-hero-title">` → italic suffix → lede), followed by sections with an `.ac-section-heading`. Events and FAQ moved off the old `.content-page` layout. FAQ answers are `.ac-faq-item` cards, and the old `.faq-*` / `.event-meta` styles were deleted. Privacy is the only page still on `.content-page`.
+- **404**: [`src/app/not-found.tsx`](src/app/not-found.tsx) is the branded "OUT OF BOUNDS." page, with links to `/bookings` and `/`. It is `noindex` and titled "Page not found".
+- **Home hero on phones (≤ 700 px)**: `.ac-hero-overlay` gets a bottom-up navy scrim and `.ac-hero-italic` drops its negative top margin, so "made for you." no longer overlaps the title. `.ac-hero .ac-btn-ghost` has a translucent backplate at every width.
 
 ### Live booking-desk status
 
@@ -622,7 +625,8 @@ A higher-priority booking cancels overlapping slots of lower-priority ones — *
 - **Hourly rate display** in [booking-calendar-flow.tsx](src/components/calendar/booking-calendar-flow.tsx) is `amountLkr * 60 / durationMinutes`, since pricing rules are per event-type, not per hour.
 - **Admin editor**: "Duration (min)" column in Event Types table; `<input type="number" min={1} max={1440} step={1}>`. Default for new event types is **240** (4 h).
 - **Config validation**: `PUT /api/admin/calendar/config` requires `1 ≤ durationMinutes ≤ 1440` whole number; 400 otherwise.
-- **Display label** (legend, receipt): renders `"X HRS"` when `durationMinutes % 60 === 0`, otherwise `"Y MIN"` — the legend "SLOT" suffix uses this via `durationLabel`.
+- **Display label** (legend, event pills, room pricing rows): `formatDurationLabel()` in [`src/lib/duration-label.ts`](src/lib/duration-label.ts) renders `"1 HR"`, `"6 HRS"`, `"55 MIN"` or `"13 HRS 55 MIN"`; the legend "SLOT" suffix uses it via `durationLabel`.
+- **Short durations are intentional.** Values like 55 min (Badminton, Studio "1 Hour") and 835 min (Full Day) leave a gap between back-to-back sessions. They are not misconfigured, and the public page shows them **exactly**; the owner chose not to round them to the nominal length.
 
 ## EventType: Cleanup Duration
 
@@ -1046,6 +1050,10 @@ The visible range is exactly the room's opening hours (`firstVisibleHour = worki
 **Sticky summary bar** (`.ac-bookings-summary-bar`, < 981 px only): shows "N slots · LKR X" and a "Review & submit ↓" link to `#booking-receipt` while slots are picked and the receipt is off screen. An `IntersectionObserver` on the receipt drives this.
 
 **Hero**: kept compact (eyebrow, `BOOK.`, a one-line lede and an inline help line with the tap-to-call desk number). The old assistance aside and the "FIXTURE #YYYY-Wnn" stamp were removed.
+
+**Week loading overlay**: while the snapshot for the visible week is in flight (`snapshot.from !== weekDates[0]`), a `.ac-bookings-week-loading` overlay reading "Loading availability…" covers the grid body and the mobile day rows. Before it existed, the cleared grid looked like an empty week. It stays hidden when the fetch has failed, so the error message shows instead.
+
+**Slot-placed animation**: new `.is-selection` blocks and rows play a 160 ms `ac-slot-placed` scale/fade. This and the overlay shimmer only run under `prefers-reduced-motion: no-preference`.
 
 ## Responsive Breakpoints (public site)
 
