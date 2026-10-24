@@ -403,7 +403,7 @@ Both `capacity` and `description` are set by super-admins in the Room Types edit
 
 Key fields:
 - `id` — UUID (internal)
-- `reference` — `BK-XXXXXX` human-readable ID, generated at creation via `randomBytes(3).toString('hex').toUpperCase()`
+- `reference` — `BK-XXXXXX` human-readable ID, generated at creation via `randomBytes(3).toString('hex').toUpperCase()`. Only 24 bits and `@unique`, so the public POST retries the insert with a fresh reference on a P2002 collision (`retryOnCollision()` / `isUniqueViolationOn()` in [`src/lib/unique-retry.ts`](src/lib/unique-retry.ts), up to 5 attempts)
 - `status` — `pending | confirmed | tentative | rejected | cancelled_override`
 - `cleanupDurationMinutes` — **snapshot** of the EventType's `cleanupDurationMinutes` at booking creation; immutable per booking; used in conflict detection so past bookings are unaffected when the EventType value changes
 - `totalAmountLkr` — total invoice amount (immutable after creation)
@@ -464,7 +464,7 @@ to amount due, not as cash lost.
 `POST /api/admin/calendar/bookings/[id]/payments`  
 Body: `{ type, date, amountLkr, receiptNo?, notes }`  
 Auth: `requireAdmin()`  
-This endpoint writes directly to Prisma (not through `updateCalendarDb`) and atomically updates the booking's cached `paidAmountLkr` + `reconciliationStatus`.
+This endpoint writes directly to Prisma (not through `updateCalendarDb`) and atomically updates the booking's cached `paidAmountLkr` + `reconciliationStatus`. The transaction starts with `SELECT … FOR UPDATE` on the booking row, so two admins posting at the same moment can't each recompute from a ledger missing the other's entry. `amountLkr` goes through `parsePaymentAmount()` in `payments.ts`: whole LKR, positive, at most `MAX_PAYMENT_ENTRY_LKR` (100,000,000 — below the Postgres `Int` limit), otherwise 400.
 
 ### Data access pattern (`calendar-store.ts`)
 
@@ -578,7 +578,8 @@ kill non-conflicting slots (the bug that motivated the fix; see the
 - **Adding an admin** is a two-step process: create the Postgres `User` row via the website
   (Admin Accounts page), then create the matching Cognito user in the AWS console. See
   `docs/deployment.md` § Admin Auth.
-- **`cognitoSub`** on `User` is backfilled on first successful sign-in (don't set it manually).
+- **`cognitoSub`** on `User` is backfilled on first successful sign-in (don't set it manually). After that it must **match** on every sign-in (`checkCognitoSub()` in [`src/lib/cognito-sub.ts`](src/lib/cognito-sub.ts)): a Cognito user deleted and recreated with the same email gets a new `sub` and is refused (`AUTH_LOGIN_FAILED`, reason `cognito_sub_mismatch`). To legitimately re-link an admin after recreating their Cognito user, clear `cognitoSub` on their Postgres row first.
+- **Account updates** (`PATCH /api/admin/accounts/[id]`) validate the body with `parseAccountUpdate()` in [`src/lib/admin/account-update.ts`](src/lib/admin/account-update.ts) (400 on an unknown `role`, non-boolean `active`, or over-long `name`) and run the "last active super admin" check plus the update in one `SERIALIZABLE` transaction; a concurrent change returns 409 "try again".
 - **`COGNITO_ISSUER` env var** must be the full URL
   (`https://cognito-idp.<region>.amazonaws.com/<pool-id>`), not just the pool ID.
 - **Behind Amplify's reverse proxy**, `req.url` reports the internal host (`localhost:3000`).
@@ -805,9 +806,13 @@ Uses the **Resend** SDK (v6 — note: returns `{ data, error }` instead of throw
 | `sendBookingUnpaidReminder` | Called per due booking from `POST /api/cron/unpaid-reminders`. Caller relies on the boolean return: `lastReminderDays` is only stamped on success so failed sends retry on the next cron run |
 | `sendAdminUnpaidDigest` | Called once per cron run that produced any reminders; skipped if `ADMIN_NOTIFICATION_EMAIL` unset or `bookings` array empty |
 | `sendContactEnquiry` | Called from `POST /api/contact` with the submitted name / email / phone / message. Goes to `ADMIN_NOTIFICATION_EMAIL` with `replyTo` set to the customer's address so a direct Reply hits the enquirer. Skipped silently if `ADMIN_NOTIFICATION_EMAIL` unset. |
-| `sendContactAcknowledgement` | Called from `POST /api/contact` alongside `sendContactEnquiry` (both via `Promise.allSettled`). Courtesy email back to the **sender's** own address: thankful copy, echoes their submitted name / email / phone / message, and lists urgent contact channels (phone / WhatsApp / email). Best-effort — the route derives its success/502 only from the admin enquiry, so a failed acknowledgement never blocks lead capture. |
+| `sendContactAcknowledgement` | Called from `POST /api/contact` alongside `sendContactEnquiry` (both via `Promise.allSettled`). Courtesy email to the address typed into the form: thankful copy plus urgent contact channels (phone / WhatsApp / email). It **echoes nothing the sender typed** — the address is unverified, so echoing the name or message would let anyone send their own text to a victim from the venue's identity. Best-effort — the route derives its success/502 only from the admin enquiry, so a failed acknowledgement never blocks lead capture. |
 
 Every send attempt writes a row to `EmailLog` (status `sent` or `failed`). Email failures never propagate to the API response.
+
+**Per-address daily caps** on the two emails anonymous forms send to an unverified address ([`src/lib/acknowledgement-caps.ts`](src/lib/acknowledgement-caps.ts)): `contact_acknowledgement` 3 and `booking_acknowledgement` 10 per rolling 24 h, counted from `EmailLog` (case-insensitive `toEmail`, failed attempts included). Over the cap the send is skipped with a `console.warn`; the booking/enquiry itself still goes through and the admin notification still sends.
+
+**Contact webhook**: `POST /api/contact` also forwards to `CONTACT_WEBHOOK_URL` when set (baked as `_AMPLIFY_CONTACT_WEBHOOK_URL` — before October 2026 that line was missing, so the webhook never fired in production). `postContactWebhook()` in [`src/lib/contact-webhook.ts`](src/lib/contact-webhook.ts) gives up after `CONTACT_WEBHOOK_TIMEOUT_MS = 5000` so a hung receiver can't hold the request open.
 
 **Rate-limit pacing + retry** (`acquireSendSlot()` + `sendEmail()` retry loop in
 [`src/lib/email.ts`](src/lib/email.ts)): Resend's default limit is 2 req/sec.
@@ -1126,6 +1131,8 @@ Key state:
 - `savingBookingIds` — `Set<string>` of booking IDs currently mid-save
 
 Clicking **Save Changes (N)** calls `savePendingSlotChanges(bookingId)` which sends a single `PATCH /api/admin/calendar/bookings` with `{ id, batchSlotUpdates: [...] }`. On success, the staged changes are cleared and `refreshAll()` is called. On failure, staged changes are preserved so the admin can retry.
+
+**Per-slot saves are conflict-checked** like Confirm All. `classifySlotActivation()` in [`src/lib/admin/slot-activation.ts`](src/lib/admin/slot-activation.ts) picks the slots a save newly confirms or brings back from rejected/cancelled, and `refuseConflictingSlotSave()` in the bookings route runs the shared `evaluateSlotConflicts()` scan on them. A save returns 409 (staged changes kept, message shown) when a slot would overlap an equal/higher-priority booking or block, or when a confirmation would overlap a *lower*-priority booking — the override cascade and its customer emails only run on the booking-level Confirm All, so per-slot confirm can't silently double-book. Raw database errors are logged server-side, not returned.
 
 Per-slot badges show a `●` indicator when staged. The slot row gets `.bk-slot-staged` CSS class (amber left border).
 

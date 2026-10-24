@@ -1,4 +1,9 @@
 import { Resend } from "resend";
+import {
+  isAcknowledgementAllowed,
+  type AcknowledgementType,
+  type CountRecentEmails,
+} from "@/lib/acknowledgement-caps";
 import { prisma } from "@/lib/prisma";
 import type { PriorityNotice } from "@/lib/booking-priority";
 import type { BookingStatus } from "@/lib/calendar-types";
@@ -169,6 +174,19 @@ type EmailLogType =
   | "contact_enquiry"
   | "contact_acknowledgement";
 
+// EmailLog-backed counter for the per-recipient acknowledgement caps. Counts
+// failed attempts too, so a send loop against a bouncing address still stops.
+const countRecentEmails: CountRecentEmails = (type, toEmail, since) =>
+  prisma.emailLog.count({
+    where: { type, toEmail: { equals: toEmail, mode: "insensitive" }, createdAt: { gte: since } },
+  });
+
+async function acknowledgementAllowed(type: AcknowledgementType, to: string): Promise<boolean> {
+  const allowed = await isAcknowledgementAllowed(type, to, countRecentEmails);
+  if (!allowed) console.warn(`[email] Daily ${type} cap reached for ${to} — skipping send.`);
+  return allowed;
+}
+
 async function sendEmail(params: {
   bookingReference: string;
   type: EmailLogType;
@@ -280,6 +298,7 @@ export async function sendBookingAcknowledgement(params: {
     </p>
   `);
 
+  if (!(await acknowledgementAllowed("booking_acknowledgement", params.to))) return;
   await sendEmail({ bookingReference: params.reference, type: "booking_acknowledgement", to: params.to, subject, html });
 }
 
@@ -803,33 +822,24 @@ export async function sendContactEnquiry(params: {
   });
 }
 
-/** Courtesy acknowledgement sent to the person who submitted the contact form.
- *  Echoes their submission back and lists urgent contact channels. Best-effort:
- *  the caller must not let a failure here block the API success response. */
-export async function sendContactAcknowledgement(params: {
-  name: string;
-  email: string;
-  phone: string;
-  message: string;
-}): Promise<boolean> {
+/** Courtesy acknowledgement sent to the address typed into the contact form.
+ *  Deliberately echoes nothing the sender typed (name, phone, message): the
+ *  address is unverified, so echoing would let anyone send their own text to a
+ *  victim from the venue's sending identity. Capped per address per day.
+ *  Best-effort: the caller must not let a failure here block the API response. */
+export async function sendContactAcknowledgement(params: { email: string }): Promise<boolean> {
+  if (!(await acknowledgementAllowed("contact_acknowledgement", params.email))) return false;
+
   const subject = "Thank you for contacting Royal MAS Arena";
-  const messageHtml = esc(params.message).replaceAll("\n", "<br/>");
   const html = card(`
-    <p style="margin:0 0 16px;font-size:16px;font-weight:600;color:#31343a;">Hi ${esc(params.name)},</p>
+    <p style="margin:0 0 16px;font-size:16px;font-weight:600;color:#31343a;">Hello,</p>
     <p style="margin:0 0 20px;line-height:1.6;">
       Thank you for reaching out to Royal MAS Arena. We have received your enquiry and
-      a member of our team will get back to you as soon as possible. A copy of what you
-      sent is below for your records.
+      a member of our team will get back to you as soon as possible.
     </p>
-    <table width="100%" cellpadding="0" cellspacing="0" style="background:#f7f8f9;border:1px solid #dfe3e8;border-radius:6px;padding:16px 20px;margin-bottom:20px;">
-      <tr><td style="padding:4px 0;font-size:13px;color:#6f737a;width:90px;">Name</td><td style="padding:4px 0;font-size:13px;color:#31343a;">${esc(params.name)}</td></tr>
-      <tr><td style="padding:4px 0;font-size:13px;color:#6f737a;">Email</td><td style="padding:4px 0;font-size:13px;color:#31343a;"><a href="mailto:${esc(params.email)}" style="color:#b26c5e;text-decoration:none;">${esc(params.email)}</a></td></tr>
-      <tr><td style="padding:4px 0;font-size:13px;color:#6f737a;">Phone</td><td style="padding:4px 0;font-size:13px;color:#31343a;">${esc(params.phone)}</td></tr>
-    </table>
-    <p style="margin:0 0 8px;font-size:13px;color:#6f737a;">Your message</p>
-    <div style="background:#f7f8f9;border:1px solid #dfe3e8;border-radius:5px;padding:14px;font-size:14px;line-height:1.6;color:#31343a;margin-bottom:24px;">
-      ${messageHtml}
-    </div>
+    <p style="margin:0 0 24px;font-size:13px;color:#6f737a;line-height:1.6;">
+      If you did not contact us, you can safely ignore this email.
+    </p>
     <p style="margin:0 0 8px;font-size:13px;color:#31343a;font-weight:600;">Need to reach us urgently?</p>
     <table width="100%" cellpadding="0" cellspacing="0" style="margin-bottom:20px;">
       <tr><td style="padding:4px 0;font-size:13px;color:#6f737a;width:90px;">Call</td><td style="padding:4px 0;font-size:13px;color:#31343a;"><a href="tel:+94704421590" style="color:#b26c5e;text-decoration:none;">+94 (0) 70 442 1590</a> <span style="color:#6f737a;">(08:00–18:00 daily)</span></td></tr>

@@ -4,6 +4,8 @@ import {
   computeAmountDue,
   computePaymentTotals,
   deriveReconciliationStatus,
+  MAX_PAYMENT_ENTRY_LKR,
+  parsePaymentAmount,
 } from "./payments.ts";
 
 type Entry = { type: "payment" | "refund" | "credit_note" | "waiver"; amountLkr: number };
@@ -131,4 +133,20 @@ test("refund exceeds payment → netCash negative, clamped, status unpaid", () =
   assert.equal(r.netCash, -10_000);
   // Caller clamps before storing; deriveReconciliationStatus receives 0.
   assert.equal(r.status, "unpaid");
+});
+
+test("parsePaymentAmount accepts positive whole amounts and floors fractions", () => {
+  assert.equal(parsePaymentAmount(5000), 5000);
+  assert.equal(parsePaymentAmount("12500"), 12500);
+  assert.equal(parsePaymentAmount(99.9), 99);
+  assert.equal(parsePaymentAmount(MAX_PAYMENT_ENTRY_LKR), MAX_PAYMENT_ENTRY_LKR);
+});
+
+test("parsePaymentAmount rejects zero, negatives, junk and oversized amounts", () => {
+  assert.equal(parsePaymentAmount(0), null);
+  assert.equal(parsePaymentAmount(-1), null);
+  assert.equal(parsePaymentAmount("abc"), null);
+  assert.equal(parsePaymentAmount(undefined), null);
+  assert.equal(parsePaymentAmount("1e20"), null);
+  assert.equal(parsePaymentAmount(MAX_PAYMENT_ENTRY_LKR + 1), null);
 });

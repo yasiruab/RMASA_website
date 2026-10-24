@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { postContactWebhook } from "@/lib/contact-webhook";
 import { sendContactEnquiry, sendContactAcknowledgement } from "@/lib/email";
 import { verifyTurnstileToken } from "@/lib/turnstile";
 
@@ -83,33 +84,22 @@ export async function POST(req: Request) {
   // courtesy and its failure must not turn a captured enquiry into a 502.
   const [enquiryResult] = await Promise.allSettled([
     sendContactEnquiry({ name, email, phone, message }),
-    sendContactAcknowledgement({ name, email, phone, message }),
+    sendContactAcknowledgement({ email }),
   ]);
   const emailSent = enquiryResult.status === "fulfilled" && enquiryResult.value;
 
   const webhookUrl = process.env.CONTACT_WEBHOOK_URL ?? process.env._AMPLIFY_CONTACT_WEBHOOK_URL;
-  let webhookOk = true;
-  if (webhookUrl) {
-    try {
-      const response = await fetch(webhookUrl, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          source: "rmasa-website",
-          name,
-          phone,
-          email,
-          message,
-          consent,
-          receivedAt: new Date().toISOString(),
-        }),
-        cache: "no-store",
-      });
-      webhookOk = response.ok;
-    } catch {
-      webhookOk = false;
-    }
-  }
+  const webhookOk = webhookUrl
+    ? await postContactWebhook(webhookUrl, {
+        source: "rmasa-website",
+        name,
+        phone,
+        email,
+        message,
+        consent,
+        receivedAt: new Date().toISOString(),
+      })
+    : true;
 
   if (!emailSent && !webhookOk) {
     return NextResponse.json({ message: "Failed to send enquiry." }, { status: 502 });
