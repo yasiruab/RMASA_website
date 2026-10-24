@@ -667,7 +667,7 @@ HSTS, X-Frame-Options, X-Content-Type-Options, Referrer-Policy and Permissions-P
 |---|---|---|
 | `script-src` | `'self' 'unsafe-inline'`, `www.clarity.ms`, `*.clarity.ms`, `challenges.cloudflare.com` | Public policy only. `'unsafe-inline'` covers Next's inline page-data scripts on static pages and the Clarity bootstrap (`src/components/clarity-analytics.tsx`); the Clarity tag script then loads from `www.clarity.ms`; Turnstile loads `challenges.cloudflare.com/turnstile/v0/api.js` |
 | `connect-src` | `'self'`, `*.clarity.ms`, `challenges.cloudflare.com` | Clarity beacons; Turnstile token verification |
-| `img-src` | `'self'`, `data:`, `*.clarity.ms` | Local imagery + data URIs (icons) + Clarity pixel beacons |
+| `img-src` | `'self'`, `data:`, `*.clarity.ms`, `c.bing.com` | Local imagery + data URIs (icons) + Clarity pixel beacons + Clarity's `c.bing.com/c.gif` cookie-sync pixel |
 | `style-src` | `'self' 'unsafe-inline'`, `fonts.googleapis.com` | Google Fonts CSS; `'unsafe-inline'` for inline `style="…"` attributes Next/React produces |
 | `font-src` | `'self'`, `fonts.gstatic.com` | Google Fonts files |
 | `frame-src` | `challenges.cloudflare.com`, `www.google.com` | Turnstile widget iframe; Google Maps embed on `/contact` |
@@ -684,7 +684,8 @@ calendar's config-fetch `useEffect` never fired and the page stayed on the
 and the production CSP does not allow it.
 
 **When adding a new script or external asset**: grep for the hostname, add it to the
-relevant directive in `CSP_DIRECTIVES`, then verify with `curl -I http://localhost:3000/`.
+relevant directive in `buildPublicCsp()` (or `buildAdminCsp()` if an admin page needs it) in
+`src/lib/csp.ts`, add a test in `csp.test.ts`, then verify with `curl -I http://localhost:3000/`.
 Don't blanket-allow.
 
 ## Deployment & Infrastructure

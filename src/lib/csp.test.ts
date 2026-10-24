@@ -32,6 +32,7 @@ test("public policy keeps the hosts the public pages load", () => {
   assert.match(scriptSrc, /https:\/\/www\.clarity\.ms/);
   assert.match(scriptSrc, /https:\/\/challenges\.cloudflare\.com/);
   assert.match(directive(buildPublicCsp(false), "frame-src"), /https:\/\/www\.google\.com/);
+  assert.match(directive(buildPublicCsp(false), "img-src"), /https:\/\/c\.bing\.com/);
 });
 
 test("both policies keep the framing and base-uri lockdown", () => {

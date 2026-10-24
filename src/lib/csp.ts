@@ -38,7 +38,9 @@ export function buildPublicCsp(isDev: boolean): string {
     ...SHARED_DIRECTIVES,
     `script-src 'self' 'unsafe-inline'${devEval(isDev)} https://www.clarity.ms https://*.clarity.ms https://challenges.cloudflare.com`,
     "connect-src 'self' https://*.clarity.ms https://challenges.cloudflare.com",
-    "img-src 'self' data: https://*.clarity.ms",
+    // c.bing.com: Clarity's cookie-sync pixel. Blocking it logged a CSP error
+    // on every public page view.
+    "img-src 'self' data: https://*.clarity.ms https://c.bing.com",
     "frame-src https://challenges.cloudflare.com https://www.google.com",
   ].join("; ");
 }
