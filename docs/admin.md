@@ -14,13 +14,13 @@ This document explains how the admin side of the RMASA website works: authentica
 
 - **Auth library**: NextAuth (see `src/app/api/auth/[...nextauth]/route.ts`).
 - **Account data**: Stored in the database via Prisma (see `prisma/schema.prisma` and `scripts/seed-super-admin.mjs`).
-- **Session handling**: NextAuth session helpers are used on the server and in middleware to enforce access control.
+- **Session handling**: NextAuth JWT sessions. Access is enforced on the server: `requireAdmin()` / `requireSuperAdmin()` in every admin API route and `requireAdminPage()` in admin server components. All three re-read role and `active` from Postgres on every request.
 
 Key pieces:
 
 - `src/lib/auth.ts`: wraps NextAuth configuration and helpers.
-- `src/lib/auth-guards.ts`: utilities to protect admin routes and APIs.
-- `middleware.ts`: may apply route protection / redirects based on session state.
+- `src/lib/auth-guards.ts`: `requireAdmin()`, `requireSuperAdmin()` (API routes) and `requireAdminPage()` / `getActivePageAdmin()` (admin layout, hub page, login page).
+- `src/middleware.ts`: **not** an auth layer. It only sets the strict per-request nonce Content-Security-Policy on `/admin/*` (see `CLAUDE.md` § *Security Headers*). Admin pages must not contain inline `<script>` tags.
 
 ### Admin routes (UI)
 

@@ -109,6 +109,8 @@ jobs:
 
 Secrets required in GitHub repo settings: `SITE_URL` (e.g. `https://royalmasarena.lk` or the Amplify URL), `CRON_SECRET` (random string, must match Amplify env var of same name).
 
+> **Update (October 2026, security audit):** the real workflow now runs `curl -o /dev/null -w "HTTP %{http_code}"`, so the response (which lists booking references) never lands in this public repo's Actions logs. The bearer check moved to the shared, constant-time `hasValidCronSecret()` in `src/lib/cron-auth.ts`, which the email-log retention cron also uses.
+
 ## Confirmation hook (existing route)
 
 Modify `PATCH /api/admin/calendar/bookings` so that when a booking transitions to `status: "confirmed"` AND `confirmedAt IS NULL`, set `confirmedAt = new Date()`. Don't overwrite if already set (re-confirmation after rejection retains the original anchor — or, alternatively, we can reset on re-confirm; this spec keeps it set-once for simplicity).

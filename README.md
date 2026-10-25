@@ -25,11 +25,11 @@ This site exists to promote impact sports (boxing, karate, etc.) and to **rent o
 
 ## Contact submission behavior
 
-- By default, the API logs enquiries to the server console (development mode).
-- To forward enquiries to an external service, set:
+- `POST /api/contact` (Turnstile-protected) emails each enquiry to `ADMIN_NOTIFICATION_EMAIL` and sends the sender a short acknowledgement. The acknowledgement doesn't repeat what they typed and is capped at 3 per address per day.
+- To also forward enquiries to an external service, set:
 
 ```bash
 CONTACT_WEBHOOK_URL=https://your-endpoint.example.com/contact
 ```
 
-Then restart the server.
+Then restart the server. In production (AWS Amplify) set it in the Amplify console; it is baked into the build as `_AMPLIFY_CONTACT_WEBHOOK_URL`, so it takes effect on the next deploy. The webhook call times out after 5 seconds and is not signed. See `docs/deployment.md` § *Environment Variables* for every variable.
