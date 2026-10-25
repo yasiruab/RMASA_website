@@ -93,9 +93,9 @@ See `docs/deployment.md` for the full deployment history, issues encountered, an
 
 ### Request flow (admin)
 
-1. An admin visits `/admin/login` and signs in via NextAuth credentials provider (or other configured provider).
-2. On success, NextAuth issues a session that is used by admin pages and APIs.
-3. Admin-only routes like `/admin/calendar` and admin API routes under `src/app/api/admin/*` use auth guards from `src/lib/auth-guards.ts` or NextAuth helpers to enforce access control.
+1. An admin visits `/admin/login` and signs in through AWS Cognito (NextAuth's Cognito provider). The NextAuth `signIn` callback in `src/lib/auth.ts` admits only emails with an active Postgres `User` row and a matching `cognitoSub`.
+2. On success, NextAuth issues a JWT session that is used by admin pages and APIs.
+3. Admin pages use `requireAdminPage()` and admin API routes use `requireAdmin()` / `requireSuperAdmin()`, all from `src/lib/auth-guards.ts`. Each one re-reads role and `active` from Postgres on every request. `src/middleware.ts` adds a strict per-request nonce Content-Security-Policy to `/admin/*`; it does no auth.
 4. The admin calendar console (components under `src/components/admin`) talks to admin API routes to:
    - Fetch availability and bookings.
    - Configure blocks and booking rules.

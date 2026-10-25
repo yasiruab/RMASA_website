@@ -6,6 +6,8 @@ When a customer submits a booking request, they immediately receive an acknowled
 
 All email send attempts (success and failure) are written to an `EmailLog` table in the database, including the full HTML body, for audit purposes.
 
+> **Update (October 2026, security audit):** `EmailLog` rows are no longer kept in full forever. A daily cron redacts the recipient, subject, body and error text after 18 months (see `CLAUDE.md` § *EmailLog Retention*). Acknowledgement emails to unverified addresses are also capped per address per day. This spec is otherwise the original record.
+
 ## Layout / UX
 
 No new UI is introduced. All emails are sent server-side. Email templates use a minimal branded HTML layout matching the public site palette (`#b26c5e` accent, white card, Lato font).

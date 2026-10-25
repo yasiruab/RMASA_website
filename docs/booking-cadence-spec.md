@@ -157,5 +157,7 @@ Read-only, not audit-logged.
   is off-cadence (gaps are accepted, only warned).
 - Admin schedule view (`admin-schedule.tsx`) layout changes — it is read-only and
   already shows bookings at their real times.
-- Server-side check that `endTime = startTime + event duration` (existing behaviour,
-  not changed here).
+- Server-side check that `endTime = startTime + event duration`. This spec assumed it
+  already existed; it didn't. Since the October 2026 security audit (F2) the server
+  ignores the client's `endTime` and derives it from the event duration
+  (`normalizePublicSlots()` in `src/lib/public-booking-rules.ts`).

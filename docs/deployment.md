@@ -327,6 +327,18 @@ site sees fewer than five bookings a day, the cost of keeping Aurora warm (≈US
 
 ---
 
+### 4. October 2026 security audit — post-deploy checks
+
+The audit in [`docs/expert-security-audit.md`](expert-security-audit.md) was fixed in PRs #53, #59 and #61. After those deploy:
+
+1. **Turnstile secret** — confirm `TURNSTILE_SECRET_KEY` is set in Amplify (it now fails closed). Submit a real test enquiry on `/contact`. If it fails, look in the Lambda logs for `[turnstile] … not configured`.
+2. **Orphaned override cancellations** — before #53, an anonymous booking could cancel other customers' slots at submit time. Run `node scripts/restore-overridden-slots.mjs` (dry run, read-only) against production. If it lists slots, re-run with `--apply` and contact the customers it names.
+3. **Admin pages under the strict CSP** — sign in and open each admin section with DevTools open. The console should show no `Content-Security-Policy` errors. Admin pages now use a per-request nonce policy from `src/middleware.ts`; see `CLAUDE.md` § *Security Headers*.
+4. **Contact webhook** — if `CONTACT_WEBHOOK_URL` is set, it starts firing after #59 deploys.
+5. **MFA** — still open (see *MFA* below).
+
+---
+
 ## One-time Setup Steps (completed)
 
 These steps were run once to initialise the database and do not need to be repeated unless the
@@ -352,19 +364,32 @@ database is reset.
 | `COGNITO_CLIENT_SECRET` | Amplify console → Environment variables | App Client secret (confidential client) |
 | `COGNITO_ISSUER` | Amplify console → Environment variables | `https://cognito-idp.<region>.amazonaws.com/<user-pool-id>` |
 | `NEXT_PUBLIC_TURNSTILE_SITE_KEY` | Amplify console → Environment variables | Cloudflare Turnstile widget key for the booking-form bot challenge. `NEXT_PUBLIC_*` is inlined automatically by Next.js — no `_AMPLIFY_*` baking needed. |
-| `TURNSTILE_SECRET_KEY` | Amplify console → Environment variables | Server-side Turnstile verification secret. Baked via `_AMPLIFY_TURNSTILE_SECRET_KEY` in `next.config.ts`; read in `src/lib/turnstile.ts`. Fail-open: if unset, the booking endpoint skips verification (does not break submissions). |
-| `CRON_SECRET` | Amplify console → Environment variables **and** GitHub repo secrets | Bearer-auth token for `POST /api/cron/unpaid-reminders`. Must be set in **both** places with the **same value** — Amplify side authorises the endpoint, GitHub side is sent by the workflow. Baked via `_AMPLIFY_CRON_SECRET` in `next.config.ts`; read in `src/app/api/cron/unpaid-reminders/route.ts`. The endpoint returns **401** if unset, so the cron is fail-closed (no accidental fires before keys are wired). |
+| `TURNSTILE_SECRET_KEY` | Amplify console → Environment variables | Server-side Turnstile verification secret. Baked via `_AMPLIFY_TURNSTILE_SECRET_KEY` in `next.config.ts`; read in `src/lib/turnstile.ts`. **Required in production.** Since October 2026 it fails *closed*: if unset, every booking and contact submission is rejected (400) and the Lambda logs `[turnstile] TURNSTILE_SECRET_KEY is not configured`. Local dev still fails open. |
+| `TURNSTILE_ALLOWED_HOSTNAMES` | Amplify console → Environment variables (optional) | Extra comma-separated hostnames a Turnstile token may be issued for. By default only `NEXTAUTH_URL`'s host and its `www`/apex twin are accepted. Set it if the public site is ever served on another domain, or bookings from that domain will fail. Baked via `_AMPLIFY_TURNSTILE_ALLOWED_HOSTNAMES`. |
+| `CONTACT_WEBHOOK_URL` | Amplify console → Environment variables (optional) | Where `POST /api/contact` forwards each enquiry as JSON (5 s timeout). Baked via `_AMPLIFY_CONTACT_WEBHOOK_URL` — before October 2026 that line was missing, so the webhook never fired in production. Requests are not signed. |
+| `CRON_SECRET` | Amplify console → Environment variables **and** GitHub repo secrets | Bearer-auth token for **both** cron endpoints: `POST /api/cron/unpaid-reminders` and `POST /api/cron/email-log-retention`. Must be set in **both** places with the **same value** — Amplify side authorises the endpoint, GitHub side is sent by the workflow. Baked via `_AMPLIFY_CRON_SECRET` in `next.config.ts`; checked by `hasValidCronSecret()` in `src/lib/cron-auth.ts` (constant-time). The endpoints return **401** if unset, so the crons are fail-closed. |
 | `ADMIN_NOTIFICATION_EMAIL` | Amplify console → Environment variables | Admin inbox for new-booking alerts AND the daily unpaid-booking digest. Omit to disable. |
 
 All server-side variables listed above are mirrored into the JS bundle at build time via
 `next.config.ts` `env` config (prefixed `_AMPLIFY_*`) and re-exported at server start by
 `src/instrumentation.ts`. The bundle-leak guardrail (`scripts/check-amplify-secret-leak.mjs`)
 keeps these references confined to an allowlist of server-only files (Prisma, NextAuth,
-Resend, Turnstile).
+Resend, Turnstile, cron auth, the contact route).
 
 ---
 
-## Unpaid-booking reminders cron (GitHub Actions)
+## Cron jobs (GitHub Actions)
+
+Two daily workflows, both authenticated with the same `CRON_SECRET` / `SITE_URL` repo secrets:
+
+| Workflow | Schedule | Endpoint | What it does |
+|---|---|---|---|
+| [`unpaid-reminders.yml`](../.github/workflows/unpaid-reminders.yml) | 00:30 UTC (06:00 SL) | `POST /api/cron/unpaid-reminders` | Payment reminders for confirmed, unpaid bookings |
+| [`email-log-retention.yml`](../.github/workflows/email-log-retention.yml) | 01:00 UTC (06:30 SL) | `POST /api/cron/email-log-retention` | Redacts `EmailLog` rows older than 18 months: recipient, subject, body and error text. See `CLAUDE.md` § *EmailLog Retention*. |
+
+**Both workflows print only the HTTP status, not the response body.** This repo is public, so Actions logs are world-readable, and the reminders response lists booking references. To see a run's details, call the endpoint yourself with `curl` (see below), or read the Lambda logs.
+
+### Unpaid-booking reminders
 
 The daily reminder workflow lives at [`.github/workflows/unpaid-reminders.yml`](../.github/workflows/unpaid-reminders.yml). It POSTs to `/api/cron/unpaid-reminders` at **00:30 UTC daily** (06:00 SL time) and supports manual runs via `workflow_dispatch`. See `CLAUDE.md` § *Unpaid-Booking Reminders* for the application-side behaviour.
 
@@ -384,7 +409,11 @@ GitHub Actions has two settings tabs that look similar but behave differently. U
 
 ### Verifying a manual run
 
-Trigger from **Actions → Unpaid booking reminders → Run workflow** (the button appears because of `workflow_dispatch:` in the YAML). Then click into the run → `trigger` step → expand the curl line to see the response body.
+Trigger from **Actions → Unpaid booking reminders → Run workflow** (the button appears because of `workflow_dispatch:` in the YAML). The run's log shows only `HTTP 200` (or the error status). To see the response body, call the endpoint from your own machine:
+
+```bash
+curl -sS -X POST "$SITE_URL/api/cron/unpaid-reminders" -H "Authorization: Bearer $CRON_SECRET"
+```
 
 The endpoint always returns JSON of shape:
 
@@ -393,7 +422,7 @@ The endpoint always returns JSON of shape:
 ```
 
 - **Green check + `remindersSent: 0`** is the normal "no due bookings today" outcome. The cron is healthy; there's just nothing to remind about.
-- **Red X with `401 Unauthorized`** → secret mismatch between GitHub and Amplify (or one side unset).
+- **Red X with `HTTP 401`** (curl exits with error 22) → secret mismatch between GitHub and Amplify (or one side unset).
 - **Red X with `curl: (28) timed out`** → `SITE_URL` wrong, or the Amplify Lambda took >120 s to wake.
 
 ### Seeding a test booking for end-to-end verification
@@ -420,8 +449,9 @@ credential (password + account lockout); **Postgres `User`** holds the applicati
 4. NextAuth `signIn` callback looks up the user by email in Postgres:
    - Not found → reject (audit: `AUTH_LOGIN_FAILED` reason `not_in_postgres`).
    - `active === false` → reject (audit: `AUTH_LOGIN_FAILED` reason `inactive`).
+   - Stored `cognitoSub` differs from the sign-in's Cognito `sub` → reject (audit: `AUTH_LOGIN_FAILED` reason `cognito_sub_mismatch`). This happens when a Cognito user is deleted and recreated with the same email. To re-link a legitimately recreated admin, clear `cognitoSub` on their Postgres row first.
    - Otherwise → backfill `cognitoSub` on the Postgres row (first login only), allow.
-5. JWT session cookie is set (4-hour max-age). Role comes from Postgres.
+5. JWT session cookie is set (4-hour max-age). Role and `active` are re-read from Postgres on every admin API call (`requireAdmin()`) and every admin page render (`requireAdminPage()`), so deactivation takes effect immediately.
 
 ### Sign-out flow (federated)
 NextAuth's default `signOut` clears the app's session cookie but NOT Cognito's session cookie,
@@ -523,5 +553,6 @@ in Cognito is intentionally a manual console step.
       complete. TOTP authenticator MFA is available immediately as a stop-gap if desired.
 - [ ] Test the bookings page calendar data in production (verify skeleton shows on a cold cluster)
 - [ ] Remove `bcrypt` dependency after one week of stable Cognito operation (Phase D cleanup)
+- [ ] Run the October 2026 security post-deploy checks (*Security Concerns* § 4)
 - [ ] Purchase and configure custom domain → update `NEXTAUTH_URL` in Amplify console (also
       revisit Cognito callback / sign-out URLs to use the new domain)

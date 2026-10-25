@@ -56,7 +56,7 @@ could insert garbage — accepted in exchange for the TZ-safety benefit.
 | `PaymentEntry` | **used** | Immutable ledger — `payment` / `refund` / `waiver` / `credit_note` |
 | `CalendarBlock` | **used** | Admin-defined unavailability ranges |
 | `AuditLog` | **used** | Append-only audit trail of admin actions |
-| `EmailLog` | **used** | One row per outbound transactional email (success or failure) |
+| `EmailLog` | **used** | One row per outbound transactional email (success or failure); personal fields redacted after 18 months |
 
 ## Used tables — detail
 
@@ -69,7 +69,7 @@ emails not present here, or where `active = false`.
 | Column | Used? | Notes |
 |---|---|---|
 | `id`, `email`, `role`, `active`, `createdAt`, `updatedAt` | yes | |
-| `cognitoSub` | yes | Backfilled on first successful Cognito sign-in |
+| `cognitoSub` | yes | Backfilled on first successful Cognito sign-in; after that every sign-in must match it, or it is refused (`cognito_sub_mismatch`). Clear it to re-link a recreated Cognito user. |
 | `name` | partial | Displayed in admin Accounts page; only set by `scripts/seed-super-admin.mjs` for the super-admin row. Nullable; new admins added via UI never get a name. |
 | `passwordHash` | **legacy** | Pre-Cognito column. Never read by current code; safe to drop in a future migration. |
 | `emailVerified`, `image` | **unused** | NextAuth-adapter columns. Never read or written by current code. |
@@ -155,7 +155,7 @@ Cascade-deleted with the parent booking.
 
 ### BookingOverride
 
-When a higher-priority booking is confirmed over an existing lower-priority
+When an **admin confirms** a higher-priority booking over an existing lower-priority
 one, the **specific overlapping slots** on the older booking get
 `slotStatus = "cancelled_override"` (with a "Overridden by BK-XXXXXX
 (Event Type Name)" string written to `rejectReason`), and a row here records
@@ -166,6 +166,12 @@ silently killed non-conflicting slots; that's no longer how it works.
 
 Lets the admin trace "why did this slot get cancelled?" back to the booking
 that displaced it.
+
+Only the admin booking-level confirm writes these rows. Since October 2026 the
+public booking POST never cascades: an anonymous request is stored as `pending`
+next to the bookings it would displace (audit finding F1).
+`scripts/restore-overridden-slots.mjs` repairs slots cancelled the old way by
+requests that were later rejected.
 
 Cascade-deleted with the parent (overriding) booking.
 
@@ -199,6 +205,16 @@ One row per outbound transactional email — written by every send in
 string (no FK) so logs survive booking deletion. `htmlBody` is the full
 rendered HTML; treat as sensitive — every user-supplied interpolation in
 `email.ts` must go through the `esc()` helper before rendering.
+
+**Retention:** a daily cron (`POST /api/cron/email-log-retention`) redacts
+rows older than 18 months. `toEmail` and `subject` become `"[redacted]"`,
+`htmlBody` becomes `""` and `errorMessage` becomes `null`. `type`, `status`,
+`bookingReference`, `fromEmail` and `createdAt` are kept. Rows are never
+deleted. `toEmail = "[redacted]"` marks a row as already done.
+
+**Also read by** the per-address acknowledgement caps in
+`src/lib/acknowledgement-caps.ts` (3 contact / 10 booking acknowledgements per
+address per 24 h, matching `toEmail` case-insensitively).
 
 Indexes: `(bookingReference)`, `(createdAt)`.
 
